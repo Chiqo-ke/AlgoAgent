@@ -1,0 +1,90 @@
+Byte-compiled / optimized / DLL files
+pycache/
+*.py[cod]
+*$py.class
+
+C extensions
+*.so
+
+__pycache__
+
+Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+PyInstaller
+*.manifest
+*.spec
+
+Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+Translations
+*.mo
+*.pot
+
+Django stuff:
+*.log
+
+Flask stuff:
+instance/
+.webassets-cache
+
+Pyre type check
+.pyre/
+
+mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+IDEs and editors
+.vscode/
+.idea/
+
+Jupyter Notebook
+.ipynb_checkpoints/
+
+VS Code Extensions
+.history/
+*.code-workspace
+
+Others
+*.DS_Store
+
