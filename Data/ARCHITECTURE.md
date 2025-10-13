@@ -155,6 +155,7 @@ This is the flow when a user requests an indicator that is not registered (e.g.,
 12. The process continues to the calculation step (Step 7 in Scenario 1), where `compute_indicator('VIX', ...)` now succeeds.
 
 ---
+```
 
 ## Testing the System
 
