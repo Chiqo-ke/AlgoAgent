@@ -1,0 +1,7 @@
+yfinance
+pandas
+numpy
+TA-Lib
+scikit-learn
+google-generativeai
+joblib
