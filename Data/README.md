@@ -8,7 +8,16 @@ This model is designed to provide a dynamic data ingestion pipeline capable of a
 
 The model follows a modular architecture, ensuring clear separation of concerns and facilitating maintainability and extensibility. The core components interact as follows:
 
-```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {
+  'background': 'transparent',
+  'primaryColor': 'transparent',
+  'primaryBorderColor': '#ffffff',
+  'primaryTextColor': '#ffffff',
+  'lineColor': '#ffffff',
+  'fontSize': '14px',
+  'tertiaryColor': 'transparent'
+}}}%%
+
 graph TD
     A[User/Context Input] --> B{Contextual Awareness Layer}
     B --> C[Data Fetcher Module]
@@ -25,19 +34,18 @@ graph TD
     K --> L[Updated Indicator Calculation Logic]
     L --> D
 
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
-    style C fill:#ccf,stroke:#333,stroke-width:2px
-    style D fill:#ccf,stroke:#333,stroke-width:2px
-    style E fill:#ccf,stroke:#333,stroke-width:2px
-    style F fill:#ccf,stroke:#333,stroke-width:2px
-    style G fill:#fcf,stroke:#333,stroke-width:2px
-    style H fill:#fcf,stroke:#333,stroke-width:2px
-    style I fill:#fcf,stroke:#333,stroke-width:2px
-    style J fill:#fcf,stroke:#333,stroke-width:2px
-    style K fill:#ccf,stroke:#333,stroke-width:2px
-    style L fill:#fcf,stroke:#333,stroke-width:2px
-```
+    style A fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style B fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style C fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style D fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style E fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style F fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style G fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style H fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style I fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style J fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style K fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style L fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
 
 ## Module-wise Breakdown
 
