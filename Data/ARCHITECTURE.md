@@ -153,4 +153,33 @@ This is the flow when a user requests an indicator that is not registered (e.g.,
     |
     v
 12. The process continues to the calculation step (Step 7 in Scenario 1), where `compute_indicator('VIX', ...)` now succeeds.
+
+---
+
+## Testing the System
+
+The system includes several ways to test its functionality, from isolated component checks to full end-to-end validation.
+
+### 1. Unit Testing (`pytest`)
+
+*   **Purpose**: To test individual modules in isolation and ensure they behave as expected. This is the fastest and most reliable way to catch regressions.
+*   **Location**: `Data/tests/`
+*   **How it works**: The test suite uses `pytest` and `pytest-mock` to test components like the `registry`, `data_fetcher` (by mocking network calls), and `dynamic_code_adjuster` (by using temporary files).
+*   **How to run**:
+    ```bash
+    # Navigate to the root of the project
+    # Run the test suite located in the Data directory
+    python -m pytest Data/tests/ -v
+    ```
+
+### 2. Interactive End-to-End Testing (`interactive_test.py`)
+
+*   **Purpose**: To allow a user to manually test the complete `ingest_and_process` workflow with live data from `yfinance`.
+*   **How it works**: This script prompts the user for a stock ticker, time period, interval, and a selection of indicators. It then calls the `DataIngestionModel` and prints the results, saving the final DataFrame to a CSV file.
+*   **How to run**:
+    ```bash
+    # Run from the root directory
+    python interactive_test.py
+    ```
+12. The process continues to the calculation step (Step 7 in Scenario 1), where `compute_indicator('VIX', ...)` now succeeds.
 ```
