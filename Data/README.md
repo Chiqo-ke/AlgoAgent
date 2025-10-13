@@ -6,25 +6,49 @@ This project implements a dynamic data ingestion model for financial securities,
 
 ## Installation
 
-1.  **Create a virtual environment (recommended):**
-    ```bash
-    python -m venv .venv
-    ```
+### Quick Setup (Recommended)
 
-2.  **Activate the virtual environment:**
-    *   **Windows:**
-        ```bash
-        .venv\Scripts\activate
-        ```
-    *   **macOS/Linux:**
-        ```bash
-        source .venv/bin/activate
-        ```
+```bash
+# Clone the repository
+git clone https://github.com/Chiqo-ke/AlgoAgent.git
+cd AlgoAgent
 
-3.  **Install core dependencies:**
-    ```bash
-    pip install -r Data/requirements.txt
-    ```
+# Create and activate virtual environment
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Run automated setup
+python setup.py
+```
+
+The setup script will:
+- ✅ Validate file structure
+- ✅ Install required dependencies  
+- ✅ Create `.env` file from template
+- ✅ Run basic functionality tests
+
+### Manual Installation
+
+1. **Create and activate virtual environment:**
+   ```bash
+   python -m venv .venv
+   # Windows: .venv\Scripts\activate
+   # macOS/Linux: source .venv/bin/activate
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r Data/requirements.txt
+   ```
+
+3. **Setup environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your GEMINI_API_KEY
+   ```
 
 ## Optional: TA-Lib Installation
 
@@ -62,6 +86,44 @@ TA-Lib is a high-performance technical analysis library written in C. Its Python
     brew install ta-lib
     pip install TA-Lib
     ```
+
+## Environment Configuration
+
+### Setting up API Keys
+
+1. **Copy the environment template:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit the `.env` file and add your API keys:**
+   ```bash
+   # Required for LLM integration
+   GEMINI_API_KEY=your_actual_gemini_api_key_here
+   
+   # Optional: Additional data sources
+   # ALPHA_VANTAGE_API_KEY=your_key_here
+   # QUANDL_API_KEY=your_key_here
+   ```
+
+3. **Get your Gemini API key:**
+   - Visit: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+   - Create a new API key
+   - Copy it to your `.env` file
+
+### Environment Variables
+
+The system supports these configuration options:
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `GEMINI_API_KEY` | Gemini API key for LLM integration | None | Optional* |
+| `ML_MODEL_PATH` | Directory for ML models | `./models/` | No |
+| `LOG_LEVEL` | Logging level | `INFO` | No |
+| `ENABLE_CACHE` | Enable result caching | `true` | No |
+| `ENABLE_DYNAMIC_CODE` | Enable dynamic code generation | `true` | No |
+
+*Without `GEMINI_API_KEY`, the system runs in mock mode for LLM features.
 
 ## Usage Example
 

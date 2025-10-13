@@ -149,3 +149,13 @@ def VWAP(df: pd.DataFrame, params: dict) -> pd.DataFrame:
     
     pv = df["close"] * df["volume"]
     return pd.DataFrame({"VWAP": pv.cumsum() / df["volume"].cumsum()}, index=df.index)
+
+import pandas as pd
+import numpy as np
+
+def VIX(df: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """Volatility Index (VIX) - A custom mock implementation."""
+    timeperiod = params.get('timeperiod', 14)
+    # A real VIX calculation is complex. This is a simplified placeholder.
+    vix_values = 100 * (df['High'] - df['Low']).rolling(window=timeperiod).std()
+    return pd.DataFrame({f'VIX_{timeperiod}': vix_values}, index=df.index)

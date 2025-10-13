@@ -1,23 +1,34 @@
 import os
 import importlib
 import pandas as pd
+import sys
 import subprocess
 from typing import List, Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Import project modules
-from Data.data_fetcher import DataFetcher
-from Data.dynamic_code_adjuster import insert_snippet_if_missing
-from Data.gemini_integrator import GeminiIntegrator
-from Data.ml_model_selector import MLModelSelector
+from data_fetcher import DataFetcher
+from dynamic_code_adjuster import insert_snippet_if_missing
+from gemini_integrator import GeminiIntegrator
+from ml_model_selector import MLModelSelector
 
 # These modules will be reloaded if code is dynamically changed
-from Data import ta_fallback_adapters
-from Data import registry
-from Data import indicator_calculator
+import ta_fallback_adapters
+import registry
+import indicator_calculator
 
 class DataIngestionModel:
     def __init__(self, gemini_api_key: str = None):
+        """Initialize the DataIngestionModel.
+        
+        Args:
+            gemini_api_key: Optional API key. If not provided, will use GEMINI_API_KEY from environment.
+        """
         self.data_fetcher = DataFetcher()
+        # GeminiIntegrator will automatically load from environment if no key provided
         self.gemini_integrator = GeminiIntegrator(api_key=gemini_api_key)
         self.ml_model_selector = MLModelSelector()
 
@@ -106,7 +117,12 @@ class DataIngestionModel:
 
                 # 4. Run tests to verify the change
                 print("Running tests to verify the new code...")
-                test_result = subprocess.run([".\.venv\Scripts\pytest", "Data/tests/"], capture_output=True, text=True)
+                # Use sys.executable to be platform-agnostic
+                pytest_command = [sys.executable, "-m", "pytest", "Data/tests/"]
+                print(f"Running command: {' '.join(pytest_command)}")
+                test_result = subprocess.run(
+                    pytest_command, capture_output=True, text=True, check=False
+                )
                 
                 if test_result.returncode == 0:
                     print("Tests passed! The new indicator is safe to use.")

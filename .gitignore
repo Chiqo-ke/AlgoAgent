@@ -6,6 +6,8 @@ pycache/
 C extensions
 *.so
 
+*.csv
+
 __pycache__
 
 Distribution / packaging
@@ -74,17 +76,62 @@ ENV/
 env.bak/
 venv.bak/
 
-IDEs and editors
+# IDEs and editors
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-Jupyter Notebook
+# Jupyter Notebook
 .ipynb_checkpoints/
 
-VS Code Extensions
+# VS Code Extensions and settings
 .history/
 *.code-workspace
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
 
-Others
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# MacOS
 *.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+*.env
+.env.local
+.env.production
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+
+# Model files and data
+models/
+Data/data/*.csv
+Data/data/*.json
+Data/data/*.pkl
+*.joblib
+*.model
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
 

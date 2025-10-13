@@ -1,8 +1,11 @@
 import pandas as pd
 import numpy as np
 import pytest
-from Data.indicator_calculator import compute_indicator, describe_indicator, validate_inputs
-from Data.registry import list_indicators, register, REGISTRY
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from indicator_calculator import compute_indicator, describe_indicator, validate_inputs
+from registry import list_indicators, register, REGISTRY
 
 # Create a fixture for sample data
 @pytest.fixture

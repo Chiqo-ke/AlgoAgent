@@ -6,3 +6,4 @@ yfinance
 scikit-learn
 requests
 pytest-mock
+python-dotenv

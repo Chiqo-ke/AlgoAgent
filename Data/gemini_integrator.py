@@ -1,9 +1,27 @@
 import os
 import re
+from dotenv import load_dotenv
 
-# Mocking the Gemini API for now, as we don't have a live key in this environment.
+# Load environment variables from .env file
+load_dotenv()
+
 class GeminiIntegrator:
     def __init__(self, api_key: str = None):
+        """Initialize GeminiIntegrator with API key from parameter or environment."""
+        self.api_key = api_key or os.getenv('GEMINI_API_KEY')
+        
+        if self.api_key and self.api_key != 'your_gemini_api_key_here':
+            print("✓ Gemini API key loaded - Live mode enabled")
+            self._init_live_client()
+        else:
+            print("⚠ No valid Gemini API key found - Using mock mode")
+            self.api_key = None
+    
+    def _init_live_client(self):
+        """Initialize the actual Gemini API client (when implemented)."""
+        # TODO: Initialize actual Gemini API client here
+        # import google.generativeai as genai
+        # genai.configure(api_key=self.api_key)
         pass
 
     def suggest_code_update(self, indicator_name: str) -> str:

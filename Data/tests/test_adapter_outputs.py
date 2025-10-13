@@ -1,9 +1,12 @@
 import pandas as pd
 import numpy as np
 import pytest
-from Data.indicator_calculator import compute_indicator
-from Data.registry import list_indicators
-from Data.talib_adapters import HAS_TALIB
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from indicator_calculator import compute_indicator
+from registry import list_indicators
+from talib_adapters import HAS_TALIB
 
 # Fixture for a static, simple dataset
 @pytest.fixture

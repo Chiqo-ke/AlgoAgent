@@ -3,7 +3,7 @@ This module provides the core functions for the hybrid indicator service.
 """
 import pandas as pd
 from typing import Dict, Any
-from . import registry
+import registry
 
 def validate_inputs(df: pd.DataFrame, required_columns: list[str]):
     """
