@@ -8,6 +8,7 @@ This model is designed to provide a dynamic data ingestion pipeline capable of a
 
 The model follows a modular architecture, ensuring clear separation of concerns and facilitating maintainability and extensibility. The core components interact as follows:
 
+```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {
   'background': 'transparent',
   'primaryColor': 'transparent',
@@ -47,6 +48,7 @@ graph TD
     style K fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
     style L fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
 
+```
 ## Module-wise Breakdown
 
 ### 1. Context Manager
