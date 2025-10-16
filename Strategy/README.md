@@ -1,55 +1,83 @@
 # Strategy Validator System
 
-A production-ready system for validating, canonicalizing, and analyzing trading strategies. This system implements the StrategyValidatorBot specification with comprehensive safety guardrails and multi-format input support.
+A production-ready system for validating, canonicalizing, and analyzing trading strategies. This system implements the StrategyValidatorBot specification with comprehensive safety guardrails, multi-format input support, and **AI-powered analysis using Gemini API**.
+
+## 🎉 NEW: AI-Enhanced Features
+
+- **🤖 Gemini AI Integration**: Intelligent strategy analysis and recommendations
+- **🧠 Natural Language Understanding**: Extracts strategy steps from unstructured text
+- **💡 Smart Recommendations**: AI-generated suggestions with rationale and test parameters
+- **🎯 Interactive Testing Mode**: User-friendly interface to test the system yourself
+- **📊 Enhanced Context Ingestion**: Better understanding of strategy intent and gaps
 
 ## Features
 
 - **Multi-format Input Parsing**: Supports free text, numbered steps, and URLs
+- **AI-Powered Analysis**: Uses Gemini API for intelligent strategy understanding
 - **Canonical Schema**: Standardized JSON schema for strategy representation
 - **Security Guardrails**: Detects scams, dangerous patterns, and security violations
-- **Smart Recommendations**: Generates prioritized, actionable recommendations
+- **Smart Recommendations**: AI-generated prioritized, actionable recommendations
 - **Provenance Tracking**: Maintains audit trail of strategy sources
 - **Classification**: Automatically classifies strategy type and risk tier
 - **Confidence Assessment**: Evaluates strategy completeness and quality
+- **Interactive Tester**: User-friendly CLI for testing the system
 
 ## Module Structure
 
 ```
 Strategy/
-├── canonical_schema.py      # JSON schema definition and validation
-├── input_parser.py          # Parse various input formats
-├── provenance_tracker.py    # Track sources and metadata
-├── recommendation_engine.py # Generate recommendations
-├── guardrails.py           # Security and safety checks
-├── strategy_validator.py   # Main orchestrator (StrategyValidatorBot)
-├── system_prompt.py        # System prompts and conversation patterns
-├── examples.py             # Example strategies for testing
-├── test_strategy_validator.py # Comprehensive test suite
-├── validator_cli.py        # Command-line interface
-├── content_fetcher.py      # URL content fetching (existing)
-├── input_parser.py         # Input parsing (existing)
-├── strategy_parser.py      # Strategy parsing (existing)
-└── README.md              # This file
+├── canonical_schema.py              # JSON schema definition and validation
+├── input_parser.py                  # Parse various input formats
+├── provenance_tracker.py            # Track sources and metadata
+├── recommendation_engine.py         # Generate recommendations
+├── guardrails.py                    # Security and safety checks
+├── strategy_validator.py            # Main orchestrator (StrategyValidatorBot)
+├── gemini_strategy_integrator.py   # 🆕 AI-powered analysis using Gemini
+├── interactive_strategy_tester.py  # 🆕 Interactive testing interface
+├── system_prompt.py                 # System prompts and conversation patterns
+├── examples.py                      # Example strategies for testing
+├── test_strategy_validator.py      # Comprehensive test suite
+├── validator_cli.py                 # Command-line interface
+├── content_fetcher.py               # URL content fetching
+├── strategy_parser.py               # Strategy parsing
+├── requirements.txt                 # 🆕 Python dependencies
+├── TESTING_GUIDE.md                 # 🆕 Interactive testing guide
+├── QUICKSTART.md                    # Quick start guide
+└── README.md                        # This file
 ```
 
 ## Quick Start
 
-### Python API
+### 🚀 NEW: Interactive Testing Mode (Recommended)
+
+Test the system interactively - best way to understand how it works!
+
+```powershell
+# Install dependencies
+pip install -r requirements.txt
+
+# Run interactive tester
+python interactive_strategy_tester.py
+```
+
+See [TESTING_GUIDE.md](TESTING_GUIDE.md) for detailed instructions.
+
+### Python API with AI Enhancement
 
 ```python
 from strategy_validator import StrategyValidatorBot
 
-# Initialize bot
-bot = StrategyValidatorBot(username="your_username")
+# Initialize bot with AI enhancement
+bot = StrategyValidatorBot(username="your_username", use_gemini=True)
 
-# Process a strategy
+# Process a strategy - AI will analyze and enhance the output
 result = bot.process_input("""
 Buy 100 shares when 50 EMA crosses above 200 EMA. 
 Set stop loss at 1% below entry. 
 Take profit at 2% above entry.
 """)
 
-# Get formatted output
+# Get formatted output with AI recommendations
 if result["status"] == "success":
     print(bot.get_formatted_output())
 ```
