@@ -1,6 +1,7 @@
 """
 Strategy Validator - Main orchestrator for strategy validation and canonicalization
 Integrates all modules to provide the StrategyValidatorBot functionality.
+Enhanced with Gemini AI for intelligent strategy analysis.
 """
 
 from typing import Dict, Any, List, Optional, Tuple
@@ -12,21 +13,23 @@ from input_parser import InputParser, parse_strategy_input
 from provenance_tracker import ProvenanceTracker, MetadataManager
 from recommendation_engine import RecommendationEngine, generate_recommendations
 from guardrails import Guardrails, check_strategy_safety
+from gemini_strategy_integrator import GeminiStrategyIntegrator
 
 
 class StrategyValidatorBot:
     """
     Main strategy validator bot that canonicalizes, classifies, and validates strategies.
-    Implements the production-ready specification.
+    Implements the production-ready specification with AI-enhanced analysis.
     """
     
-    def __init__(self, username: str = "user", strict_mode: bool = False):
+    def __init__(self, username: str = "user", strict_mode: bool = False, use_gemini: bool = True):
         """
         Initialize the validator bot.
         
         Args:
             username: User identifier for provenance
             strict_mode: If True, raise exceptions on security violations
+            use_gemini: If True, use Gemini API for enhanced analysis
         """
         self.username = username
         self.strict_mode = strict_mode
@@ -36,6 +39,12 @@ class StrategyValidatorBot:
         self.metadata = MetadataManager(username)
         self.guardrails = Guardrails(strict_mode=strict_mode)
         self.recommendation_engine = RecommendationEngine()
+        
+        # Initialize Gemini integration
+        self.use_gemini = use_gemini
+        self.gemini = GeminiStrategyIntegrator() if use_gemini else None
+        if self.gemini and not self.gemini.use_mock:
+            print("✓ AI-enhanced strategy analysis enabled")
     
     def process_input(
         self,
