@@ -21,10 +21,10 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 # Add Data directory to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'Data'))
 SCRIPT_DIR = Path(__file__).resolve().parent
-DATA_DIR = SCRIPT_DIR / "Data"
-sys.path.insert(0, str(DATA_DIR))
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
 
 def print_header(title):
     """Print formatted header"""
@@ -138,8 +138,8 @@ def get_user_input():
 def run_system_test():
     """Run the actual system test"""
     try:
-        # Import the main system
-        from main import DataIngestionModel
+        # Import the main system from the Data package
+        from Data.main import DataIngestionModel # noqa
         
         # Get user parameters
         symbol, period, interval, indicators = get_user_input()
@@ -177,7 +177,7 @@ def run_system_test():
         print(df.tail().to_string())
         
         # Save to CSV in data folder
-        output_dir = SCRIPT_DIR / "data"
+        output_dir = Path("Data/data")
         output_dir.mkdir(exist_ok=True)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

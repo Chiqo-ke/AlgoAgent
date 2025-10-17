@@ -1,3 +1,4 @@
+import ast
 from typing import Callable, Dict, List, Any
 
 REGISTRY: Dict[str, dict] = {}
@@ -44,8 +45,13 @@ def list_indicators() -> List[str]:
     return list(REGISTRY.keys())
 
 import inspect
-import talib_adapters
-import ta_fallback_adapters
+try:
+    from . import talib_adapters
+    from . import ta_fallback_adapters
+except ImportError:
+    # Fallback for when run as script
+    import talib_adapters
+    import ta_fallback_adapters
 
 def _parse_docstring(doc: str) -> dict:
     """Parses a structured docstring to extract metadata."""

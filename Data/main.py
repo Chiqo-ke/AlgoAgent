@@ -10,15 +10,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import project modules
-from data_fetcher import DataFetcher
-from dynamic_code_adjuster import insert_snippet_if_missing
-from gemini_integrator import GeminiIntegrator
-from ml_model_selector import MLModelSelector
+from .data_fetcher import DataFetcher
+from .dynamic_code_adjuster import insert_snippet_if_missing
+from .gemini_integrator import GeminiIntegrator
+from .ml_model_selector import MLModelSelector
 
 # These modules will be reloaded if code is dynamically changed
-import ta_fallback_adapters
-import registry
-import indicator_calculator
+from . import ta_fallback_adapters
+from . import registry
+from . import indicator_calculator
 
 class DataIngestionModel:
     def __init__(self, gemini_api_key: str = None):
