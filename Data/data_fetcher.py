@@ -18,12 +18,19 @@ class DataFetcher:
             interval (str): The interval of the data (e.g., "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "3mo").
 
         Returns:
-            pd.DataFrame: A DataFrame containing the historical data.
+            pd.DataFrame: A DataFrame containing the historical data with flattened column names.
         """
         try:
             data = yf.download(ticker, period=period, interval=interval)
             if data.empty:
                 print(f"No data found for {ticker} with period {period} and interval {interval}")
+                return pd.DataFrame()
+            
+            # Flatten MultiIndex columns if present (happens with single ticker downloads)
+            if isinstance(data.columns, pd.MultiIndex):
+                # For single ticker, just take the first level (the price type)
+                data.columns = data.columns.get_level_values(0)
+            
             return data
         except Exception as e:
             print(f"Error fetching data for {ticker}: {e}")

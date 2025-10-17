@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from functools import wraps
 
 try:
     import talib
@@ -10,6 +11,7 @@ except ImportError:
 
 def _ensure_dataframe_output(func):
     """Decorator to ensure indicator functions return a DataFrame."""
+    @wraps(func)  # This preserves the original function's metadata including docstring
     def wrapper(df: pd.DataFrame, params: dict) -> pd.DataFrame:
         if not HAS_TALIB:
             return pd.DataFrame(index=df.index) # Return empty DataFrame if TA-Lib not available
