@@ -1,8 +1,9 @@
 # System Prompt for AI Strategy Code Generation
 
-**Version:** 1.0.0  
+**Version:** 2.0.0  
 **Target:** Gemini / AI Code Generators  
-**Purpose:** Generate backtesting strategy code that uses SimBroker API
+**Purpose:** Generate backtesting strategy code that uses SimBroker API  
+**Updated:** October 17, 2025 - Added standardized column naming conventions
 
 ---
 
@@ -13,6 +14,8 @@
 3. **Import from stable modules** - `from sim_broker import SimBroker`
 4. **Include header comment** - `# MUST NOT EDIT SimBroker`
 5. **Validate all signals** - Use canonical validation before submission
+6. **⚠️ NEW: Use standardized column names** - Indicator columns MUST include parameters (e.g., `RSI_14`, not `RSI`)
+   - See `COLUMN_NAMING_STANDARD.md` for complete reference
 
 ---
 
@@ -50,48 +53,85 @@ df, metadata = load_market_data(
         'RSI': {'timeperiod': 14},
         'SMA': {'timeperiod': 20},
         'MACD': None  # Use default parameters
-    }
+    },
+    period='1mo',
+    interval='1d'
 )
 
-# DataFrame columns: Open, High, Low, Close, Volume, RSI, SMA, MACD, ...
+# DataFrame columns: Open, High, Low, Close, Volume, RSI_14, SMA_20, MACD, MACD_SIGNAL, MACD_HIST, ...
 ```
 
 ### DataFrame Format
 
 The returned DataFrame always has:
 - **Index:** DatetimeIndex (sorted chronologically)
-- **Required columns:** Open, High, Low, Close, Volume
-- **Indicator columns:** Any requested indicators as additional columns
+- **Required columns:** Open, High, Low, Close, Volume (always capitalized)
+- **Indicator columns:** Named with pattern `INDICATOR_PARAM1_PARAM2_...` (e.g., RSI_14, SMA_20, MACD_12_26_9)
+
+### Column Naming Convention ⚠️ CRITICAL
+
+**All indicator columns follow a standardized naming pattern:**
+
+| Indicator | Parameters | Column Name(s) | Example |
+|-----------|-----------|----------------|---------|
+| RSI | timeperiod=14 | `RSI_14` | RSI_14 |
+| SMA | timeperiod=20 | `SMA_20` | SMA_20 |
+| EMA | timeperiod=12 | `EMA_12` | EMA_12 |
+| MACD | fast=12, slow=26, signal=9 | `MACD`, `MACD_SIGNAL`, `MACD_HIST` | MACD, MACD_SIGNAL, MACD_HIST |
+| BBANDS | timeperiod=20, nbdevup=2, nbdevdn=2 | `BBANDS_UPPER`, `BBANDS_MIDDLE`, `BBANDS_LOWER` | BBANDS_UPPER, BBANDS_MIDDLE, BBANDS_LOWER |
+| STOCH | fastk=5, slowk=3, slowd=3 | `STOCH_K`, `STOCH_D` | STOCH_K, STOCH_D |
+| ATR | timeperiod=14 | `ATR_14` | ATR_14 |
+| ADX | timeperiod=14 | `ADX_14` | ADX_14 |
+| CCI | timeperiod=14 | `CCI_14` | CCI_14 |
+| OBV | (no params) | `OBV` | OBV |
+
+**Key Rules:**
+1. ✅ Indicator columns are ALWAYS suffixed with their parameters
+2. ✅ Use the EXACT column name from the DataFrame (e.g., `RSI_14`, not `RSI`)
+3. ✅ Check `df.columns` to see actual column names after loading
+4. ✅ Multi-output indicators have descriptive suffixes (e.g., MACD_SIGNAL, BBANDS_UPPER)
+5. ✅ Parameter-free indicators use just the name (e.g., OBV, VWAP)
 
 ### Available Indicators
 
 Common indicators (use `get_available_indicators()` for full list):
 - **Trend:** SMA, EMA, MACD, ADX
-- **Momentum:** RSI, STOCH, CCI, MOM
-- **Volatility:** BBANDS, ATR, NATR
-- **Volume:** OBV, AD, ADOSC
+- **Momentum:** RSI, STOCH, CCI
+- **Volatility:** BOLLINGER (Bollinger Bands), ATR
+- **Volume:** OBV, VWAP
 
-### Indicator Parameters
+### Indicator Parameters & Column Names
 
-Each indicator accepts optional parameters:
+Each indicator accepts optional parameters and produces specific column names:
 
 ```python
 indicators = {
-    'RSI': {'timeperiod': 14},           # RSI with 14-period
-    'SMA': {'timeperiod': 50},           # 50-day simple MA
-    'EMA': {'timeperiod': 20},           # 20-day exponential MA
-    'BBANDS': {                          # Bollinger Bands
+    'RSI': {'timeperiod': 14},           # Produces: RSI_14
+    'SMA': {'timeperiod': 50},           # Produces: SMA_50
+    'EMA': {'timeperiod': 20},           # Produces: EMA_20
+    'BOLLINGER': {                       # Produces: BBANDS_UPPER, BBANDS_MIDDLE, BBANDS_LOWER
         'timeperiod': 20,
         'nbdevup': 2,
         'nbdevdn': 2
     },
-    'MACD': {                            # MACD
+    'MACD': {                            # Produces: MACD, MACD_SIGNAL, MACD_HIST
         'fastperiod': 12,
         'slowperiod': 26,
         'signalperiod': 9
-    }
+    },
+    'STOCH': {                           # Produces: STOCH_K, STOCH_D
+        'fastk_period': 5,
+        'slowk_period': 3,
+        'slowd_period': 3
+    },
+    'ATR': {'timeperiod': 14},           # Produces: ATR_14
+    'ADX': {'timeperiod': 14},           # Produces: ADX_14
+    'OBV': None,                         # Produces: OBV (no parameters)
+    'VWAP': None                         # Produces: VWAP (no parameters)
 }
 ```
+
+**Important:** Always check `df.columns` after loading to see the exact column names!
 
 ### Loading Without Indicators
 
@@ -283,10 +323,14 @@ def run_backtest():
         indicators={
             'RSI': {'timeperiod': 14},
             'SMA': {'timeperiod': 20}
-        }
+        },
+        period='1mo',
+        interval='1d'
     )
     
+    # CRITICAL: Verify actual column names (they include parameters)
     print(f"Loaded {len(df)} bars with columns: {list(df.columns)}")
+    # Expected output: ['Open', 'High', 'Low', 'Close', 'Volume', 'RSI_14', 'SMA_20']
     
     # 5. Run simulation
     for timestamp, row in df.iterrows():
@@ -297,9 +341,9 @@ def run_backtest():
                 'low': row['Low'],
                 'close': row['Close'],
                 'volume': row['Volume'],
-                # Indicators are available as additional columns
-                'rsi': row.get('RSI', None),
-                'sma': row.get('SMA', None)
+                # CRITICAL: Use exact column names with parameters
+                'rsi_14': row.get('RSI_14', None),      # Not 'RSI', use 'RSI_14'
+                'sma_20': row.get('SMA_20', None)       # Not 'SMA', use 'SMA_20'
             }
         }
         
@@ -325,6 +369,179 @@ def run_backtest():
 if __name__ == "__main__":
     metrics = run_backtest()
 ```
+
+---
+
+## Handling Indicator Columns (MANDATORY PRACTICE)
+
+### ⚠️ CRITICAL: Always Use Parameterized Column Names
+
+The indicator calculator **automatically appends parameters** to column names. You MUST use these exact names.
+
+### ❌ WRONG - This Will Fail
+
+```python
+# Loading with timeperiod=14
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={'RSI': {'timeperiod': 14}}
+)
+
+# WRONG: Trying to access as 'RSI'
+rsi_value = row['RSI']  # ❌ KeyError: 'RSI'
+```
+
+### ✅ CORRECT - Use Exact Column Names
+
+```python
+# Loading with timeperiod=14
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={'RSI': {'timeperiod': 14}}
+)
+
+# CORRECT: Use 'RSI_14'
+rsi_value = row['RSI_14']  # ✅ Works!
+
+# Or inspect columns first
+print(df.columns)  # ['Open', 'High', 'Low', 'Close', 'Volume', 'RSI_14']
+```
+
+### Best Practice: Check Columns After Loading
+
+**Always print column names after loading data:**
+
+```python
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={
+        'RSI': {'timeperiod': 14},
+        'MACD': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9},
+        'SMA': {'timeperiod': 20}
+    }
+)
+
+# ALWAYS do this to see actual column names
+print(f"Available columns: {list(df.columns)}")
+# Output: ['Open', 'High', 'Low', 'Close', 'Volume', 'RSI_14', 'MACD', 'MACD_SIGNAL', 'MACD_HIST', 'SMA_20']
+```
+
+### Handling Multi-Output Indicators
+
+Some indicators produce multiple columns:
+
+```python
+# MACD produces 3 columns
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={'MACD': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}}
+)
+
+# Access each component
+macd_line = row['MACD']              # Main MACD line
+macd_signal = row['MACD_SIGNAL']     # Signal line
+macd_hist = row['MACD_HIST']         # Histogram
+
+# Bollinger Bands produces 3 columns
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={'BOLLINGER': {'timeperiod': 20, 'nbdevup': 2, 'nbdevdn': 2}}
+)
+
+upper_band = row['BBANDS_UPPER']
+middle_band = row['BBANDS_MIDDLE']
+lower_band = row['BBANDS_LOWER']
+
+# Stochastic produces 2 columns
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={'STOCH': {'fastk_period': 5, 'slowk_period': 3, 'slowd_period': 3}}
+)
+
+stoch_k = row['STOCH_K']
+stoch_d = row['STOCH_D']
+```
+
+### Strategy Template with Proper Column Handling
+
+```python
+def run_backtest():
+    # 1. Load data with indicators
+    df, metadata = load_market_data(
+        ticker='AAPL',
+        indicators={
+            'RSI': {'timeperiod': 14},
+            'MACD': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
+        },
+        period='3mo',
+        interval='1d'
+    )
+    
+    # 2. CRITICAL: Print and verify column names
+    print(f"Loaded columns: {list(df.columns)}")
+    
+    # 3. Build market data dict with correct column names
+    for timestamp, row in df.iterrows():
+        market_data = {
+            'AAPL': {
+                'open': row['Open'],
+                'high': row['High'],
+                'low': row['Low'],
+                'close': row['Close'],
+                'volume': row['Volume'],
+                # Use exact column names with parameters
+                'rsi_14': row['RSI_14'],           # Not 'RSI'
+                'macd': row['MACD'],
+                'macd_signal': row['MACD_SIGNAL'],
+                'macd_hist': row['MACD_HIST']
+            }
+        }
+        
+        strategy.on_bar(timestamp, market_data)
+        broker.step_to(timestamp, market_data)
+```
+
+### Dynamic Column Name Detection
+
+If you need flexible code that works with different parameters:
+
+```python
+def run_backtest():
+    df, metadata = load_market_data(
+        ticker='AAPL',
+        indicators={'RSI': {'timeperiod': 14}}
+    )
+    
+    # Find RSI column dynamically
+    rsi_column = [col for col in df.columns if col.startswith('RSI_')][0]
+    print(f"Using RSI column: {rsi_column}")
+    
+    for timestamp, row in df.iterrows():
+        market_data = {
+            'AAPL': {
+                'open': row['Open'],
+                'high': row['High'],
+                'low': row['Low'],
+                'close': row['Close'],
+                'volume': row['Volume'],
+                'rsi': row[rsi_column]  # Use detected column name
+            }
+        }
+        
+        strategy.on_bar(timestamp, market_data)
+        broker.step_to(timestamp, market_data)
+```
+
+### Summary: Column Naming Rules
+
+| Rule | Description | Example |
+|------|-------------|---------|
+| 1️⃣ | OHLCV columns are capitalized | `Open`, `High`, `Low`, `Close`, `Volume` |
+| 2️⃣ | Indicator columns include parameters | `RSI_14`, `SMA_20`, `EMA_12` |
+| 3️⃣ | Multi-output indicators have suffixes | `MACD`, `MACD_SIGNAL`, `MACD_HIST` |
+| 4️⃣ | Always print `df.columns` after loading | `print(df.columns)` |
+| 5️⃣ | Use `.get()` for safe access | `row.get('RSI_14', None)` |
+| 6️⃣ | Check for NaN values in indicators | `if pd.notna(rsi_value):` |
 
 ---
 
@@ -703,6 +920,176 @@ broker.export_trades("trades.csv")
 
 ---
 
+## AI Code Generation Guidelines
+
+When generating strategy code, follow these mandatory steps:
+
+### Step 1: Load Data and Inspect Columns
+
+```python
+# Load with specific parameters
+df, metadata = load_market_data(
+    ticker='AAPL',
+    indicators={
+        'RSI': {'timeperiod': 14},
+        'SMA': {'timeperiod': 20}
+    },
+    period='3mo',
+    interval='1d'
+)
+
+# MANDATORY: Print columns to document actual names
+print(f"✓ Loaded {len(df)} bars")
+print(f"✓ Columns: {list(df.columns)}")
+```
+
+### Step 2: Document Column Mapping
+
+Add comments in the code showing the mapping:
+
+```python
+# Column mapping:
+# - RSI with timeperiod=14 → RSI_14
+# - SMA with timeperiod=20 → SMA_20
+# - MACD with default params → MACD, MACD_SIGNAL, MACD_HIST
+```
+
+### Step 3: Use Exact Column Names
+
+```python
+for timestamp, row in df.iterrows():
+    market_data = {
+        'AAPL': {
+            'open': row['Open'],
+            'high': row['High'],
+            'low': row['Low'],
+            'close': row['Close'],
+            'volume': row['Volume'],
+            # Use exact column names from df.columns
+            'rsi_14': row['RSI_14'],      # matches indicator RSI with timeperiod=14
+            'sma_20': row['SMA_20']       # matches indicator SMA with timeperiod=20
+        }
+    }
+```
+
+### Step 4: Handle Missing Values
+
+```python
+def on_bar(self, timestamp, data):
+    rsi_value = data.get(self.symbol, {}).get('rsi_14')
+    
+    # Check if indicator value is available (may be NaN for early bars)
+    if rsi_value is None or pd.isna(rsi_value):
+        return  # Skip this bar
+    
+    # Continue with strategy logic
+    if rsi_value < 30:
+        # Enter position
+        pass
+```
+
+### Step 5: Test with Different Parameters
+
+When generating code, ensure it works if parameters change:
+
+```python
+# GOOD: Flexible approach
+def load_strategy_data(ticker, rsi_period=14):
+    df, metadata = load_market_data(
+        ticker=ticker,
+        indicators={'RSI': {'timeperiod': rsi_period}}
+    )
+    
+    # Find the RSI column (will be RSI_14, RSI_21, etc.)
+    rsi_col = [c for c in df.columns if c.startswith('RSI_')][0]
+    
+    return df, rsi_col
+```
+
+### Common Mistakes to Avoid
+
+| ❌ Wrong | ✅ Correct | Reason |
+|---------|-----------|---------|
+| `row['RSI']` | `row['RSI_14']` | Column name includes timeperiod |
+| `row['SMA']` | `row['SMA_20']` | Column name includes timeperiod |
+| `row['MACD_LINE']` | `row['MACD']` | MACD main line is just 'MACD' |
+| Hard-coded column access | `.get()` with None check | Handles missing indicators gracefully |
+| Ignoring NaN values | Check with `pd.isna()` | Early bars may have NaN indicators |
+
+### Example: Complete Strategy with Proper Column Handling
+
+```python
+def run_backtest():
+    """Backtest with proper indicator column handling"""
+    
+    # 1. Load data
+    df, metadata = load_market_data(
+        ticker='AAPL',
+        indicators={
+            'RSI': {'timeperiod': 14},
+            'SMA': {'timeperiod': 50},
+            'MACD': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
+        },
+        period='6mo',
+        interval='1d'
+    )
+    
+    # 2. Verify columns (MANDATORY)
+    print(f"Loaded columns: {list(df.columns)}")
+    # Expected: ['Open', 'High', 'Low', 'Close', 'Volume', 'RSI_14', 'SMA_50', 'MACD', 'MACD_SIGNAL', 'MACD_HIST']
+    
+    # 3. Optional: Rename for easier access in strategy
+    # This is acceptable if you want cleaner names in strategy logic
+    df = df.rename(columns={
+        'RSI_14': 'rsi',
+        'SMA_50': 'sma',
+        'MACD': 'macd',
+        'MACD_SIGNAL': 'macd_signal',
+        'MACD_HIST': 'macd_hist'
+    })
+    
+    print(f"Renamed columns: {list(df.columns)}")
+    
+    # 4. Run simulation with renamed columns
+    for timestamp, row in df.iterrows():
+        market_data = {
+            'AAPL': {
+                'open': row['Open'],
+                'high': row['High'],
+                'low': row['Low'],
+                'close': row['Close'],
+                'volume': row['Volume'],
+                'rsi': row['rsi'],                    # Clean names after renaming
+                'sma': row['sma'],
+                'macd': row['macd'],
+                'macd_signal': row['macd_signal'],
+                'macd_hist': row['macd_hist']
+            }
+        }
+        
+        strategy.on_bar(timestamp, market_data)
+        broker.step_to(timestamp, market_data)
+```
+
+### Checklist for AI-Generated Code
+
+Before finalizing generated strategy code, verify:
+
+- [ ] ✅ Used `load_market_data()` from data_loader module
+- [ ] ✅ Specified `period` and `interval` parameters
+- [ ] ✅ Printed `df.columns` to show actual column names
+- [ ] ✅ Used exact column names with parameters (e.g., `RSI_14`)
+- [ ] ✅ Handled multi-output indicators (e.g., MACD has 3 columns)
+- [ ] ✅ Added NaN checks for indicator values
+- [ ] ✅ Used `.get()` for safe dictionary access
+- [ ] ✅ Included column name comments in code
+- [ ] ✅ Tested with at least one complete backtest run
+- [ ] ✅ Documented any column renaming operations
+
+---
+
 **END OF SYSTEM PROMPT**
 
 Include this entire document as context when generating strategy code.
+
+**Version:** 2.0.0 - Updated with standardized column naming conventions and dynamic data loading

@@ -112,6 +112,10 @@ def run_backtest():
         }
     )
 
+    # Rename RSI_14 to RSI for easier access
+    if 'RSI_14' in df.columns:
+        df = df.rename(columns={'RSI_14': 'RSI'})
+
     print(f"Loaded {len(df)} bars with columns: {list(df.columns)}")
 
     # 5. Run simulation
