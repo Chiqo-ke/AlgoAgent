@@ -16,16 +16,16 @@ from datetime import datetime
 import logging
 from pathlib import Path
 
-from canonical_schema import (
+from .canonical_schema import (
     Signal, Order, Fill, AccountSnapshot,
     OrderStatus
 )
-from config import BacktestConfig
-from order_manager import OrderManager
-from execution_simulator import ExecutionSimulator, MarketData
-from account_manager import AccountManager
-from metrics_engine import MetricsEngine
-from validators import Validators
+from .config import BacktestConfig
+from .order_manager import OrderManager
+from .execution_simulator import ExecutionSimulator, MarketData
+from .account_manager import AccountManager
+from .metrics_engine import MetricsEngine
+from .validators import Validators
 
 
 logger = logging.getLogger(__name__)

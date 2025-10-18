@@ -1,0 +1,14 @@
+# Add .env to gitignore
+.env
+*.log
+logs/
+data/
+__pycache__/
+*.pyc
+*.db
+*.db-journal
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
