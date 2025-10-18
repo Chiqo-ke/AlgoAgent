@@ -57,6 +57,8 @@ The Backtest module provides a complete algorithmic trading backtesting framewor
 - **`MT5_INTEGRATION_GUIDE.md`** - Comprehensive MT5 guide (1,200+ lines)
 - **`MT5_QUICK_REFERENCE.md`** - Quick lookup and troubleshooting
 - **`README_MT5_INTEGRATION.md`** - Executive summary
+- **`MQL5_SETUP_GUIDE.md`** - Step-by-step setup procedure
+- **`MQL5_CODE_SPECIFICATION.md`** - AI-friendly code generation spec
 
 ### Reference Docs
 - **`API_REFERENCE.md`** - SimBroker API documentation
