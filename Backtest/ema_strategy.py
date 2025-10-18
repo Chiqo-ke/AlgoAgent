@@ -5,10 +5,17 @@ Description: EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, s
 Generated: 2025-10-17
 """
 
-from sim_broker import SimBroker
-from config import BacktestConfig
-from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from data_loader import load_market_data, get_available_indicators
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import load_market_data, get_available_indicators
 from datetime import datetime
 import pandas as pd
 

@@ -83,9 +83,49 @@ broker.export_trades("trades.csv")
 ### 3. Run Example
 
 ```bash
-cd Backtest.py
+cd Backtest
 python example_strategy.py
 ```
+
+## Strategy Development
+
+### ⚠️ Important: Correct Import Pattern
+
+All strategies in the `codes/` directory **MUST** use the following import pattern to work with both backtesting and live trading:
+
+```python
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+```
+
+**📖 See [`STRATEGY_TEMPLATE.md`](STRATEGY_TEMPLATE.md) for complete template and guidelines.**
+
+### Generate New Strategy
+
+Use the Gemini strategy generator (updated with correct imports):
+
+```bash
+cd Backtest
+python gemini_strategy_generator.py
+```
+
+Or manually create using the template in `STRATEGY_TEMPLATE.md`.
+
+### Example Strategies
+
+All examples use the correct import pattern:
+- `example_strategy.py` - Moving average crossover
+- `rsi_strategy.py` - RSI-based trading
+- `ema_strategy.py` - EMA crossover
+- `codes/my_strategy.py` - Your custom strategies
 
 ## Stable API
 

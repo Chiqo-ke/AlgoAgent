@@ -93,9 +93,16 @@ Generate trading strategy code using SimBroker API.
 
 Required imports:
 ```python
-from sim_broker import SimBroker
-from config import BacktestConfig
-from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
 ```
 
 Strategy must:
@@ -159,9 +166,16 @@ Strategy: {strategy_name}
 Description: {description}
 \"\"\"
 
-from sim_broker import SimBroker
-from config import BacktestConfig
-from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
 from datetime import datetime
 import pandas as pd
 
@@ -261,10 +275,10 @@ Generate the complete, working code:
         warnings = []
         
         # Check for required imports
-        if "from sim_broker import SimBroker" not in code:
-            issues.append("Missing import: from sim_broker import SimBroker")
+        if "from Backtest.sim_broker import SimBroker" not in code and "from sim_broker import SimBroker" not in code:
+            issues.append("Missing import: from Backtest.sim_broker import SimBroker")
         
-        if "from canonical_schema import" not in code:
+        if "from Backtest.canonical_schema import" not in code and "from canonical_schema import" not in code:
             issues.append("Missing canonical_schema imports")
         
         # Check for header comment

@@ -5,10 +5,17 @@ Description: RSI strategy: Buy AAPL when RSI < 30, sell when RSI > 70
 Generated: 2024-01-01
 """
 
-from sim_broker import SimBroker
-from config import BacktestConfig
-from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from data_loader import load_market_data
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import load_market_data
 from datetime import datetime
 import pandas as pd
 
