@@ -1,0 +1,137 @@
+Byte-compiled / optimized / DLL files
+pycache/
+*.py[cod]
+*$py.class
+
+C extensions
+*.so
+
+*.csv
+
+__pycache__
+
+Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+PyInstaller
+*.manifest
+*.spec
+
+Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+Translations
+*.mo
+*.pot
+
+Django stuff:
+*.log
+
+Flask stuff:
+instance/
+.webassets-cache
+
+Pyre type check
+.pyre/
+
+mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# VS Code Extensions and settings
+.history/
+*.code-workspace
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# MacOS
+*.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+*.env
+.env.local
+.env.production
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+*.sqlite3
+
+# Model files and data
+models/
+Data/data/*.csv
+Data/data/*.json
+Data/data/*.pkl
+*.joblib
+*.model
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+*db
