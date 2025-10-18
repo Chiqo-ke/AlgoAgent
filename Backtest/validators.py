@@ -11,8 +11,8 @@ Version: 1.0.0
 from typing import List, Dict, Any, Optional
 import logging
 
-from canonical_schema import Signal, validate_signal, OrderAction
-from config import BacktestConfig
+from .canonical_schema import Signal, validate_signal, OrderAction
+from .config import BacktestConfig
 
 
 logger = logging.getLogger(__name__)
