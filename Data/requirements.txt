@@ -1,7 +1,9 @@
-yfinance
 pandas
 numpy
-TA-Lib
+pytest
+ta
+yfinance
 scikit-learn
-google-generativeai
-joblib
+requests
+pytest-mock
+python-dotenv
