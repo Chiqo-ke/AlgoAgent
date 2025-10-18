@@ -1,106 +1,76 @@
-# AlgoAgent/Data/indicator_calculator.py
-
-import talib
+"""
+This module provides the core functions for the hybrid indicator service.
+"""
 import pandas as pd
-import numpy as np
+from typing import Dict, Any
+from . import registry
 
-class IndicatorCalculator:
-    def __init__(self):
-        pass
+def validate_inputs(df: pd.DataFrame, required_columns: list[str]):
+    """
+    Validates that the input DataFrame has the required columns.
 
-    def calculate_indicators(self, data: pd.DataFrame, indicators: list) -> pd.DataFrame:
-        """
-        Calculates a list of technical indicators for the given financial data.
+    Args:
+        df (pd.DataFrame): The DataFrame to validate.
+        required_columns (list[str]): A list of required column names.
 
-        Args:
-            data (pd.DataFrame): DataFrame containing financial data (must have 'Open', 'High', 'Low', 'Close', 'Volume' columns).
-            indicators (list): A list of dictionaries, where each dictionary specifies an indicator
-                                and its parameters.
-                                Example: [{'name': 'SMA', 'timeperiod': 20},
-                                          {'name': 'RSI', 'timeperiod': 14}]
+    Raises:
+        ValueError: If any of the required columns are missing.
+    """
+    missing_columns = [col.lower() for col in required_columns if col.lower() not in [c.lower() for c in df.columns]]
+    if missing_columns:
+        raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
 
-        Returns:
-            pd.DataFrame: The original DataFrame with calculated indicators added as new columns.
-        """
-        if data.empty:
-            return data
+def compute_indicator(name: str, df: pd.DataFrame, params: Dict[str, Any] = None) -> tuple[pd.DataFrame, Dict[str, Any]]:
+    """
+    Computes a technical indicator using the registered implementation.
 
-        df = data.copy()
+    Args:
+        name (str): The name of the indicator (case-insensitive).
+        df (pd.DataFrame): A DataFrame with a DatetimeIndex and columns: Open, High, Low, Close, Volume.
+        params (Dict[str, Any], optional): A dictionary of parameters for the indicator.
 
-        for indicator_spec in indicators:
-            indicator_name = indicator_spec['name'].upper()
-            params = {k: v for k, v in indicator_spec.items() if k != 'name'}
+    Returns:
+        A tuple containing:
+        - pd.DataFrame: A DataFrame with the computed indicator values.
+        - Dict[str, Any]: Metadata about the computation (source, params, etc.).
+    """
+    entry = registry.get_entry(name)
+    if not entry:
+        raise ValueError(f"Indicator '{name}' not registered.")
 
-            try:
-                # TA-Lib functions typically expect numpy arrays
-                if indicator_name == 'SMA':
-                    df[f'SMA_{params["timeperiod"]}'] = talib.SMA(df['Close'].values, **params)
-                elif indicator_name == 'EMA':
-                    df[f'EMA_{params["timeperiod"]}'] = talib.EMA(df['Close'].values, **params)
-                elif indicator_name == 'RSI':
-                    df[f'RSI_{params["timeperiod"]}'] = talib.RSI(df['Close'].values, **params)
-                elif indicator_name == 'MACD':
-                    macd, macdsignal, macdhist = talib.MACD(df['Close'].values,
-                                                            fastperiod=params.get('fastperiod', 12),
-                                                            slowperiod=params.get('slowperiod', 26),
-                                                            signalperiod=params.get('signalperiod', 9))
-                    df['MACD'] = macd
-                    df['MACD_Signal'] = macdsignal
-                    df['MACD_Hist'] = macdhist
-                elif indicator_name == 'BBANDS':
-                    upper, middle, lower = talib.BBANDS(df['Close'].values,
-                                                        timeperiod=params.get('timeperiod', 20),
-                                                        nbdevup=params.get('nbdevup', 2),
-                                                        nbdevdn=params.get('nbdevdn', 2),
-                                                        matype=params.get('matype', 0))
-                    df['BBANDS_Upper'] = upper
-                    df['BBANDS_Middle'] = middle
-                    df['BBANDS_Lower'] = lower
-                elif indicator_name == 'ADX':
-                    df[f'ADX_{params["timeperiod"]}'] = talib.ADX(df['High'].values, df['Low'].values, df['Close'].values, **params)
-                elif indicator_name == 'STOCH':
-                    slowk, slowd = talib.STOCH(df['High'].values, df['Low'].values, df['Close'].values,
-                                               fastk_period=params.get('fastk_period', 5),
-                                               slowk_period=params.get('slowk_period', 3),
-                                               slowk_matype=params.get('slowk_matype', 0),
-                                               slowd_period=params.get('slowd_period', 3),
-                                               slowd_matype=params.get('slowd_matype', 0))
-                    df['STOCH_SlowK'] = slowk
-                    df['STOCH_SlowD'] = slowd
-                # Add more indicators as needed
-                else:
-                    print(f"Warning: Indicator {indicator_name} not implemented or recognized.")
+    # Combine user-provided params with defaults
+    combined_params = {**entry['defaults'], **(params or {})}
 
-            except Exception as e:
-                print(f"Error calculating {indicator_name}: {e}")
-        return df
+    # Validate that the input DataFrame has the required columns
+    validate_inputs(df, entry['inputs'])
 
-if __name__ == "__main__":
-    # Create dummy data for demonstration
-    data = {
-        'Open': np.random.rand(100) * 100,
-        'High': np.random.rand(100) * 100 + 1,
-        'Low': np.random.rand(100) * 100 - 1,
-        'Close': np.random.rand(100) * 100,
-        'Volume': np.random.randint(100000, 1000000, 100)
+    # Call the indicator function
+    result_df = entry['callable'](df, combined_params)
+
+    metadata = {
+        "source_hint": entry['source_hint'],
+        "params": combined_params,
+        "outputs": list(result_df.columns),
     }
-    df = pd.DataFrame(data)
-    df.index = pd.to_datetime(pd.date_range(start='2023-01-01', periods=100, freq='D'))
+    return result_df, metadata
 
-    calculator = IndicatorCalculator()
+def describe_indicator(name: str) -> Dict[str, Any]:
+    """
+    Describes a registered technical indicator.
 
-    # Define indicators to calculate
-    required_indicators = [
-        {'name': 'SMA', 'timeperiod': 20},
-        {'name': 'EMA', 'timeperiod': 10},
-        {'name': 'RSI', 'timeperiod': 14},
-        {'name': 'MACD'},
-        {'name': 'BBANDS', 'timeperiod': 20, 'nbdevup': 2, 'nbdevdn': 2},
-        {'name': 'ADX', 'timeperiod': 14},
-        {'name': 'STOCH', 'fastk_period': 5, 'slowk_period': 3, 'slowd_period': 3}
-    ]
+    Args:
+        name (str): The name of the indicator (case-insensitive).
 
-    df_with_indicators = calculator.calculate_indicators(df, required_indicators)
-    print("DataFrame with indicators:")
-    print(df_with_indicators.head())
-    print(df_with_indicators.tail())
+    Returns:
+        A dictionary containing metadata about the indicator.
+    """
+    entry = registry.get_entry(name)
+    if not entry:
+        raise ValueError(f"Indicator '{name}' not registered.")
+
+    return {
+        "inputs": entry["inputs"],
+        "outputs": entry["outputs"],
+        "defaults": entry["defaults"],
+        "source_hint": entry["source_hint"],
+    }

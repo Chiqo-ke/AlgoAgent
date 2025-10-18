@@ -150,42 +150,81 @@ graph TD
 
 1.  **Navigate to the project directory:**
     ```bash
-    cd AlgoAgent/Data
+    conda install -c conda-forge ta-lib
     ```
-2.  **Install Python dependencies:**
+
+*   **Debian/Ubuntu:**
     ```bash
-    pip install -r requirements.txt
+    sudo apt-get install build-essential python3-dev
+    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+    tar -xzf ta-lib-0.4.0-src.tar.gz
+    cd ta-lib/
+    ./configure --prefix=/usr
+    make
+    sudo make install
+    pip install TA-Lib
     ```
-    **Note on TA-Lib:** TA-Lib requires a separate installation of its C library before the Python wrapper can be installed.
-    *   **Windows:** Download `ta-lib-0.4.0-msvc.zip` from [TA-Lib.org](https://ta-lib.org/hdr_dw.html), unzip it to `C:\ta-lib`, and then `pip install TA-Lib`.
-    *   **Linux/macOS:** Typically, you can install it via your package manager (e.g., `sudo apt-get install libta-lib-dev` on Debian/Ubuntu, `brew install ta-lib` on macOS) and then `pip install TA-Lib`.
 
-### Configuration
+*   **macOS (using Homebrew):**
+    ```bash
+    brew install ta-lib
+    pip install TA-Lib
+    ```
 
-1.  **Gemini API Key:** Set your Gemini API key as an environment variable named `GEMINI_API_KEY`.
-    *   **Linux/macOS:**
-        ```bash
-        export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-        ```
-    *   **Windows (Command Prompt):**
-        ```bash
-        set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-        ```
-    *   **Windows (PowerShell):**
-        ```powershell
-        $env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-        ```
+## Environment Configuration
 
-### Running the Model
+### Setting up API Keys
 
-Execute the `main.py` script from the `AlgoAgent/Data` directory:
+1. **Copy the environment template:**
+   ```bash
+   cp .env.example .env
+   ```
 
-```bash
-python main.py
+2. **Edit the `.env` file and add your API keys:**
+   ```bash
+   # Required for LLM integration
+   GEMINI_API_KEY=your_actual_gemini_api_key_here
+   
+   # Optional: Additional data sources
+   # ALPHA_VANTAGE_API_KEY=your_key_here
+   # QUANDL_API_KEY=your_key_here
+   ```
+
+3. **Get your Gemini API key:**
+   - Visit: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+   - Create a new API key
+   - Copy it to your `.env` file
+
+### Environment Variables
+
+The system supports these configuration options:
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `GEMINI_API_KEY` | Gemini API key for LLM integration | None | Optional* |
+| `ML_MODEL_PATH` | Directory for ML models | `./models/` | No |
+| `LOG_LEVEL` | Logging level | `INFO` | No |
+| `ENABLE_CACHE` | Enable result caching | `true` | No |
+| `ENABLE_DYNAMIC_CODE` | Enable dynamic code generation | `true` | No |
+
+*Without `GEMINI_API_KEY`, the system runs in mock mode for LLM features.
+
+## Usage Example
+
+```python
+from AlgoAgent.Data.main import DataIngestionModel
+
+model = DataIngestionModel()
+
+# Example request
+df = model.ingest_and_process(
+    ticker="AAPL",
+    required_indicators=[{"name":"RSI","timeperiod":14},{"name":"MACD","fastperiod":12,"slowperiod":26,"signalperiod":9}],
+    period="60d",
+    interval="1h",
+)
+
+# df will contain original OHLCV + new columns: RSI, MACD, MACD_SIGNAL, MACD_HIST
 ```
-
-The `main.py` script includes example usage that demonstrates:
-1.  Fetching data and calculating initial indicators for AAPL.
-2.  Fetching data for GOOG with an additional indicator (ADX) that might trigger the dynamic code adjustment mechanism if not already present in `indicator_calculator.py`.
 
 Observe the console output for messages regarding data fetching, indicator calculation, and any dynamic code adjustments made by Gemini.
