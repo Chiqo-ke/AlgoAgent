@@ -480,6 +480,8 @@ Future enhancements (non-breaking):
 
 ### MT5 Integration
 - **[MT5_QUICK_REFERENCE.md](MT5_QUICK_REFERENCE.md)** - 5-minute MT5 setup guide ⚡
+- **[MQL5_SETUP_GUIDE.md](MQL5_SETUP_GUIDE.md)** - Complete step-by-step setup procedure
+- **[MQL5_CODE_SPECIFICATION.md](MQL5_CODE_SPECIFICATION.md)** - AI code generation specification
 - **[MT5_INTEGRATION_GUIDE.md](MT5_INTEGRATION_GUIDE.md)** - Complete MT5 integration guide
 - **[README_MT5_INTEGRATION.md](README_MT5_INTEGRATION.md)** - MT5 executive summary
 
