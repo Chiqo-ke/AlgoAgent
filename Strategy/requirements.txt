@@ -1,0 +1,18 @@
+# Strategy Validator Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+jsonschema>=4.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# AI/ML Integration
+google-generativeai>=0.3.0
+
+# Testing
+pytest>=7.4.0
+pytest-mock>=3.12.0
+
+# Optional: For enhanced web scraping
+lxml>=4.9.0
