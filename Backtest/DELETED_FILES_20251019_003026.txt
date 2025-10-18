@@ -1,0 +1,36 @@
+Files removed during cleanup
+Date: 2025-10-19 00:30:26
+============================================================
+
+IMPLEMENTATION_COMPLETE.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\IMPLEMENTATION_COMPLETE.md
+  Size: 9551 bytes
+
+IMPLEMENTATION_SUMMARY.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\IMPLEMENTATION_SUMMARY.md
+  Size: 11910 bytes
+
+IMPORT_FIX_SUMMARY.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\IMPORT_FIX_SUMMARY.md
+  Size: 5187 bytes
+
+DATA_LOADER_SUMMARY.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\DATA_LOADER_SUMMARY.md
+  Size: 14380 bytes
+
+GEMINI_INTEGRATION_SUMMARY.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\GEMINI_INTEGRATION_SUMMARY.md
+  Size: 10284 bytes
+
+MT5_INTEGRATION_SUMMARY.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\MT5_INTEGRATION_SUMMARY.md
+  Size: 11480 bytes
+
+COLUMN_NAMING_STANDARD.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\COLUMN_NAMING_STANDARD.md
+  Size: 9595 bytes
+
+QUICK_REFERENCE_COLUMNS.md
+  Path: C:\Users\nyaga\Documents\AlgoAgent\Backtest\QUICK_REFERENCE_COLUMNS.md
+  Size: 3642 bytes
+
