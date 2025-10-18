@@ -38,7 +38,7 @@ FILES_TO_REMOVE = [
 ]
 
 # Optional: Example strategies to remove (set REMOVE_OLD_STRATEGIES=True to enable)
-REMOVE_OLD_STRATEGIES = False  # Set to True to remove old example strategies
+REMOVE_OLD_STRATEGIES = True  # Set to True to remove old example strategies
 
 OLD_STRATEGY_FILES = [
     "ema_strategy.py",           # Old generated EMA strategy
