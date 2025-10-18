@@ -14,11 +14,11 @@ from datetime import datetime
 from collections import defaultdict
 import logging
 
-from canonical_schema import (
+from .canonical_schema import (
     Signal, Order, OrderStatus, OrderAction, OrderType,
     generate_id
 )
-from config import BacktestConfig
+from .config import BacktestConfig
 
 
 logger = logging.getLogger(__name__)

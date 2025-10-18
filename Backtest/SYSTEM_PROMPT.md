@@ -39,6 +39,85 @@ import pandas as pd
 
 ---
 
+## Directory Structure & Import Path
+
+### Strategy Location
+
+All generated strategies MUST be saved in the `codes/` directory:
+```
+Backtest/
+├── sim_broker.py           (core modules)
+├── data_loader.py
+├── canonical_schema.py
+├── config.py
+└── codes/                  ← Strategies saved here
+    ├── strategy1.py
+    ├── strategy2.py
+    └── results/            ← Results exported here
+        └── trades/
+```
+
+### Required Import Setup
+
+**Every strategy MUST include this import path setup at the top:**
+
+```python
+# MUST NOT EDIT SimBroker
+"""
+Strategy: [NAME]
+Description: [DESCRIPTION]
+Generated: [DATE]
+Location: codes/ directory
+"""
+
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Now we can import from parent Backtest directory
+from sim_broker import SimBroker
+from config import BacktestConfig
+from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from data_loader import load_market_data
+from datetime import datetime
+import pandas as pd
+```
+
+**Why this is needed:**
+- Strategies are in `Backtest/codes/` subdirectory
+- Modules (sim_broker, data_loader, etc.) are in `Backtest/` parent directory
+- `sys.path.insert(0, ...)` adds parent directory to Python's import path
+- This allows importing modules without relative import syntax
+
+### Results Export Path
+
+**Always use relative paths for exports:**
+
+```python
+def run_backtest():
+    # ... backtest logic ...
+    
+    # Get results
+    metrics = broker.compute_metrics()
+    
+    # Export to codes/results/ and codes/trades/
+    results_dir = Path(__file__).parent / "results"
+    trades_dir = Path(__file__).parent / "trades"
+    results_dir.mkdir(exist_ok=True)
+    trades_dir.mkdir(exist_ok=True)
+    
+    # Export files
+    broker.export_trades(str(trades_dir / "trades.csv"))
+    
+    # Optionally export metrics
+    with open(results_dir / "metrics.json", 'w') as f:
+        import json
+        json.dump(metrics, f, indent=2, default=str)
+```
+
+---
+
 ## Data Loading (STABLE MODULE - DO NOT MODIFY)
 
 ### Basic Usage
@@ -232,11 +311,18 @@ Generate code following this structure:
 Strategy: [NAME]
 Description: [DESCRIPTION]
 Generated: [DATE]
+Location: codes/ directory
 """
+
+# Add parent directory to path for imports
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from sim_broker import SimBroker
 from config import BacktestConfig
 from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from data_loader import load_market_data
 from datetime import datetime
 import pandas as pd
 
@@ -355,7 +441,14 @@ def run_backtest():
     
     # 6. Get results
     metrics = broker.compute_metrics()
-    broker.export_trades("results/trades.csv")
+    
+    # Export results to codes directory
+    results_dir = Path(__file__).parent / "results"
+    trades_dir = Path(__file__).parent / "trades"
+    results_dir.mkdir(exist_ok=True)
+    trades_dir.mkdir(exist_ok=True)
+    
+    broker.export_trades(str(trades_dir / "trades.csv"))
     
     # 7. Print summary
     print(f"Net Profit: ${metrics['net_profit']:,.2f}")

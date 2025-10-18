@@ -380,7 +380,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Generate trading strategies with Gemini AI')
     parser.add_argument('description', help='Natural language strategy description')
-    parser.add_argument('-o', '--output', help='Output file path', default='generated_strategy.py')
+    parser.add_argument('-o', '--output', help='Output file path (relative to codes/ folder)', default='generated_strategy.py')
     parser.add_argument('-n', '--name', help='Strategy class name', default=None)
     parser.add_argument('--validate', action='store_true', help='Validate generated code')
     
@@ -411,13 +411,24 @@ if __name__ == "__main__":
                 for warning in validation['warnings']:
                     print(f"  ⚠️  {warning}")
         
-        # Save to file
+        # Save to codes folder
+        codes_dir = Path(__file__).parent / "codes"
+        codes_dir.mkdir(exist_ok=True)
+        
+        # Handle both absolute and relative paths
         output_path = Path(args.output)
+        if not output_path.is_absolute():
+            output_path = codes_dir / output_path
+        
+        output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(code, encoding='utf-8')
         
         print(f"\n✅ Strategy generated and saved to {output_path}")
         print("\nTo run the strategy:")
         print(f"  python {output_path}")
+        print(f"\nOr from codes directory:")
+        print(f"  cd codes")
+        print(f"  python {output_path.name}")
         
     except Exception as e:
         print(f"\n❌ Error: {e}")

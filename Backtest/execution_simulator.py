@@ -19,11 +19,11 @@ import random
 import logging
 import math
 
-from canonical_schema import (
+from .canonical_schema import (
     Order, Fill, OrderType, OrderStatus, OrderSide,
     generate_id
 )
-from config import BacktestConfig
+from .config import BacktestConfig
 
 
 logger = logging.getLogger(__name__)

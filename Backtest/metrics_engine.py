@@ -14,8 +14,8 @@ from datetime import datetime, timedelta
 import math
 import logging
 
-from canonical_schema import Fill, AccountSnapshot, OrderSide
-from config import BacktestConfig
+from .canonical_schema import Fill, AccountSnapshot, OrderSide
+from .config import BacktestConfig
 
 
 logger = logging.getLogger(__name__)
