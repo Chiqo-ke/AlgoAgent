@@ -77,7 +77,8 @@ class SimBroker:
         self.enable_mt5_export = enable_mt5_export
         self.signal_exporter: Optional[SignalExporter] = None
         if enable_mt5_export:
-            output_dir = Path("Backtest/mt5_signals")
+            # Direct path to MT5 Experts/signals folder
+            output_dir = Path(r"C:\Users\nyaga\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Experts\signals")
             backtest_id = f"BT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             self.signal_exporter = SignalExporter(
                 output_dir=output_dir,
@@ -85,7 +86,7 @@ class SimBroker:
                 symbol=mt5_symbol,
                 timeframe=mt5_timeframe
             )
-            logger.info(f"MT5 signal export enabled: {mt5_symbol} {mt5_timeframe}")
+            logger.info(f"MT5 signal export enabled: {mt5_symbol} {mt5_timeframe} -> {output_dir}")
         
         # State
         self.current_time: Optional[datetime] = None
