@@ -1,0 +1,32 @@
+"""
+Strategy Files Cleanup Recommendation
+======================================
+
+Current example/test strategy files:
+- example_strategy.py       - Well-documented MA crossover (KEEP - main example)
+- example_mt5_integration.py - MT5 integration example (KEEP - current)
+- example_gemini_strategy.py - Gemini AI generation example (KEEP if using Gemini)
+
+- ema_strategy.py           - Generated EMA strategy (REMOVE - redundant)
+- rsi_strategy.py           - Generated RSI strategy (REMOVE - redundant)
+- my_strategy.py            - Generic test strategy (REMOVE - redundant)
+
+Test files:
+- test_generated_strategy.py - Tests for generated strategies (REVIEW - may be needed)
+- test_gemini_integration.py - Gemini integration tests (KEEP if using Gemini)
+- test_mt5_integration.py    - MT5 integration tests (KEEP - current)
+- test_data_loader.py        - Data loader tests (KEEP)
+
+Recommendation:
+---------------
+1. KEEP: example_strategy.py, example_mt5_integration.py as main examples
+2. KEEP: example_gemini_strategy.py if you use Gemini AI for strategy generation
+3. REMOVE: ema_strategy.py, rsi_strategy.py, my_strategy.py (old generated examples)
+4. REMOVE: test_generated_strategy.py (tests old removed strategies)
+5. KEEP: All test_*.py files that test current functionality
+
+To execute this cleanup, uncomment the lines in cleanup_old_files.py:
+OPTIONAL_EXAMPLE_REMOVALS
+"""
+
+print(__doc__)
