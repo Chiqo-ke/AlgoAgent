@@ -6,9 +6,35 @@
 
 ---
 
+## 🚀 Quick Links
+
+- **[Strategy Manager](STRATEGY_MANAGER.md)** - Automatic code generation from JSON strategies
+- **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get started in minutes
+- **[API Reference](API_REFERENCE.md)** - Complete API documentation
+- **[Gemini Integration](GEMINI_INTEGRATION_GUIDE.md)** - AI strategy generation
+
+---
+
 ## Overview
 
 SimBroker is a production-ready, immutable backtesting framework designed specifically for AI-generated trading strategies. It provides a stable API that **MUST NOT be modified** by strategy code, ensuring reproducible, reliable backtesting results.
+
+### ✨ New: Strategy Manager
+
+Automatically generate and manage Python backtest code from JSON strategy definitions:
+
+```bash
+# Check which strategies need code
+python strategy_manager.py --status
+
+# Generate missing implementations  
+python strategy_manager.py --generate
+
+# Run backtests
+python strategy_manager.py --run my_strategy
+```
+
+See **[STRATEGY_MANAGER.md](STRATEGY_MANAGER.md)** for complete guide.
 
 ## Key Features
 
@@ -19,10 +45,15 @@ SimBroker is a production-ready, immutable backtesting framework designed specif
 ✅ **Risk Guardrails** - Position limits, leverage checks, drawdown stops  
 ✅ **Deterministic** - Same inputs always produce same outputs  
 ✅ **AI-Friendly** - Designed for code generation pipelines  
+✅ **Auto-Generation** - JSON strategies → Python code automatically
 
 ## Architecture
 
 ```
+Strategy Module → JSON Strategy Definitions
+                        ↓
+                Strategy Manager (Auto-detect & Generate)
+                        ↓
 SimBroker (Main API)
 ├── OrderManager (Signal → Order conversion)
 ├── ExecutionSimulator (Fill logic)
