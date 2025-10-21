@@ -26,7 +26,6 @@ from .execution_simulator import ExecutionSimulator, MarketData
 from .account_manager import AccountManager
 from .metrics_engine import MetricsEngine
 from .validators import Validators
-from .signal_exporter import SignalExporter
 
 
 logger = logging.getLogger(__name__)
@@ -53,16 +52,12 @@ class SimBroker:
     # API Version - increment only for breaking changes
     API_VERSION = "1.0.0"
     
-    def __init__(self, config: Optional[BacktestConfig] = None, enable_mt5_export: bool = False,
-                 mt5_symbol: str = "XAUUSD", mt5_timeframe: str = "H1"):
+    def __init__(self, config: Optional[BacktestConfig] = None):
         """
         Initialize SimBroker
         
         Args:
             config: Backtest configuration (uses defaults if None)
-            enable_mt5_export: Enable signal export for MT5 integration
-            mt5_symbol: MT5 symbol name for export
-            mt5_timeframe: MT5 timeframe for export
         """
         self.config = config or BacktestConfig()
         
@@ -72,21 +67,6 @@ class SimBroker:
         self.account_manager = AccountManager(self.config)
         self.metrics_engine = MetricsEngine(self.config)
         self.validators = Validators(self.config)
-        
-        # MT5 Signal Export (Optional)
-        self.enable_mt5_export = enable_mt5_export
-        self.signal_exporter: Optional[SignalExporter] = None
-        if enable_mt5_export:
-            # Direct path to MT5 Experts/signals folder
-            output_dir = Path(r"C:\Users\nyaga\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\Experts\signals")
-            backtest_id = f"BT_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            self.signal_exporter = SignalExporter(
-                output_dir=output_dir,
-                backtest_id=backtest_id,
-                symbol=mt5_symbol,
-                timeframe=mt5_timeframe
-            )
-            logger.info(f"MT5 signal export enabled: {mt5_symbol} {mt5_timeframe} -> {output_dir}")
         
         # State
         self.current_time: Optional[datetime] = None
@@ -151,13 +131,6 @@ class SimBroker:
         if errors:
             logger.error(f"Signal validation failed: {errors}")
             return ""
-        
-        # Export signal to MT5 if enabled
-        if self.enable_mt5_export and self.signal_exporter:
-            # Get stop loss and take profit from signal meta if available
-            stop_loss = signal_obj.meta.get('stop_loss')
-            take_profit = signal_obj.meta.get('take_profit')
-            self.signal_exporter.add_signal(signal_obj, stop_loss, take_profit)
         
         # Create order
         order = self.order_manager.create_order_from_signal(signal_obj)
@@ -441,58 +414,6 @@ class SimBroker:
         self.market_data_cache.clear()
         
         logger.info("SimBroker reset")
-    
-    # =========================================================================
-    # MT5 INTEGRATION METHODS
-    # =========================================================================
-    
-    def export_mt5_signals(self, format: str = "both") -> Optional[Dict[str, Path]]:
-        """
-        Export signals for MT5 integration
-        
-        Args:
-            format: Export format - "csv", "json", or "both"
-        
-        Returns:
-            Dictionary with file paths, or None if export disabled
-        """
-        if not self.enable_mt5_export or not self.signal_exporter:
-            logger.warning("MT5 signal export not enabled")
-            return None
-        
-        # Validate signals
-        warnings = self.signal_exporter.validate_signals()
-        if warnings:
-            logger.warning(f"Signal validation warnings: {warnings}")
-        
-        # Export
-        result = {}
-        if format == "csv":
-            result['csv'] = self.signal_exporter.export_csv()
-        elif format == "json":
-            result['json'] = self.signal_exporter.export_json()
-        else:  # both
-            csv_path, json_path = self.signal_exporter.export_both()
-            result['csv'] = csv_path
-            result['json'] = json_path
-        
-        # Log summary
-        summary = self.signal_exporter.get_summary()
-        logger.info(f"MT5 signal export complete: {summary}")
-        
-        return result
-    
-    def get_mt5_export_summary(self) -> Optional[Dict[str, Any]]:
-        """
-        Get summary of MT5 signal export
-        
-        Returns:
-            Summary dictionary, or None if export disabled
-        """
-        if not self.enable_mt5_export or not self.signal_exporter:
-            return None
-        
-        return self.signal_exporter.get_summary()
 
 
 # Export stable API version
