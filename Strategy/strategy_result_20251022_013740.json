@@ -1,0 +1,101 @@
+{
+  "status": "success",
+  "canonicalized_steps": [
+    "1. EMA strategy: Buy AAPL when the 50 EMA \u2014 the 50 EMA crosses above the 200 EMA \u2192 enter",
+    "2. Stop-loss options: stop_loss_pct (0 \u2014 Stop-loss options: stop_loss_pct (0 \u2192 cancel",
+    "3. Take-profit optional: take_profit_pct 1-5% or t... \u2014 Take-profit optional: take_profit_pct 1-5% or trailing stop using 1-3 x ATR \u2192 cancel"
+  ],
+  "classification": "Type: position, Risk: medium, Instruments: EMA, ATR",
+  "classification_detail": {
+    "type": "position",
+    "risk_tier": "medium",
+    "primary_instruments": [
+      "EMA",
+      "ATR"
+    ]
+  },
+  "recommendations": "1. Add position sizing rule\n   Why: Without sizing, strategy cannot be executed\n\n2. Define stop-loss for risk management\n   Why: Stop-loss prevents unlimited losses\n   Test: stop_loss_pct: 0.5-3%, atr_multiple: 1-3x ATR\n\n3. Include realistic transaction costs in backtests\n   Why: Costs significantly impact profitability, especially with tight stops\n   Test: slippage: 0.05-0.5% per trade, commission: $0.005-$0.01 per share or 0.1% per trade\n\n4. Backtest with walk-forward validation to assess robustness\n   Why: Walk-forward prevents overfitting and validates out-of-sample performance\n   Test: data_frequency: 1h-1d, in_sample_period: 12 months, out_sample_period: 3 months, min_trades: >=100\n\n5. Define take-profit target or trailing stop\n   Why: Locks in profits and improves risk/reward\n   Test: take_profit_pct: 1-5%, risk_reward_ratio: 1.5-3.0",
+  "recommendations_list": [
+    {
+      "title": "Missing position size",
+      "description": "Add position sizing rule",
+      "rationale": "Without sizing, strategy cannot be executed",
+      "priority": 1,
+      "category": "sizing",
+      "test_params": {}
+    },
+    {
+      "title": "Add stop-loss rule",
+      "description": "Define stop-loss for risk management",
+      "rationale": "Stop-loss prevents unlimited losses",
+      "priority": 1,
+      "category": "risk",
+      "test_params": {
+        "stop_loss_pct": "0.5-3%",
+        "atr_multiple": "1-3x ATR"
+      }
+    },
+    {
+      "title": "Model slippage and commissions",
+      "description": "Include realistic transaction costs in backtests",
+      "rationale": "Costs significantly impact profitability, especially with tight stops",
+      "priority": 1,
+      "category": "testing",
+      "test_params": {
+        "slippage": "0.05-0.5% per trade",
+        "commission": "$0.005-$0.01 per share or 0.1% per trade"
+      }
+    },
+    {
+      "title": "Run walk-forward analysis",
+      "description": "Backtest with walk-forward validation to assess robustness",
+      "rationale": "Walk-forward prevents overfitting and validates out-of-sample performance",
+      "priority": 1,
+      "category": "testing",
+      "test_params": {
+        "data_frequency": "1h-1d",
+        "in_sample_period": "12 months",
+        "out_sample_period": "3 months",
+        "min_trades": ">=100"
+      }
+    },
+    {
+      "title": "Add take-profit rule",
+      "description": "Define take-profit target or trailing stop",
+      "rationale": "Locks in profits and improves risk/reward",
+      "priority": 2,
+      "category": "risk",
+      "test_params": {
+        "take_profit_pct": "1-5%",
+        "risk_reward_ratio": "1.5-3.0"
+      }
+    }
+  ],
+  "confidence": "medium",
+  "next_actions": [
+    "Review recommendations",
+    "Approve -> Generate code"
+  ],
+  "warnings": [
+    "No stop-loss detected. This could lead to unlimited losses.",
+    "No dynamic position sizing detected. Consider risk-based sizing."
+  ],
+  "canonical_json": "{\"strategy_id\":\"strat-20251022-960f8c90\",\"version\":\"0.1.0\",\"title\":\"EMA_50/EMA_200 EMA strategy: Buy AAPL when the 50 EMA\",\"description\":\"\",\"classification\":{\"type\":\"position\",\"risk_tier\":\"medium\",\"primary_instruments\":[\"EMA\",\"ATR\"]},\"steps\":[{\"step_id\":\"s1\",\"order\":1,\"title\":\"EMA strategy: Buy AAPL when the 50 EMA\",\"trigger\":\"the 50 EMA crosses above the 200 EMA\",\"action\":{\"type\":\"enter\",\"order_type\":\"market\",\"instrument\":\"EMA\"},\"condition\":\"the 50 EMA crosses above the 200 EMA\",\"params\":[{\"name\":\"ema_50\",\"value\":50},{\"name\":\"ema_200\",\"value\":200},{\"name\":\"ema_50\",\"value\":50},{\"name\":\"ema_200\",\"value\":200}],\"notes\":\"Original: EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, sell when the 50 EMA crosses below the 200 EMA\"},{\"step_id\":\"s2\",\"order\":2,\"title\":\"Stop-loss options: stop_loss_pct (0\",\"trigger\":\"Stop-loss options: stop_loss_pct (0\",\"action\":{\"type\":\"cancel\",\"order_type\":\"stop\"},\"notes\":\"Original: Stop-loss options: stop_loss_pct (0\"},{\"step_id\":\"s3\",\"order\":3,\"title\":\"Take-profit optional: take_profit_pct 1-5% or t...\",\"trigger\":\"Take-profit optional: take_profit_pct 1-5% or trailing stop using 1-3 x ATR\",\"action\":{\"type\":\"cancel\",\"order_type\":\"stop\",\"instrument\":\"ATR\"},\"notes\":\"Original: Take-profit optional: take_profit_pct 1-5% or trailing stop using 1-3 x ATR\"}],\"provenance\":{\"sources\":[{\"fetched_at\":\"2025-10-22T01:37:35.257630\",\"type\":\"user_input\",\"author\":\"test_user\",\"snippet\":\"EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, sell when the 50 EMA crosses below the 200 EMA. Position sizing required. Position sizing: risk 1% of portfolio per trade (configurabl\"}]},\"metadata\":{\"created_at\":\"2025-10-22T01:37:35.257630\",\"created_by\":\"user:test_user\",\"last_updated\":\"2025-10-22T01:37:35.270565\",\"confidence\":\"medium\"}}",
+  "canonical_json_formatted": "{\n  \"strategy_id\": \"strat-20251022-960f8c90\",\n  \"version\": \"0.1.0\",\n  \"title\": \"EMA_50/EMA_200 EMA strategy: Buy AAPL when the 50 EMA\",\n  \"description\": \"\",\n  \"classification\": {\n    \"type\": \"position\",\n    \"risk_tier\": \"medium\",\n    \"primary_instruments\": [\n      \"EMA\",\n      \"ATR\"\n    ]\n  },\n  \"steps\": [\n    {\n      \"step_id\": \"s1\",\n      \"order\": 1,\n      \"title\": \"EMA strategy: Buy AAPL when the 50 EMA\",\n      \"trigger\": \"the 50 EMA crosses above the 200 EMA\",\n      \"action\": {\n        \"type\": \"enter\",\n        \"order_type\": \"market\",\n        \"instrument\": \"EMA\"\n      },\n      \"condition\": \"the 50 EMA crosses above the 200 EMA\",\n      \"params\": [\n        {\n          \"name\": \"ema_50\",\n          \"value\": 50\n        },\n        {\n          \"name\": \"ema_200\",\n          \"value\": 200\n        },\n        {\n          \"name\": \"ema_50\",\n          \"value\": 50\n        },\n        {\n          \"name\": \"ema_200\",\n          \"value\": 200\n        }\n      ],\n      \"notes\": \"Original: EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, sell when the 50 EMA crosses below the 200 EMA\"\n    },\n    {\n      \"step_id\": \"s2\",\n      \"order\": 2,\n      \"title\": \"Stop-loss options: stop_loss_pct (0\",\n      \"trigger\": \"Stop-loss options: stop_loss_pct (0\",\n      \"action\": {\n        \"type\": \"cancel\",\n        \"order_type\": \"stop\"\n      },\n      \"notes\": \"Original: Stop-loss options: stop_loss_pct (0\"\n    },\n    {\n      \"step_id\": \"s3\",\n      \"order\": 3,\n      \"title\": \"Take-profit optional: take_profit_pct 1-5% or t...\",\n      \"trigger\": \"Take-profit optional: take_profit_pct 1-5% or trailing stop using 1-3 x ATR\",\n      \"action\": {\n        \"type\": \"cancel\",\n        \"order_type\": \"stop\",\n        \"instrument\": \"ATR\"\n      },\n      \"notes\": \"Original: Take-profit optional: take_profit_pct 1-5% or trailing stop using 1-3 x ATR\"\n    }\n  ],\n  \"provenance\": {\n    \"sources\": [\n      {\n        \"fetched_at\": \"2025-10-22T01:37:35.257630\",\n        \"type\": \"user_input\",\n        \"author\": \"test_user\",\n        \"snippet\": \"EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, sell when the 50 EMA crosses below the 200 EMA. Position sizing required. Position sizing: risk 1% of portfolio per trade (configurabl\"\n      }\n    ]\n  },\n  \"metadata\": {\n    \"created_at\": \"2025-10-22T01:37:35.257630\",\n    \"created_by\": \"user:test_user\",\n    \"last_updated\": \"2025-10-22T01:37:35.270565\",\n    \"confidence\": \"medium\"\n  }\n}",
+  "metadata": {
+    "created_at": "2025-10-22T01:37:35.257630",
+    "created_by": "user:test_user",
+    "last_updated": "2025-10-22T01:37:35.270565",
+    "confidence": "medium"
+  },
+  "provenance": {
+    "sources": [
+      {
+        "fetched_at": "2025-10-22T01:37:35.257630",
+        "type": "user_input",
+        "author": "test_user",
+        "snippet": "EMA strategy: Buy AAPL when the 50 EMA crosses above the 200 EMA, sell when the 50 EMA crosses below the 200 EMA. Position sizing required. Position sizing: risk 1% of portfolio per trade (configurabl"
+      }
+    ]
+  }
+}
