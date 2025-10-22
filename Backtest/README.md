@@ -6,9 +6,35 @@
 
 ---
 
+## 🚀 Quick Links
+
+- **[Strategy Manager](STRATEGY_MANAGER.md)** - Automatic code generation from JSON strategies
+- **[Quick Start Guide](QUICK_START_GUIDE.md)** - Get started in minutes
+- **[API Reference](API_REFERENCE.md)** - Complete API documentation
+- **[Gemini Integration](GEMINI_INTEGRATION_GUIDE.md)** - AI strategy generation
+
+---
+
 ## Overview
 
 SimBroker is a production-ready, immutable backtesting framework designed specifically for AI-generated trading strategies. It provides a stable API that **MUST NOT be modified** by strategy code, ensuring reproducible, reliable backtesting results.
+
+### ✨ New: Strategy Manager
+
+Automatically generate and manage Python backtest code from JSON strategy definitions:
+
+```bash
+# Check which strategies need code
+python strategy_manager.py --status
+
+# Generate missing implementations  
+python strategy_manager.py --generate
+
+# Run backtests
+python strategy_manager.py --run my_strategy
+```
+
+See **[STRATEGY_MANAGER.md](STRATEGY_MANAGER.md)** for complete guide.
 
 ## Key Features
 
@@ -19,10 +45,15 @@ SimBroker is a production-ready, immutable backtesting framework designed specif
 ✅ **Risk Guardrails** - Position limits, leverage checks, drawdown stops  
 ✅ **Deterministic** - Same inputs always produce same outputs  
 ✅ **AI-Friendly** - Designed for code generation pipelines  
+✅ **Auto-Generation** - JSON strategies → Python code automatically
 
 ## Architecture
 
 ```
+Strategy Module → JSON Strategy Definitions
+                        ↓
+                Strategy Manager (Auto-detect & Generate)
+                        ↓
 SimBroker (Main API)
 ├── OrderManager (Signal → Order conversion)
 ├── ExecutionSimulator (Fill logic)
@@ -80,7 +111,34 @@ metrics = broker.compute_metrics()
 broker.export_trades("trades.csv")
 ```
 
-### 3. Run Example
+### 3. MT5 Integration (Optional)
+
+Enable MetaTrader5 signal export for validation:
+
+```python
+# Initialize with MT5 export enabled
+broker = SimBroker(
+    config=config,
+    enable_mt5_export=True,
+    mt5_symbol="XAUUSD",
+    mt5_timeframe="H1"
+)
+
+# Run your backtest...
+# broker.submit_signal(...)
+# broker.step_to(...)
+
+# Export signals to MT5 format
+broker.export_mt5_signals(format="csv")  # or "json"
+
+# Get export summary
+summary = broker.get_mt5_export_summary()
+print(f"Exported {summary['total_signals']} signals")
+```
+
+**📖 See [`MT5_QUICK_REFERENCE.md`](MT5_QUICK_REFERENCE.md) for complete MT5 setup and workflow.**
+
+### 4. Run Example
 
 ```bash
 cd Backtest
@@ -122,10 +180,10 @@ Or manually create using the template in `STRATEGY_TEMPLATE.md`.
 ### Example Strategies
 
 All examples use the correct import pattern:
-- `example_strategy.py` - Moving average crossover
-- `rsi_strategy.py` - RSI-based trading
-- `ema_strategy.py` - EMA crossover
-- `codes/my_strategy.py` - Your custom strategies
+- `example_strategy.py` - Moving average crossover (reference implementation)
+- `example_mt5_integration.py` - MT5 integration workflow
+- `example_gemini_strategy.py` - AI-generated strategy example
+- `codes/` - Your custom generated strategies
 
 ## Stable API
 
@@ -440,6 +498,34 @@ Future enhancements (non-breaking):
 - [ ] Interactive dashboard
 - [ ] Multi-currency support
 - [ ] Event-driven simulation
+
+---
+
+## 📚 Documentation
+
+### Core Documentation
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Complete SimBroker API reference
+- **[QUICK_START_GUIDE.md](QUICK_START_GUIDE.md)** - Step-by-step getting started
+- **[STRATEGY_TEMPLATE.md](STRATEGY_TEMPLATE.md)** - Template for creating strategies
+- **[MODULE_STRUCTURE.md](MODULE_STRUCTURE.md)** - Complete module overview
+
+### MT5 Integration
+- **[MT5_QUICK_REFERENCE.md](MT5_QUICK_REFERENCE.md)** - 5-minute MT5 setup guide ⚡
+- **[MQL5_SETUP_GUIDE.md](MQL5_SETUP_GUIDE.md)** - Complete step-by-step setup procedure
+- **[MQL5_CODE_SPECIFICATION.md](MQL5_CODE_SPECIFICATION.md)** - AI code generation specification
+- **[MT5_INTEGRATION_GUIDE.md](MT5_INTEGRATION_GUIDE.md)** - Complete MT5 integration guide
+- **[README_MT5_INTEGRATION.md](README_MT5_INTEGRATION.md)** - MT5 executive summary
+
+### AI Strategy Generation
+- **[GEMINI_INTEGRATION_GUIDE.md](GEMINI_INTEGRATION_GUIDE.md)** - Gemini AI integration
+- **[SYSTEM_PROMPT.md](SYSTEM_PROMPT.md)** - AI system prompt for strategies
+
+### Example Code
+- **[example_strategy.py](example_strategy.py)** - Reference MA crossover strategy
+- **[example_mt5_integration.py](example_mt5_integration.py)** - Complete MT5 workflow
+- **[example_gemini_strategy.py](example_gemini_strategy.py)** - AI-generated example
+
+---
 
 ## License
 

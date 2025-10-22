@@ -1,15 +1,14 @@
-﻿"""
+"""
 Interactive Strategy Tester - User-friendly interface to test strategy validation
 Allows users to interact with the system as they would in production.
 """
 
 import sys
 import os
-import re
+from pathlib import Path
 from datetime import datetime
 import json
 from typing import Dict
-from pathlib import Path
 
 # Add Strategy directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -292,7 +291,7 @@ class InteractiveStrategyTester:
         
         print("\nWhat would you like to do next?")
         print("1. View canonical JSON")
-        print("2. Save canonical JSON to Backtest/codes/")
+        print("2. Save results to file")
         print("3. Modify strategy")
         print("4. Return to main menu")
         
@@ -326,124 +325,19 @@ class InteractiveStrategyTester:
         
         print("\n" + "=" * 80)
         input("\nPress Enter to continue...")
-
-    def generate_strategy_filename(self, result: Dict) -> str:
-        """
-        Generate AI-recommended filename based on strategy content.
-        Max 8 words, separated by underscores.
-        
-        Args:
-            result: Strategy validation result
-            
-        Returns:
-            Filename without extension (e.g., "ema_crossover_trend_following")
-        """
-        try:
-            # Try to extract strategy data from canonical JSON
-            canonical_json = result.get("canonical_json", "{}")
-            if isinstance(canonical_json, str):
-                strategy_data = json.loads(canonical_json)
-            else:
-                strategy_data = canonical_json
-            
-            # Try multiple fields for strategy name
-            strategy_name = (
-                strategy_data.get("strategy_name", "") or 
-                strategy_data.get("title", "") or
-                strategy_data.get("description", "")
-            )
-            
-            # If we have a bot with Gemini enabled, use AI to generate a better name
-            if self.bot and self.bot.use_gemini and self.bot.gemini:
-                try:
-                    # Create a concise summary of the strategy for AI
-                    strategy_summary = {
-                        "title": strategy_data.get("title", ""),
-                        "classification": strategy_data.get("classification", {}),
-                        "steps": strategy_data.get("steps", [])[:2]  # First 2 steps only
-                    }
-                    
-                    prompt = f"""Generate a short, descriptive filename (max 8 words) for this trading strategy.
-The filename should be lowercase, words separated by underscores, no special characters.
-Focus on the key indicators and strategy type.
-
-Strategy info:
-{json.dumps(strategy_summary, indent=2)}
-
-Return ONLY the filename (no extension, no extra text).
-Examples: "ema_crossover_trend_following", "rsi_mean_reversion_scalping", "bollinger_breakout_momentum"
-"""
-                    
-                    ai_name = self.bot.gemini.model.generate_content(prompt).text.strip()
-                    # Clean the AI response
-                    ai_name = re.sub(r'[^a-zA-Z0-9\s_]', '', ai_name.lower())
-                    ai_name = re.sub(r'\s+', '_', ai_name)  # Replace spaces with underscores
-                    ai_name = re.sub(r'_+', '_', ai_name)  # Remove duplicate underscores
-                    
-                    # Ensure max 8 words
-                    words = ai_name.split('_')[:8]
-                    if len(words) > 0 and all(len(w) > 0 for w in words):
-                        return '_'.join(words)
-                except Exception as e:
-                    print(f"⚠ AI naming failed, using fallback: {e}")
-            
-            # Fallback to extracting from title/description
-            if strategy_name:
-                # Clean and format the name
-                clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', strategy_name.lower())
-                # Split into words and take max 8
-                words = clean_name.split()[:8]
-                filename = "_".join(words)
-                
-                if filename:
-                    return filename
-                    
-        except Exception as e:
-            print(f"⚠ Could not generate AI filename: {e}")
-        
-        # Final fallback to timestamp-based name
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"strategy_{timestamp}"
-
-
     
     def save_results(self, result: Dict):
-        """Save canonical JSON to Backtest/codes/ folder with AI-recommended filename."""
-        # Generate AI-recommended filename
-        base_filename = self.generate_strategy_filename(result)
-        
-        # Create path to Backtest/codes/ directory
-        strategy_dir = Path(__file__).parent
-        backtest_codes_dir = strategy_dir.parent / "Backtest" / "codes"
-        
-        # Create directory if it doesn't exist
-        backtest_codes_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Full path for the file
-        filepath = backtest_codes_dir / f"{base_filename}.json"
-        
-        # If file exists, append a number
-        counter = 1
-        while filepath.exists():
-            filepath = backtest_codes_dir / f"{base_filename}_{counter}.json"
-            counter += 1
+        """Save results to file."""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"strategy_result_{timestamp}.json"
         
         try:
-            # Extract and save only the canonical JSON
-            canonical_json = result.get("canonical_json", "{}")
-            if isinstance(canonical_json, str):
-                json_data = json.loads(canonical_json)
-            else:
-                json_data = canonical_json
-            
-            with open(filepath, 'w') as f:
-                json.dump(json_data, f, indent=2)
-            
-            print(f"\n✓ Canonical JSON saved to: {filepath}")
-            print(f"   Location: Backtest/codes/{filepath.name}")
+            with open(filename, 'w') as f:
+                json.dump(result, f, indent=2)
+            print(f"\n✓ Results saved to: {filename}")
         except Exception as e:
             print(f"\n❌ Error saving file: {e}")
-    
+        
         input("\nPress Enter to continue...")
     
     def view_session_history(self):
@@ -563,6 +457,8 @@ For more information, see the Strategy/README.md file.
                 break
             else:
                 print("\n⚠ Invalid option. Please select 1-8.")
+
+
 def main():
     """Main entry point."""
     tester = InteractiveStrategyTester()

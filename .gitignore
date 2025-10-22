@@ -134,4 +134,4 @@ temp/
 tmp/
 *.tmp
 *.temp
-
+*db
