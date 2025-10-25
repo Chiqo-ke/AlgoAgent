@@ -1,0 +1,668 @@
+{
+	"info": {
+		"_postman_id": "backtest-api-collection-uuid",
+		"name": "AlgoAgent - Backtest API",
+		"description": "Complete collection for testing AlgoAgent Backtest API endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "backtestApiBase",
+			"value": "{{baseUrl}}/api/backtests",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health & Status",
+			"item": [
+				{
+					"name": "Backtest API Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/api/health/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "health", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Backtest Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/api/status/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "status", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Backtest Execution",
+			"item": [
+				{
+					"name": "Run Simple Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_id\": 1,\n    \"symbol\": \"AAPL\",\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"initial_capital\": 10000,\n    \"config\": {\n        \"commission\": 0.001,\n        \"slippage\": 0.001\n    }\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/run_backtest/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "run_backtest", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Run Advanced Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_id\": 1,\n    \"symbol\": \"AAPL\",\n    \"start_date\": \"2023-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"initial_capital\": 50000,\n    \"config\": {\n        \"commission\": 0.001,\n        \"slippage\": 0.002,\n        \"benchmark\": \"SPY\",\n        \"risk_free_rate\": 0.02,\n        \"data_frequency\": \"daily\",\n        \"transaction_costs\": {\n            \"per_share\": 0.01,\n            \"minimum\": 1.0\n        },\n        \"market_impact\": {\n            \"model\": \"linear\",\n            \"factor\": 0.1\n        },\n        \"position_limits\": {\n            \"max_position_size\": 0.2,\n            \"max_leverage\": 1.0\n        }\n    },\n    \"custom_parameters\": {\n        \"lookback_period\": 20,\n        \"rebalance_frequency\": \"monthly\",\n        \"stop_loss\": 0.05,\n        \"take_profit\": 0.15\n    }\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/run_backtest/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "run_backtest", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Run Multi-Symbol Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_id\": 2,\n    \"symbols\": [\"AAPL\", \"GOOGL\", \"MSFT\", \"TSLA\"],\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"initial_capital\": 100000,\n    \"config\": {\n        \"commission\": 0.001,\n        \"slippage\": 0.001,\n        \"rebalance_frequency\": \"weekly\",\n        \"allocation_method\": \"equal_weight\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/run_backtest/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "run_backtest", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Run Quick Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_code\": \"# Quick test strategy\\ndef initialize(context):\\n    context.asset = 'AAPL'\\n    context.invested = False\\n\\ndef handle_data(context, data):\\n    if not context.invested:\\n        order_target_percent(context.asset, 1.0)\\n        context.invested = True\",\n    \"symbol\": \"AAPL\",\n    \"start_date\": \"2024-06-01\",\n    \"end_date\": \"2024-12-31\",\n    \"initial_capital\": 10000\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/quick_backtest/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "quick_backtest", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Backtest Management",
+			"item": [
+				{
+					"name": "List All Backtests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Backtest by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Filter Backtests by Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/?status=completed",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", ""],
+							"query": [
+								{
+									"key": "status",
+									"value": "completed"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Filter Backtests by Strategy",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/?strategy_id=1",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", ""],
+							"query": [
+								{
+									"key": "strategy_id",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Filter Backtests by Date Range",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/?created_after=2024-01-01&created_before=2024-12-31",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", ""],
+							"query": [
+								{
+									"key": "created_after",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "created_before",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Backtest",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Results & Analytics",
+			"item": [
+				{
+					"name": "Get Backtest Results",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/results/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "results", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Results Summary",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/summary/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "summary", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Performance Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/metrics/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "metrics", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Equity Curve",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/equity_curve/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "equity_curve", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Results",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/results/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["results", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Result by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/results/1/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["results", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Trade Analysis",
+			"item": [
+				{
+					"name": "Get All Trades",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/trades/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "trades", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Winning Trades",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/trades/?backtest_run=1&profit__gt=0",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["trades", ""],
+							"query": [
+								{
+									"key": "backtest_run",
+									"value": "1"
+								},
+								{
+									"key": "profit__gt",
+									"value": "0"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Losing Trades",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/trades/?backtest_run=1&profit__lt=0",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["trades", ""],
+							"query": [
+								{
+									"key": "backtest_run",
+									"value": "1"
+								},
+								{
+									"key": "profit__lt",
+									"value": "0"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Trades by Symbol",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/trades/?symbol=AAPL",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["trades", ""],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Trade by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/trades/1/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["trades", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Trade Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/trade_stats/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "trade_stats", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Comparison & Analysis",
+			"item": [
+				{
+					"name": "Compare Strategies",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_ids\": [1, 2],\n    \"symbol\": \"AAPL\",\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"metrics\": [\"total_return\", \"sharpe_ratio\", \"max_drawdown\", \"volatility\"]\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/compare_strategies/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "compare_strategies", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Compare Backtests",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"backtest_ids\": [1, 2, 3],\n    \"comparison_type\": \"performance\",\n    \"metrics\": [\"total_return\", \"sharpe_ratio\", \"max_drawdown\"]\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/compare_backtests/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "compare_backtests", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Risk Analysis",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/risk_analysis/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "risk_analysis", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Drawdown Analysis",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/drawdown_analysis/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "drawdown_analysis", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Reports & Export",
+			"item": [
+				{
+					"name": "Generate Full Report",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"backtest_id\": 1,\n    \"report_type\": \"comprehensive\",\n    \"include_charts\": true,\n    \"include_trades\": true,\n    \"format\": \"json\"\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/api/generate_report/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "generate_report", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Export Backtest Data",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/export/?format=csv",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "export", ""],
+							"query": [
+								{
+									"key": "format",
+									"value": "csv"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Export Trade List",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/export_trades/?format=csv",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "export_trades", ""],
+							"query": [
+								{
+									"key": "format",
+									"value": "csv"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Download Performance Charts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/charts/?chart_type=equity_curve",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "charts", ""],
+							"query": [
+								{
+									"key": "chart_type",
+									"value": "equity_curve"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Real-time Monitoring",
+			"item": [
+				{
+					"name": "Get Running Backtests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/api/running_backtests/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["api", "running_backtests", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Backtest Progress",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/progress/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "progress", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Running Backtest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason\": \"User requested cancellation\"\n}"
+						},
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/cancel/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "cancel", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Restart Failed Backtest",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{backtestApiBase}}/backtests/1/restart/",
+							"host": ["{{backtestApiBase}}"],
+							"path": ["backtests", "1", "restart", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

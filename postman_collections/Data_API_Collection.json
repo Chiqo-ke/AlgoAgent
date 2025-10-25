@@ -1,0 +1,432 @@
+{
+	"info": {
+		"_postman_id": "data-api-collection-uuid",
+		"name": "AlgoAgent - Data API",
+		"description": "Complete collection for testing AlgoAgent Data API endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "dataApiBase",
+			"value": "{{baseUrl}}/api/data",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health & Status",
+			"item": [
+				{
+					"name": "API Root",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Data API Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/api/health/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["api", "health", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Available Indicators",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/api/available_indicators/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["api", "available_indicators", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Symbol Management",
+			"item": [
+				{
+					"name": "List All Symbols",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Single Symbol",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": \"AAPL\",\n    \"name\": \"Apple Inc.\",\n    \"exchange\": \"NASDAQ\",\n    \"sector\": \"Technology\",\n    \"industry\": \"Consumer Electronics\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bulk Create Symbols",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbols\": [\n        {\n            \"symbol\": \"MSFT\",\n            \"name\": \"Microsoft Corporation\",\n            \"exchange\": \"NASDAQ\",\n            \"sector\": \"Technology\"\n        },\n        {\n            \"symbol\": \"GOOGL\",\n            \"name\": \"Alphabet Inc.\",\n            \"exchange\": \"NASDAQ\",\n            \"sector\": \"Technology\"\n        },\n        {\n            \"symbol\": \"TSLA\",\n            \"name\": \"Tesla Inc.\",\n            \"exchange\": \"NASDAQ\",\n            \"sector\": \"Automotive\"\n        }\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/bulk_create/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", "bulk_create", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Symbols",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/search/?q=Apple",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", "search", ""],
+							"query": [
+								{
+									"key": "q",
+									"value": "Apple"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Symbol by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/1/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Symbol",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": \"AAPL\",\n    \"name\": \"Apple Inc. (Updated)\",\n    \"exchange\": \"NASDAQ\",\n    \"sector\": \"Technology\",\n    \"industry\": \"Consumer Electronics\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/symbols/1/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["symbols", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Market Data",
+			"item": [
+				{
+					"name": "Fetch Market Data",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": \"AAPL\",\n    \"period\": \"1mo\",\n    \"interval\": \"1d\",\n    \"indicators\": [\"sma\", \"rsi\", \"macd\"]\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/api/fetch_data/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["api", "fetch_data", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Market Data",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/market-data/?symbol=AAPL&interval=1d",
+							"host": ["{{dataApiBase}}"],
+							"path": ["market-data", ""],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								},
+								{
+									"key": "interval",
+									"value": "1d"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Market Data with Date Range",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/market-data/?symbol=AAPL&start_date=2024-01-01&end_date=2024-12-31",
+							"host": ["{{dataApiBase}}"],
+							"path": ["market-data", ""],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								},
+								{
+									"key": "start_date",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Market Data Entry",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": 1,\n    \"timestamp\": \"2024-01-02T09:30:00Z\",\n    \"open_price\": \"150.00\",\n    \"high_price\": \"155.00\",\n    \"low_price\": \"149.00\",\n    \"close_price\": \"154.50\",\n    \"volume\": 1000000,\n    \"adj_close\": \"154.50\",\n    \"interval\": \"1d\"\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/market-data/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["market-data", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Indicators",
+			"item": [
+				{
+					"name": "List All Indicators",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/indicators/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["indicators", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Indicator",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"sma\",\n    \"display_name\": \"Simple Moving Average\",\n    \"description\": \"A simple moving average of closing prices\",\n    \"category\": \"trend\",\n    \"parameters\": {\n        \"period\": 20\n    },\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/indicators/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["indicators", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Calculate Indicator",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": \"AAPL\",\n    \"indicator\": \"sma\",\n    \"parameters\": {\n        \"period\": 20\n    },\n    \"period\": \"1mo\",\n    \"interval\": \"1d\"\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/api/calculate_indicator/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["api", "calculate_indicator", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Indicator Categories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/indicators/categories/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["indicators", "categories", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Indicator Data",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/indicator-data/?symbol=AAPL&indicator=sma",
+							"host": ["{{dataApiBase}}"],
+							"path": ["indicator-data", ""],
+							"query": [
+								{
+									"key": "symbol",
+									"value": "AAPL"
+								},
+								{
+									"key": "indicator",
+									"value": "sma"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Data Requests",
+			"item": [
+				{
+					"name": "List Data Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/data-requests/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["data-requests", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Data Request",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"symbol\": 1,\n    \"period\": \"1y\",\n    \"interval\": \"1d\",\n    \"status\": \"pending\"\n}"
+						},
+						"url": {
+							"raw": "{{dataApiBase}}/data-requests/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["data-requests", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Data Request by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{dataApiBase}}/data-requests/1/",
+							"host": ["{{dataApiBase}}"],
+							"path": ["data-requests", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

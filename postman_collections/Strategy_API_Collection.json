@@ -1,0 +1,592 @@
+{
+	"info": {
+		"_postman_id": "strategy-api-collection-uuid",
+		"name": "AlgoAgent - Strategy API",
+		"description": "Complete collection for testing AlgoAgent Strategy API endpoints",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "strategyApiBase",
+			"value": "{{baseUrl}}/api/strategies",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health & Status",
+			"item": [
+				{
+					"name": "Strategy API Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/api/health/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "health", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Strategy Categories",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/api/categories/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "categories", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Strategy Templates",
+			"item": [
+				{
+					"name": "List All Templates",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Strategy Template",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Momentum Strategy Template\",\n    \"description\": \"A template for momentum-based trading strategies\",\n    \"category\": \"momentum\",\n    \"template_code\": \"# Momentum Strategy Template\\ndef initialize(context):\\n    context.lookback = {{lookback|default:20}}\\n    context.threshold = {{threshold|default:0.02}}\\n\\ndef handle_data(context, data):\\n    # Template implementation\\n    pass\",\n    \"parameters_schema\": {\n        \"lookback\": {\n            \"type\": \"integer\",\n            \"default\": 20,\n            \"min\": 5,\n            \"max\": 100\n        },\n        \"threshold\": {\n            \"type\": \"number\",\n            \"default\": 0.02,\n            \"min\": 0.01,\n            \"max\": 0.1\n        }\n    },\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Template by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Template",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Updated Momentum Strategy Template\",\n    \"description\": \"An updated template for momentum-based trading strategies\",\n    \"category\": \"momentum\",\n    \"template_code\": \"# Updated Momentum Strategy Template\\ndef initialize(context):\\n    context.lookback = {{lookback|default:20}}\\n    context.threshold = {{threshold|default:0.02}}\\n    context.stop_loss = {{stop_loss|default:0.05}}\\n\\ndef handle_data(context, data):\\n    # Updated template implementation\\n    pass\",\n    \"parameters_schema\": {\n        \"lookback\": {\n            \"type\": \"integer\",\n            \"default\": 20\n        },\n        \"threshold\": {\n            \"type\": \"number\",\n            \"default\": 0.02\n        },\n        \"stop_loss\": {\n            \"type\": \"number\",\n            \"default\": 0.05\n        }\n    },\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Strategy Management",
+			"item": [
+				{
+					"name": "List All Strategies",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Strategy (Simple)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Simple Buy and Hold\",\n    \"description\": \"A basic buy and hold strategy for testing\",\n    \"strategy_code\": \"# Simple Buy and Hold Strategy\\ndef initialize(context):\\n    context.asset = 'AAPL'\\n    context.invested = False\\n\\ndef handle_data(context, data):\\n    if not context.invested:\\n        order_target_percent(context.asset, 1.0)\\n        context.invested = True\",\n    \"parameters\": {\n        \"asset\": \"AAPL\",\n        \"target_percent\": 1.0\n    },\n    \"tags\": [\"simple\", \"buy-hold\", \"test\"],\n    \"timeframe\": \"1d\",\n    \"risk_level\": \"low\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/create_strategy/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "create_strategy", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Strategy (Advanced)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"RSI Mean Reversion Strategy\",\n    \"description\": \"A strategy that uses RSI for mean reversion trading\",\n    \"template_id\": 1,\n    \"strategy_code\": \"# RSI Mean Reversion Strategy\\nimport numpy as np\\n\\ndef initialize(context):\\n    context.asset = 'AAPL'\\n    context.rsi_period = 14\\n    context.rsi_oversold = 30\\n    context.rsi_overbought = 70\\n    context.position_size = 0.1\\n\\ndef handle_data(context, data):\\n    # Get current price\\n    current_price = data.current(context.asset, 'price')\\n    \\n    # Calculate RSI (simplified)\\n    price_history = data.history(context.asset, 'price', context.rsi_period + 1, '1d')\\n    gains = price_history.diff().fillna(0)\\n    gains[gains < 0] = 0\\n    losses = -price_history.diff().fillna(0)\\n    losses[losses < 0] = 0\\n    \\n    avg_gain = gains.rolling(context.rsi_period).mean().iloc[-1]\\n    avg_loss = losses.rolling(context.rsi_period).mean().iloc[-1]\\n    \\n    if avg_loss == 0:\\n        rsi = 100\\n    else:\\n        rs = avg_gain / avg_loss\\n        rsi = 100 - (100 / (1 + rs))\\n    \\n    # Trading logic\\n    current_position = context.portfolio.positions[context.asset].amount\\n    \\n    if rsi < context.rsi_oversold and current_position <= 0:\\n        # Buy signal\\n        order_target_percent(context.asset, context.position_size)\\n        log.info(f'Buying {context.asset} - RSI: {rsi:.2f}')\\n    \\n    elif rsi > context.rsi_overbought and current_position > 0:\\n        # Sell signal\\n        order_target_percent(context.asset, 0)\\n        log.info(f'Selling {context.asset} - RSI: {rsi:.2f}')\",\n    \"parameters\": {\n        \"asset\": \"AAPL\",\n        \"rsi_period\": 14,\n        \"rsi_oversold\": 30,\n        \"rsi_overbought\": 70,\n        \"position_size\": 0.1\n    },\n    \"tags\": [\"rsi\", \"mean-reversion\", \"technical\"],\n    \"timeframe\": \"1d\",\n    \"risk_level\": \"medium\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/create_strategy/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "create_strategy", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Strategy by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Strategy",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Updated Simple Buy and Hold\",\n    \"description\": \"An updated buy and hold strategy with stop loss\",\n    \"strategy_code\": \"# Updated Simple Buy and Hold Strategy\\ndef initialize(context):\\n    context.asset = 'AAPL'\\n    context.invested = False\\n    context.stop_loss = 0.05  # 5% stop loss\\n\\ndef handle_data(context, data):\\n    current_price = data.current(context.asset, 'price')\\n    \\n    if not context.invested:\\n        order_target_percent(context.asset, 1.0)\\n        context.invested = True\\n        context.entry_price = current_price\\n    else:\\n        # Check stop loss\\n        if current_price < context.entry_price * (1 - context.stop_loss):\\n            order_target_percent(context.asset, 0)\\n            context.invested = False\",\n    \"parameters\": {\n        \"asset\": \"AAPL\",\n        \"target_percent\": 1.0,\n        \"stop_loss\": 0.05\n    },\n    \"tags\": [\"simple\", \"buy-hold\", \"stop-loss\"],\n    \"timeframe\": \"1d\",\n    \"risk_level\": \"low\",\n    \"status\": \"draft\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", "1", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Filter Strategies by Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/?status=valid",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", ""],
+							"query": [
+								{
+									"key": "status",
+									"value": "valid"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Strategies",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/?search=RSI",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", ""],
+							"query": [
+								{
+									"key": "search",
+									"value": "RSI"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Strategy Validation",
+			"item": [
+				{
+					"name": "Validate Strategy",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_id\": 1,\n    \"validation_types\": [\"syntax\", \"logic\", \"security\"],\n    \"config\": {\n        \"strict_mode\": false,\n        \"use_gemini\": true\n    }\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/1/validate_strategy/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", "1", "validate_strategy", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Validation History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/1/validation_history/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", "1", "validation_history", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Validations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/validations/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["validations", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Validation by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/validations/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["validations", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "AI Code Generation",
+			"item": [
+				{
+					"name": "Generate Strategy Code",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_description\": \"Create a momentum strategy that buys when the 20-day moving average crosses above the 50-day moving average and sells when it crosses below. Include a 3% stop loss.\",\n    \"template_id\": 1,\n    \"parameters\": {\n        \"short_ma\": 20,\n        \"long_ma\": 50,\n        \"stop_loss\": 0.03\n    },\n    \"use_gemini\": true\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/generate_code/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "generate_code", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Generate Simple Strategy",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_description\": \"Create a simple buy and hold strategy for Apple stock that invests 100% of the portfolio and holds indefinitely.\",\n    \"parameters\": {\n        \"symbol\": \"AAPL\",\n        \"allocation\": 1.0\n    },\n    \"use_gemini\": false\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/generate_code/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "generate_code", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Advanced Search",
+			"item": [
+				{
+					"name": "Advanced Strategy Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"momentum\",\n    \"category\": \"momentum\",\n    \"tags\": [\"rsi\", \"moving-average\"],\n    \"status\": \"valid\",\n    \"risk_level\": \"medium\",\n    \"timeframe\": \"1d\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/search/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "search", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search by Risk Level",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"risk_level\": \"low\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/search/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "search", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search by Tags",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tags\": [\"technical\", \"mean-reversion\"]\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/api/search/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["api", "search", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Performance & Comments",
+			"item": [
+				{
+					"name": "Get Strategy Performance",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/strategies/1/performance_history/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["strategies", "1", "performance_history", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Performance Record",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy\": 1,\n    \"backtest_id\": \"bt_12345678\",\n    \"total_return\": \"0.15\",\n    \"annualized_return\": \"0.12\",\n    \"volatility\": \"0.18\",\n    \"sharpe_ratio\": \"0.67\",\n    \"max_drawdown\": \"-0.08\",\n    \"win_rate\": \"65.50\",\n    \"profit_factor\": \"1.25\",\n    \"total_trades\": 45,\n    \"winning_trades\": 29,\n    \"losing_trades\": 16,\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-12-31\",\n    \"initial_capital\": \"10000.00\",\n    \"final_capital\": \"11500.00\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/performance/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["performance", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Strategy Comment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy\": 1,\n    \"content\": \"This strategy performs well in trending markets but struggles during sideways movements. Consider adding a market regime filter.\",\n    \"rating\": 4,\n    \"is_review\": true\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/comments/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["comments", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Strategy Comments",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/comments/?strategy=1",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["comments", ""],
+							"query": [
+								{
+									"key": "strategy",
+									"value": "1"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Tags Management",
+			"item": [
+				{
+					"name": "List All Tags",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/tags/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["tags", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Tag",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"machine-learning\",\n    \"description\": \"Strategies that use machine learning algorithms\",\n    \"color\": \"#FF6B6B\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/tags/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["tags", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Tag",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"machine-learning\",\n    \"description\": \"Advanced strategies using ML algorithms and AI\",\n    \"color\": \"#4ECDC4\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/tags/1/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["tags", "1", ""]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
