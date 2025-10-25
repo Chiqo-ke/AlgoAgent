@@ -8,11 +8,12 @@ with user-specified parameters including symbol selection and date range.
 Features:
 - Interactive symbol selection
 - Custom date range input (From: {date}, To: {date})
+- Strategy validation and generation from Strategy module
 - Data fetching from Data module using fetch_data_by_date_range
 - Automatic indicator loading
 - Full backtest execution with results
 
-Version: 1.0.0
+Version: 2.0.0
 Last Updated: 2025-10-22
 """
 
@@ -20,8 +21,10 @@ import pandas as pd
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import logging
+import json
+import importlib.util
 
 # Add parent directory to path for imports
 PARENT_DIR = Path(__file__).parent.parent
@@ -30,6 +33,44 @@ sys.path.insert(0, str(PARENT_DIR))
 from Data.data_fetcher import DataFetcher
 from Backtest.config import get_realistic_config, BacktestConfig
 from Backtest.sim_broker import SimBroker
+
+# Import Strategy module components
+# Try multiple import strategies: plain import, package import, then load from file path.
+STRATEGY_VALIDATOR_AVAILABLE = False
+try:
+    sys.path.insert(0, str(PARENT_DIR / "Strategy"))
+    try:
+        # Try direct import if the Strategy directory is on sys.path
+        from strategy_validator import StrategyValidatorBot  # type: ignore
+        STRATEGY_VALIDATOR_AVAILABLE = True
+    except ImportError:
+        try:
+            # Try package-qualified import (if Strategy is a package)
+            from Strategy.strategy_validator import StrategyValidatorBot  # type: ignore
+            STRATEGY_VALIDATOR_AVAILABLE = True
+        except Exception:
+            # Fallback: load the file directly if it exists
+            validator_path = PARENT_DIR / "Strategy" / "strategy_validator.py"
+            if validator_path.exists():
+                spec = importlib.util.spec_from_file_location("strategy_validator", str(validator_path))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)  # type: ignore
+                StrategyValidatorBot = getattr(module, "StrategyValidatorBot", None)
+                if StrategyValidatorBot is not None:
+                    STRATEGY_VALIDATOR_AVAILABLE = True
+            if not STRATEGY_VALIDATOR_AVAILABLE:
+                logging.warning("Strategy validator not available: could not import strategy_validator module")
+except Exception as e:
+    STRATEGY_VALIDATOR_AVAILABLE = False
+    logging.warning(f"Strategy validator not available: {e}")
+
+# Import Gemini strategy generator
+try:
+    from gemini_strategy_generator import GeminiStrategyGenerator
+    GEMINI_GENERATOR_AVAILABLE = True
+except ImportError as e:
+    GEMINI_GENERATOR_AVAILABLE = False
+    logging.warning(f"Gemini generator not available: {e}")
 
 # Setup logging
 logging.basicConfig(
@@ -182,6 +223,387 @@ def get_user_interval() -> str:
             return choice
         else:
             print("❌ Invalid selection. Please choose 1-5 or enter a valid interval.")
+
+
+def get_user_strategy_choice() -> str:
+    """
+    Prompt user to select strategy source.
+    
+    Returns:
+        Choice string ('new', 'existing', 'example')
+    """
+    print("\n" + "=" * 70)
+    print("STRATEGY SELECTION")
+    print("=" * 70)
+    print("How would you like to provide your trading strategy?")
+    print("  1. Enter a new strategy (will be validated and generated)")
+    print("  2. Use existing strategy from Backtest/codes/")
+    print("  3. Use example strategy")
+    
+    choice_map = {
+        '1': 'new',
+        '2': 'existing',
+        '3': 'example'
+    }
+    
+    while True:
+        choice = input("\nSelect option (1-3): ").strip()
+        
+        if choice in choice_map:
+            return choice_map[choice]
+        else:
+            print("❌ Invalid selection. Please choose 1-3.")
+
+
+def enter_new_strategy() -> Optional[str]:
+    """
+    Allow user to enter a new strategy description.
+    
+    Returns:
+        Strategy description text or None if cancelled
+    """
+    print("\n" + "=" * 70)
+    print("ENTER NEW STRATEGY")
+    print("=" * 70)
+    print("\nDescribe your trading strategy in plain English.")
+    print("Include entry rules, exit rules, position sizing, and risk management.")
+    print("\n⚠️  IMPORTANT: Do NOT specify a particular symbol (e.g., AAPL, MSFT).")
+    print("   Your strategy will work with ANY symbol from the data module.")
+    print("\n✅ GOOD Example:")
+    print("  'Buy when 50 EMA crosses above 200 EMA. Set stop loss at 2%.")
+    print("   Take profit at 5%. Risk 1% of account per trade.'")
+    print("\n❌ AVOID:")
+    print("  'Buy AAPL when...' (Don't mention specific symbols)")
+    print("\nEnter your strategy (press Enter twice when done):")
+    print("-" * 70)
+    
+    lines = []
+    empty_count = 0
+    while empty_count < 2:
+        line = input()
+        if line.strip():
+            lines.append(line)
+            empty_count = 0
+        else:
+            empty_count += 1
+    
+    strategy_text = "\n".join(lines).strip()
+    
+    if not strategy_text:
+        print("\n⚠ No strategy entered.")
+        return None
+    
+    return strategy_text
+
+
+def validate_and_canonicalize_strategy(strategy_text: str) -> Optional[Dict[str, Any]]:
+    """
+    Validate strategy and generate canonical JSON.
+    
+    Args:
+        strategy_text: User's strategy description
+        
+    Returns:
+        Validation result dictionary or None if failed
+    """
+    if not STRATEGY_VALIDATOR_AVAILABLE:
+        print("\n❌ Strategy validator not available.")
+        print("   Please ensure Strategy module is accessible.")
+        return None
+    
+    print("\n" + "=" * 70)
+    print("VALIDATING STRATEGY")
+    print("=" * 70)
+    print("\n⏳ Analyzing strategy with AI assistance...")
+    
+    try:
+        # Initialize validator bot
+        validator = StrategyValidatorBot(
+            username="backtest_user",
+            strict_mode=False,
+            use_gemini=True
+        )
+        
+        # Process the strategy
+        result = validator.process_input(strategy_text, "auto")
+        
+        # Check status
+        if result.get("status") == "success":
+            print("✓ Strategy validated successfully!")
+            
+            # Display canonicalized steps
+            print("\n" + "-" * 70)
+            print("CANONICALIZED STRATEGY")
+            print("-" * 70)
+            steps = result.get("canonicalized_steps", "")
+            print(steps if steps else "No steps generated")
+            
+            # Display classification
+            classification = result.get("classification", {})
+            if classification:
+                print("\n" + "-" * 70)
+                print("CLASSIFICATION")
+                print("-" * 70)
+                print(f"  Type: {classification.get('type', 'unknown')}")
+                print(f"  Risk Tier: {classification.get('risk_tier', 'unknown')}")
+            
+            return result
+        else:
+            print(f"\n❌ Validation failed: {result.get('message', 'Unknown error')}")
+            return None
+            
+    except Exception as e:
+        print(f"\n❌ Validation error: {e}")
+        logger.error(f"Strategy validation failed: {e}", exc_info=True)
+        return None
+
+
+def generate_strategy_code(canonical_json: str, strategy_name: str) -> Optional[Path]:
+    """
+    Generate Python strategy code from canonical JSON.
+    
+    Args:
+        canonical_json: Canonical strategy JSON string
+        strategy_name: Name for the strategy class
+        
+    Returns:
+        Path to generated Python file or None if failed
+    """
+    if not GEMINI_GENERATOR_AVAILABLE:
+        print("\n❌ Gemini generator not available.")
+        print("   Please ensure gemini_strategy_generator is accessible.")
+        return None
+    
+    print("\n" + "=" * 70)
+    print("GENERATING STRATEGY CODE")
+    print("=" * 70)
+    print("\n⏳ Generating Python code with Gemini AI...")
+    
+    try:
+        # Parse canonical JSON
+        strategy_data = json.loads(canonical_json)
+        
+        # Extract description for code generation
+        title = strategy_data.get('title', 'Strategy')
+        description = strategy_data.get('description', '')
+        steps = strategy_data.get('steps', [])
+        
+        # Build full description with symbol-agnostic instructions
+        full_desc = f"{title}\n{description}\n\nSteps:\n"
+        for step in steps:
+            step_title = step.get('title', '')
+            trigger = step.get('trigger', '')
+            if trigger:
+                full_desc += f"- {step_title}: {trigger}\n"
+        
+        # Add symbol-agnostic instructions
+        full_desc += "\n\nIMPORTANT INSTRUCTIONS FOR CODE GENERATION:"
+        full_desc += "\n- Strategy should work with ANY symbol (do not hardcode symbols)"
+        full_desc += "\n- Symbol will be provided dynamically through market_data parameter"
+        full_desc += "\n- Use market_data dictionary to access OHLCV data for any symbol"
+        full_desc += "\n- Constructor should only accept broker and trading parameters (no symbol parameter)"
+        
+        # Initialize generator
+        generator = GeminiStrategyGenerator()
+        
+        # Generate code
+        code = generator.generate_strategy(
+            description=full_desc,
+            strategy_name=strategy_name
+        )
+        
+        # Save to codes directory
+        codes_dir = Path(__file__).parent / "codes"
+        codes_dir.mkdir(exist_ok=True)
+        
+        # Create safe filename
+        safe_name = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in strategy_name.lower())
+        python_file = codes_dir / f"{safe_name}.py"
+        
+        # Save Python code
+        with open(python_file, 'w', encoding='utf-8') as f:
+            f.write(code)
+        
+        # Also save the canonical JSON
+        json_file = codes_dir / f"{safe_name}.json"
+        with open(json_file, 'w', encoding='utf-8') as f:
+            f.write(canonical_json)
+        
+        print(f"✓ Strategy code generated!")
+        print(f"  Python: {python_file}")
+        print(f"  JSON: {json_file}")
+        
+        return python_file
+        
+    except Exception as e:
+        print(f"\n❌ Code generation error: {e}")
+        logger.error(f"Strategy code generation failed: {e}", exc_info=True)
+        return None
+
+
+def list_existing_strategies() -> List[Path]:
+    """
+    List existing strategy files in codes directory.
+    
+    Returns:
+        List of Python strategy file paths
+    """
+    codes_dir = Path(__file__).parent / "codes"
+    if not codes_dir.exists():
+        return []
+    
+    py_files = list(codes_dir.glob("*.py"))
+    # Filter out __init__.py and README files
+    py_files = [f for f in py_files if f.name not in ['__init__.py', 'README.py']]
+    return sorted(py_files)
+
+
+def select_existing_strategy() -> Optional[Path]:
+    """
+    Allow user to select an existing strategy.
+    
+    Returns:
+        Path to selected strategy file or None
+    """
+    strategies = list_existing_strategies()
+    
+    if not strategies:
+        print("\n⚠ No existing strategies found in Backtest/codes/")
+        return None
+    
+    print("\n" + "=" * 70)
+    print("EXISTING STRATEGIES")
+    print("=" * 70)
+    
+    for i, strategy_file in enumerate(strategies, 1):
+        print(f"  {i}. {strategy_file.stem}")
+    
+    while True:
+        choice = input(f"\nSelect strategy (1-{len(strategies)}) or 'b' to go back: ").strip()
+        
+        if choice.lower() == 'b':
+            return None
+        
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(strategies):
+                selected = strategies[idx]
+                print(f"✓ Selected: {selected.name}")
+                return selected
+            else:
+                print(f"❌ Please enter a number between 1 and {len(strategies)}")
+        except ValueError:
+            print("❌ Invalid input. Please enter a number.")
+
+
+def load_strategy_class_from_file(python_file: Path):
+    """
+    Dynamically load a strategy class from a Python file.
+    
+    Args:
+        python_file: Path to Python strategy file
+        
+    Returns:
+        Strategy class or None if failed
+    """
+    try:
+        # Load module
+        spec = importlib.util.spec_from_file_location(
+            f"strategy_{python_file.stem}",
+            python_file
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        
+        # Find strategy class (look for class that's not SimBroker)
+        strategy_class = None
+        for name in dir(module):
+            obj = getattr(module, name)
+            if (isinstance(obj, type) and 
+                name not in ['SimBroker', 'BacktestConfig', 'Path', 'Dict', 'Any', 'Optional'] and
+                not name.startswith('_')):
+                strategy_class = obj
+                break
+        
+        if strategy_class:
+            print(f"✓ Strategy class loaded: {strategy_class.__name__}")
+            return strategy_class
+        else:
+            print(f"❌ No strategy class found in {python_file.name}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Failed to load {python_file.name}: {e}")
+        logger.error(f"Strategy loading failed: {e}", exc_info=True)
+        return None
+
+
+def get_strategy_parameters(strategy_class) -> Dict[str, Any]:
+    """
+    Get strategy parameters from user or use defaults.
+    
+    Args:
+        strategy_class: Strategy class to inspect
+        
+    Returns:
+        Dictionary of strategy parameters
+    """
+    print("\n" + "=" * 70)
+    print("STRATEGY PARAMETERS")
+    print("=" * 70)
+    
+    # Try to get default parameters from class
+    params = {}
+    
+    # Check if class has __init__ signature
+    try:
+        import inspect
+        sig = inspect.signature(strategy_class.__init__)
+        
+        # Filter and collect valid parameters
+        valid_params = []
+        for param_name, param in sig.parameters.items():
+            # Filter out common parameters and symbol (symbol should come from data module)
+            if param_name in ['self', 'broker', 'symbol']:
+                continue
+            valid_params.append((param_name, param))
+        
+        if not valid_params:
+            print("\n✓ Strategy has no configurable parameters.")
+            print("  The strategy will work with any symbol from the data module.")
+            return params
+        
+        print("\nAvailable parameters:")
+        print("ℹ️  Note: Symbol is automatically provided by the data module")
+        
+        for param_name, param in valid_params:
+            default_val = param.default if param.default != inspect.Parameter.empty else None
+            print(f"  {param_name}: {default_val}")
+            
+            # Ask user for value
+            user_input = input(f"    Enter value for {param_name} (or press Enter for default): ").strip()
+            if user_input:
+                # Try to convert to appropriate type
+                try:
+                    if default_val is not None:
+                        param_type = type(default_val)
+                        params[param_name] = param_type(user_input)
+                    else:
+                        # Try int first, then float, then str
+                        try:
+                            params[param_name] = int(user_input)
+                        except ValueError:
+                            try:
+                                params[param_name] = float(user_input)
+                            except ValueError:
+                                params[param_name] = user_input
+                except ValueError:
+                    print(f"  ⚠️  Invalid value, using default")
+    except Exception as e:
+        print(f"\n⚠️  Could not inspect parameters: {e}")
+        print("Using default parameters")
+    
+    return params
 
 
 def fetch_data_for_backtest(
@@ -349,9 +771,10 @@ def run_backtest_simulation(
     print("RUNNING BACKTEST SIMULATION")
     print("=" * 70)
     
-    # Initialize strategy
+    # Initialize strategy (symbol-agnostic - no symbol passed to constructor)
     strategy = strategy_class(broker=broker, **strategy_params)
     print(f"✓ Strategy initialized: {strategy_class.__name__}")
+    print(f"✓ Strategy is symbol-agnostic and will work with: {symbol}")
     
     # Convert data to broker format
     broker_df = convert_to_broker_format(df, symbol)
@@ -515,49 +938,122 @@ def main():
         broker = SimBroker(config)
         print(f"✓ SimBroker initialized (API v{broker.API_VERSION})")
         
-        # Step 7: Import and setup strategy
-        # For now, using a simple example strategy
-        # Users can modify this to use their own strategies
-        print("\n⚠️  Note: Using example Simple MA Crossover strategy")
-        print("   Modify this script to use your custom strategy")
+        # Step 7: Strategy Selection and Setup
+        strategy_class = None
+        strategy_params = {}
         
-        from Backtest.example_strategy import SimpleMAStrategy
-        
-        strategy_params = {
-            'fast_period': 10,
-            'slow_period': 30,
-            'size': 100
-        }
-        
-        # Ask if user wants to customize strategy parameters
-        customize_strategy = input("\nCustomize strategy parameters? (y/N): ").strip().lower()
-        if customize_strategy == 'y' or customize_strategy == 'yes':
-            try:
-                fast = input(f"Fast MA period (default {strategy_params['fast_period']}): ").strip()
-                if fast:
-                    strategy_params['fast_period'] = int(fast)
+        while strategy_class is None:
+            strategy_choice = get_user_strategy_choice()
+            
+            if strategy_choice == 'new':
+                # Enter and validate new strategy
+                strategy_text = enter_new_strategy()
+                if not strategy_text:
+                    continue
+                
+                # Validate and canonicalize
+                validation_result = validate_and_canonicalize_strategy(strategy_text)
+                if not validation_result:
+                    retry = input("\nTry again? (Y/n): ").strip().lower()
+                    if retry == 'n' or retry == 'no':
+                        print("Exiting...")
+                        sys.exit(0)
+                    continue
+                
+                # Get canonical JSON
+                canonical_json = validation_result.get('canonical_json', '{}')
+                
+                # Generate strategy name
+                strategy_data = json.loads(canonical_json)
+                strategy_title = strategy_data.get('title', 'CustomStrategy')
+                strategy_name = ''.join(word.capitalize() for word in strategy_title.split()[:3])
+                
+                # Generate code
+                python_file = generate_strategy_code(canonical_json, strategy_name)
+                if not python_file:
+                    retry = input("\nTry again? (Y/n): ").strip().lower()
+                    if retry == 'n' or retry == 'no':
+                        print("Exiting...")
+                        sys.exit(0)
+                    continue
+                
+                # Load generated strategy
+                strategy_class = load_strategy_class_from_file(python_file)
+                if not strategy_class:
+                    retry = input("\nTry again? (Y/n): ").strip().lower()
+                    if retry == 'n' or retry == 'no':
+                        print("Exiting...")
+                        sys.exit(0)
+                    continue
+                
+            elif strategy_choice == 'existing':
+                # Select existing strategy
+                python_file = select_existing_strategy()
+                if not python_file:
+                    continue
+                
+                # Load strategy
+                strategy_class = load_strategy_class_from_file(python_file)
+                if not strategy_class:
+                    retry = input("\nTry again? (Y/n): ").strip().lower()
+                    if retry == 'n' or retry == 'no':
+                        print("Exiting...")
+                        sys.exit(0)
+                    continue
+                
+            elif strategy_choice == 'example':
+                # Use example strategy
+                print("\n⚠️  Using example Simple MA Crossover strategy")
+                try:
+                    from Backtest.example_strategy import SimpleMAStrategy
+                    strategy_class = SimpleMAStrategy
                     
-                slow = input(f"Slow MA period (default {strategy_params['slow_period']}): ").strip()
-                if slow:
-                    strategy_params['slow_period'] = int(slow)
+                    # Default params for example strategy
+                    strategy_params = {
+                        'fast_period': 10,
+                        'slow_period': 30,
+                        'size': 100
+                    }
                     
-                size = input(f"Position size (default {strategy_params['size']}): ").strip()
-                if size:
-                    strategy_params['size'] = int(size)
-            except ValueError as e:
-                print(f"⚠️  Invalid input: {e}. Using defaults.")
+                    # Ask if user wants to customize
+                    customize = input("\nCustomize strategy parameters? (y/N): ").strip().lower()
+                    if customize == 'y' or customize == 'yes':
+                        try:
+                            fast = input(f"Fast MA period (default {strategy_params['fast_period']}): ").strip()
+                            if fast:
+                                strategy_params['fast_period'] = int(fast)
+                                
+                            slow = input(f"Slow MA period (default {strategy_params['slow_period']}): ").strip()
+                            if slow:
+                                strategy_params['slow_period'] = int(slow)
+                                
+                            size = input(f"Position size (default {strategy_params['size']}): ").strip()
+                            if size:
+                                strategy_params['size'] = int(size)
+                        except ValueError as e:
+                            print(f"⚠️  Invalid input: {e}. Using defaults.")
+                    
+                    print(f"\n✓ Strategy parameters:")
+                    print(f"  Fast MA: {strategy_params['fast_period']}")
+                    print(f"  Slow MA: {strategy_params['slow_period']}")
+                    print(f"  Position Size: {strategy_params['size']}")
+                    
+                except ImportError as e:
+                    print(f"\n❌ Could not load example strategy: {e}")
+                    continue
         
-        print(f"\n✓ Strategy parameters:")
-        print(f"  Fast MA: {strategy_params['fast_period']}")
-        print(f"  Slow MA: {strategy_params['slow_period']}")
-        print(f"  Position Size: {strategy_params['size']}")
+        # Get strategy parameters if not already set
+        if not strategy_params:
+            strategy_params = get_strategy_parameters(strategy_class)
+        
+        print(f"\n✓ Strategy ready: {strategy_class.__name__}")
         
         # Step 8: Run backtest
         metrics = run_backtest_simulation(
             broker=broker,
             df=df,
             symbol=symbol,
-            strategy_class=SimpleMAStrategy,
+            strategy_class=strategy_class,
             strategy_params=strategy_params
         )
         
@@ -580,6 +1076,8 @@ def main():
     except Exception as e:
         logger.error(f"Backtest failed: {e}", exc_info=True)
         print(f"\n❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
