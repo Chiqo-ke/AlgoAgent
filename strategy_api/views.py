@@ -44,6 +44,122 @@ class StrategyTemplateViewSet(viewsets.ModelViewSet):
             serializer.save(created_by=self.request.user)
         else:
             serializer.save()
+    
+    @action(detail=True, methods=['post'])
+    def sync_from_strategy(self, request, pk=None):
+        """Sync template with latest strategy changes
+        
+        This endpoint allows the AI agent to update the template with the latest
+        strategy code, parameters, and chat context.
+        
+        Expected payload:
+        {
+            "strategy_code": "updated code",
+            "parameters": {...},
+            "chat_message": "Summary of changes made",
+            "force_update": false  # Optional: update even if template is a system template
+        }
+        """
+        template = self.get_object()
+        
+        try:
+            data = request.data
+            
+            # Prevent updating system templates unless forced
+            if template.is_system_template and not data.get('force_update', False):
+                return Response({
+                    'error': 'Cannot update system templates',
+                    'message': 'This is a pre-built system template. Use force_update=true to override.'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Update template with latest strategy info
+            if 'strategy_code' in data:
+                template.latest_strategy_code = data['strategy_code']
+                template.template_code = data['strategy_code']  # Also update template_code
+            
+            if 'parameters' in data:
+                template.latest_parameters = data['parameters']
+                # Merge into parameters_schema
+                for key, value in data['parameters'].items():
+                    if key not in template.parameters_schema:
+                        template.parameters_schema[key] = {
+                            'type': type(value).__name__,
+                            'default': value
+                        }
+            
+            # Add chat message to history
+            if 'chat_message' in data:
+                chat_entry = {
+                    'timestamp': timezone.now().isoformat(),
+                    'message': data['chat_message'],
+                    'user': request.user.username if request.user.is_authenticated else 'anonymous'
+                }
+                template.chat_history.append(chat_entry)
+                
+                # Keep only last 50 chat entries to prevent unbounded growth
+                if len(template.chat_history) > 50:
+                    template.chat_history = template.chat_history[-50:]
+            
+            # Update description if provided
+            if 'description' in data:
+                template.description = data['description']
+            
+            template.save()
+            
+            serializer = self.get_serializer(template)
+            return Response({
+                'success': True,
+                'message': 'Template synchronized successfully',
+                'template': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in sync_from_strategy: {e}")
+            return Response({
+                'error': 'Failed to sync template',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['get'])
+    def get_context(self, request, pk=None):
+        """Get full context for AI agent
+        
+        Returns the template with full chat history, linked strategy info,
+        and current state - useful for AI agents to understand the strategy evolution.
+        """
+        template = self.get_object()
+        
+        try:
+            serializer = self.get_serializer(template)
+            context_data = serializer.data
+            
+            # Add linked strategy info if available
+            if template.linked_strategy:
+                context_data['linked_strategy'] = {
+                    'id': template.linked_strategy.id,
+                    'name': template.linked_strategy.name,
+                    'description': template.linked_strategy.description,
+                    'status': template.linked_strategy.status,
+                    'version': template.linked_strategy.version,
+                    'updated_at': template.linked_strategy.updated_at,
+                }
+            
+            # Add summary statistics
+            context_data['context_summary'] = {
+                'chat_messages_count': len(template.chat_history),
+                'last_update': template.updated_at,
+                'is_active': template.is_active,
+                'template_type': 'system' if template.is_system_template else 'user-generated'
+            }
+            
+            return Response(context_data)
+            
+        except Exception as e:
+            logger.error(f"Error in get_context: {e}")
+            return Response({
+                'error': 'Failed to get context',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class StrategyViewSet(viewsets.ModelViewSet):
@@ -194,7 +310,11 @@ class StrategyAPIViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def create_strategy(self, request):
-        """Create a new strategy"""
+        """Create a new strategy
+        
+        If template_id is not provided, automatically creates a new StrategyTemplate
+        to track this strategy's evolution in the chat session.
+        """
         serializer = StrategyCreateRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -204,6 +324,8 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             # Get template if specified
             template = None
+            auto_created_template = False
+            
             if data.get('template_id'):
                 try:
                     template = StrategyTemplate.objects.get(id=data['template_id'])
@@ -212,7 +334,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                         'error': 'Template not found'
                     }, status=status.HTTP_404_NOT_FOUND)
             
-            # Create strategy
+            # Create strategy first
             strategy = Strategy.objects.create(
                 name=data['name'],
                 description=data.get('description', ''),
@@ -225,8 +347,55 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 created_by=request.user if request.user.is_authenticated else None
             )
             
+            # Auto-create template if not provided (for chat-based strategy development)
+            if not template and not data.get('skip_template_creation', False):
+                try:
+                    # Generate unique template name
+                    template_name = f"Template: {data['name']}"
+                    counter = 1
+                    while StrategyTemplate.objects.filter(name=template_name).exists():
+                        template_name = f"Template: {data['name']} ({counter})"
+                        counter += 1
+                    
+                    # Create auto-template
+                    template = StrategyTemplate.objects.create(
+                        name=template_name,
+                        description=f"Auto-generated template for strategy development: {data.get('description', '')}",
+                        category=data.get('tags', ['custom'])[0] if data.get('tags') else 'custom',
+                        template_code=data['strategy_code'],
+                        parameters_schema=data.get('parameters', {}),
+                        is_active=True,
+                        is_system_template=False,
+                        linked_strategy=strategy,
+                        latest_strategy_code=data['strategy_code'],
+                        latest_parameters=data.get('parameters', {}),
+                        chat_history=[],
+                        created_by=request.user if request.user.is_authenticated else None
+                    )
+                    
+                    # Link the template back to the strategy
+                    strategy.template = template
+                    strategy.save(update_fields=['template'])
+                    
+                    auto_created_template = True
+                    logger.info(f"Auto-created template {template.id} for strategy {strategy.id}")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to auto-create template: {e}")
+                    # Don't fail the entire request if template creation fails
+            
             serializer = StrategySerializer(strategy)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            response_data = serializer.data
+            
+            # Add template info to response if auto-created
+            if auto_created_template:
+                response_data['auto_created_template'] = {
+                    'id': template.id,
+                    'name': template.name,
+                    'message': 'Template automatically created for tracking strategy evolution'
+                }
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
             logger.error(f"Error in create_strategy: {e}")
