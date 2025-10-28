@@ -7,6 +7,13 @@ Enhanced with Gemini AI for intelligent strategy analysis.
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 import json
+import sys
+from pathlib import Path
+
+# Add Strategy directory to path if not already there
+STRATEGY_DIR = Path(__file__).parent
+if str(STRATEGY_DIR) not in sys.path:
+    sys.path.insert(0, str(STRATEGY_DIR))
 
 from canonical_schema import CanonicalStrategy, CANONICAL_STRATEGY_SCHEMA
 from input_parser import InputParser, parse_strategy_input

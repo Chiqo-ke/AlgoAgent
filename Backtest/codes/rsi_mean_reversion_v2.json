@@ -1,0 +1,71 @@
+{
+  "strategy_id": "strat-20251028-f20d69df",
+  "version": "0.1.0",
+  "title": "RSI Mean Reversion Strategy: Buy when RSI(14) d...",
+  "description": "",
+  "classification": {
+    "type": "position",
+    "risk_tier": "medium",
+    "primary_instruments": [
+      "RSI"
+    ]
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "order": 1,
+      "title": "RSI Mean Reversion Strategy: Buy when RSI(14) d...",
+      "trigger": "RSI(14) drops below 30 (oversold)",
+      "action": {
+        "type": "enter",
+        "order_type": "market",
+        "instrument": "RSI"
+      },
+      "condition": "RSI(14) drops below 30 (oversold)",
+      "notes": "Original: RSI Mean Reversion Strategy: Buy when RSI(14) drops below 30 (oversold)"
+    },
+    {
+      "step_id": "s2",
+      "order": 2,
+      "title": "Sell when RSI(14) rises above 70 (overbought)",
+      "trigger": "RSI(14) rises above 70 (overbought)",
+      "action": {
+        "type": "exit",
+        "order_type": "market",
+        "instrument": "RSI"
+      },
+      "condition": "RSI(14) rises above 70 (overbought)",
+      "notes": "Original: Sell when RSI(14) rises above 70 (overbought)"
+    },
+    {
+      "step_id": "s3",
+      "order": 3,
+      "title": "Stop loss at 3% below entry",
+      "trigger": "3% below entry",
+      "action": {
+        "type": "cancel",
+        "order_type": "stop"
+      },
+      "exit": {
+        "stop_loss": "3% below entry"
+      },
+      "notes": "Original: Stop loss at 3% below entry"
+    }
+  ],
+  "provenance": {
+    "sources": [
+      {
+        "fetched_at": "2025-10-28T15:31:32.299936",
+        "type": "user_input",
+        "author": "api_user",
+        "snippet": "RSI Mean Reversion Strategy: Buy when RSI(14) drops below 30 (oversold). Sell when RSI(14) rises above 70 (overbought). Stop loss at 3% below entry. Position size: 2% of account per trade. Trade on 1-"
+      }
+    ]
+  },
+  "metadata": {
+    "created_at": "2025-10-28T15:31:32.300032",
+    "created_by": "user:api_user",
+    "last_updated": "2025-10-28T15:31:32.313763",
+    "confidence": "medium"
+  }
+}

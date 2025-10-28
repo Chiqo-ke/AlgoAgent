@@ -1,0 +1,492 @@
+{
+  "info": {
+    "name": "Quick AI Strategy Validation",
+    "_postman_id": "ai-strategy-quick-2025",
+    "description": "Quick access to AI-powered strategy validation endpoints. Import this for instant testing of the new AI validation features.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "item": [
+    {
+      "name": "Validate Strategy with AI",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response has AI validation\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('status');",
+              "    pm.expect(jsonData).to.have.property('canonicalized_steps');",
+              "    pm.expect(jsonData).to.have.property('recommendations');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"Buy when RSI(14) drops below 30. Sell when RSI(14) rises above 70. Use 2% stop loss below entry. Position size should be 1% of account equity per trade.\",\n  \"input_type\": \"freetext\",\n  \"use_gemini\": true,\n  \"strict_mode\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "validate_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Validates a strategy using AI analysis without creating database records.\n\n**What you get:**\n- Canonicalized steps (structured format)\n- Strategy classification (type, risk tier)\n- AI-powered recommendations\n- Confidence level\n- Security warnings\n- Canonical JSON schema"
+      },
+      "response": [
+        {
+          "name": "Success - RSI Strategy",
+          "originalRequest": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategy_text\": \"Buy when RSI < 30, sell when RSI > 70\",\n  \"input_type\": \"freetext\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "strategies",
+                "api",
+                "validate_strategy_with_ai",
+                ""
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [],
+          "cookie": [],
+          "body": "{\n  \"status\": \"success\",\n  \"canonicalized_steps\": [\n    \"Step 1: Entry - Buy when RSI(14) < 30\",\n    \"Step 2: Exit - Sell when RSI(14) > 70\"\n  ],\n  \"classification\": \"Strategy Type: mean-reversion | Risk: medium\",\n  \"recommendations\": \"Add stop-loss and position sizing\",\n  \"confidence\": \"medium\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Create Strategy with AI",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Strategy created with AI validation\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('strategy');",
+              "    pm.expect(jsonData).to.have.property('ai_validation');",
+              "    pm.expect(jsonData.success).to.be.true;",
+              "});",
+              "",
+              "// Save strategy ID for later use",
+              "var jsonData = pm.response.json();",
+              "if (jsonData.strategy && jsonData.strategy.id) {",
+              "    pm.environment.set('strategy_id', jsonData.strategy.id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"1. Entry: Buy when 50 EMA crosses above 200 EMA (Golden Cross)\\n2. Exit: Sell when 50 EMA crosses below 200 EMA (Death Cross)\\n3. Stop Loss: 2% below entry price\\n4. Take Profit: 5% above entry price\\n5. Position Size: Risk 1% of account equity per trade\\n6. Timeframe: Daily charts\",\n  \"input_type\": \"numbered\",\n  \"name\": \"EMA Golden Cross Strategy\",\n  \"description\": \"Classic trend-following strategy using EMA crossover signals\",\n  \"tags\": [\"ema\", \"trend-following\", \"crossover\"],\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"save_to_backtest\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/create_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "create_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Creates a new strategy with AI validation and canonicalization.\n\n**What it does:**\n1. Validates strategy text using AI\n2. Creates Strategy database record\n3. Auto-creates linked StrategyTemplate\n4. Optionally saves canonical JSON to Backtest/codes/\n5. Returns complete AI analysis + strategy data\n\n**Options:**\n- `save_to_backtest: true` - Saves JSON to Backtest/codes/\n- `name` - Optional, auto-generated if omitted\n- `template_id` - Optional, auto-creates if omitted"
+      },
+      "response": [
+        {
+          "name": "Success - Strategy Created",
+          "originalRequest": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategy_text\": \"1. Buy: RSI < 30\\n2. Sell: RSI > 70\",\n  \"name\": \"RSI Strategy\",\n  \"save_to_backtest\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/strategies/api/create_strategy_with_ai/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "strategies",
+                "api",
+                "create_strategy_with_ai",
+                ""
+              ]
+            }
+          },
+          "status": "Created",
+          "code": 201,
+          "_postman_previewlanguage": "json",
+          "header": [],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"strategy\": {\n    \"id\": 1,\n    \"name\": \"RSI Strategy\",\n    \"risk_level\": \"medium\"\n  },\n  \"ai_validation\": {\n    \"status\": \"success\",\n    \"confidence\": \"high\"\n  },\n  \"auto_created_template\": {\n    \"id\": 1,\n    \"name\": \"Template: RSI Strategy\"\n  },\n  \"saved_to_file\": {\n    \"path\": \"Backtest/codes/rsi_strategy.json\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Update Strategy with AI",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Strategy updated successfully\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('strategy');",
+              "    pm.expect(jsonData).to.have.property('ai_validation');",
+              "    pm.expect(jsonData.success).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"Enhanced RSI Mean Reversion Strategy:\\n1. Entry: Buy when RSI(14) < 30 AND price is above 200 SMA\\n2. Exit: Sell when RSI(14) > 70 OR price crosses below 200 SMA\\n3. Stop Loss: 2.5% below entry (tightened from 3%)\\n4. Take Profit: 6% above entry (new profit target)\\n5. Position Size: Risk 1.5% per trade based on ATR\",\n  \"input_type\": \"numbered\",\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"update_description\": \"Added 200 SMA trend filter, tightened stop loss, and added take profit target\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/{{strategy_id}}/update_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "{{strategy_id}}",
+            "update_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Updates an existing strategy with AI re-validation.\n\n**What it does:**\n1. Retrieves existing strategy by ID\n2. Re-validates updated strategy text using AI\n3. Updates the strategy record with new canonical JSON\n4. Updates linked template's chat history\n5. Returns updated strategy + AI analysis\n\n**Note:** Requires `strategy_id` in URL path (auto-set from previous create request)"
+      },
+      "response": [
+        {
+          "name": "Success - Strategy Updated",
+          "originalRequest": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"strategy_text\": \"Enhanced: RSI < 30 AND above 200 SMA\",\n  \"update_description\": \"Added SMA filter\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/strategies/api/1/update_strategy_with_ai/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "strategies",
+                "api",
+                "1",
+                "update_strategy_with_ai",
+                ""
+              ]
+            }
+          },
+          "status": "OK",
+          "code": 200,
+          "_postman_previewlanguage": "json",
+          "header": [],
+          "cookie": [],
+          "body": "{\n  \"success\": true,\n  \"message\": \"Strategy updated successfully\",\n  \"strategy\": {\n    \"id\": 1,\n    \"name\": \"RSI Strategy\"\n  },\n  \"ai_validation\": {\n    \"status\": \"success\",\n    \"confidence\": \"high\"\n  }\n}"
+        }
+      ]
+    },
+    {
+      "name": "Validate Numbered Strategy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"1. Entry: Buy when 50 EMA crosses above 200 EMA\\n2. Exit: Sell when 50 EMA crosses below 200 EMA\\n3. Stop Loss: 2% below entry price\\n4. Take Profit: 5% above entry price\\n5. Position Size: Risk 1% of account equity per trade\",\n  \"input_type\": \"numbered\",\n  \"use_gemini\": true,\n  \"strict_mode\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "validate_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Example: Numbered step format (1. 2. 3.)"
+      },
+      "response": []
+    },
+    {
+      "name": "Validate Freetext Strategy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"I want to create a scalping strategy. Buy when price breaks above the previous 15-minute high with volume confirmation. Exit after 10 points profit or 5 points loss. Use tight stops and scale in with 3 positions. Only trade during high liquidity hours between 9:30 AM and 11:30 AM EST.\",\n  \"input_type\": \"freetext\",\n  \"use_gemini\": true,\n  \"strict_mode\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "validate_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Example: Free-text description. AI will extract and structure the strategy."
+      },
+      "response": []
+    },
+    {
+      "name": "Create Bollinger Band Strategy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"Bollinger Band Breakout Strategy:\\n\\n1. BUY when price closes above upper Bollinger Band (20,2)\\n2. SELL when price closes below lower Bollinger Band (20,2)\\n3. Stop-loss: 1.5% below entry for longs, 1.5% above entry for shorts\\n4. Take-profit: When price returns to middle band (20 SMA)\\n5. Position sizing: Risk 2% of account per trade\\n6. Additional filter: Only take trades when volume is above 20-day average\\n7. Timeframe: 4-hour charts\",\n  \"input_type\": \"numbered\",\n  \"name\": \"Bollinger Breakout Strategy\",\n  \"description\": \"Volatility breakout strategy using Bollinger Bands\",\n  \"tags\": [\"bollinger\", \"breakout\", \"volatility\"],\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"save_to_backtest\": true\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/create_strategy_with_ai/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "create_strategy_with_ai",
+            ""
+          ]
+        },
+        "description": "Example: Complete Bollinger Band breakout strategy with all components"
+      },
+      "response": []
+    },
+    {
+      "name": "Health Check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"API is healthy\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql('healthy');",
+              "});",
+              "",
+              "pm.test(\"Validator is available\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.validator_available).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/health/",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "strategies",
+            "api",
+            "health",
+            ""
+          ]
+        },
+        "description": "Check if the Strategy API is healthy and if AI validation modules are available.\n\nReturns:\n- API status\n- Database connection status\n- Strategy/template counts\n- Validator availability\n- Generator availability"
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-set base_url if not defined",
+          "if (!pm.environment.get('base_url')) {",
+          "    pm.environment.set('base_url', 'http://localhost:8000');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test to check response time",
+          "pm.test(\"Response time is less than 30s\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(30000);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "strategy_id",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

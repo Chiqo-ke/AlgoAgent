@@ -22,12 +22,18 @@ from .serializers import (
     StrategyTemplateSerializer, StrategySerializer, StrategyValidationSerializer,
     StrategyPerformanceSerializer, StrategyCommentSerializer, StrategyTagSerializer,
     StrategyValidationRequestSerializer, StrategyCreateRequestSerializer,
-    StrategyCodeGenerationRequestSerializer, StrategySearchSerializer, StrategyListSerializer
+    StrategyCodeGenerationRequestSerializer, StrategySearchSerializer, StrategyListSerializer,
+    StrategyAIValidationRequestSerializer, StrategyAIValidationResponseSerializer,
+    StrategyCreateWithAIRequestSerializer
 )
 
 # Add parent directory to path for imports
 PARENT_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(PARENT_DIR))
+STRATEGY_DIR = PARENT_DIR / "Strategy"
+if str(PARENT_DIR) not in sys.path:
+    sys.path.insert(0, str(PARENT_DIR))
+if str(STRATEGY_DIR) not in sys.path:
+    sys.path.insert(0, str(STRATEGY_DIR))
 
 logger = logging.getLogger(__name__)
 
@@ -569,6 +575,421 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 'status': 'unhealthy',
                 'error': str(e)
             }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    
+    @action(detail=False, methods=['post'])
+    def validate_strategy_with_ai(self, request):
+        """
+        Validate a strategy using AI-powered analysis
+        
+        This endpoint uses the StrategyValidatorBot to analyze strategy text,
+        providing canonicalized steps, classification, and AI recommendations.
+        
+        Expected payload:
+        {
+            "strategy_text": "Buy when RSI < 30, sell when RSI > 70...",
+            "input_type": "auto",  # or "numbered", "freetext", "url"
+            "use_gemini": true,
+            "strict_mode": false
+        }
+        
+        Returns:
+        - Canonicalized steps
+        - Strategy classification
+        - AI-powered recommendations
+        - Confidence level
+        - Next actions
+        - Canonical JSON schema
+        """
+        serializer = StrategyAIValidationRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            strategy_text = data['strategy_text']
+            input_type = data.get('input_type', 'auto')
+            use_gemini = data.get('use_gemini', True)
+            strict_mode = data.get('strict_mode', False)
+            
+            # Import the validator
+            try:
+                from Strategy.strategy_validator import StrategyValidatorBot
+            except ImportError as e:
+                return Response({
+                    'error': 'Strategy validator not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Get username from authenticated user or default
+            username = request.user.username if request.user.is_authenticated else "api_user"
+            
+            # Initialize validator bot
+            logger.info(f"Initializing StrategyValidatorBot for user: {username}")
+            bot = StrategyValidatorBot(
+                username=username,
+                strict_mode=strict_mode,
+                use_gemini=use_gemini
+            )
+            
+            # Process the strategy
+            logger.info(f"Processing strategy: {strategy_text[:100]}...")
+            result = bot.process_input(strategy_text, input_type)
+            
+            logger.info(f"Validation result status: {result.get('status')}")
+            
+            # Return the complete AI analysis
+            return Response(result, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in validate_strategy_with_ai: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def create_strategy_with_ai(self, request):
+        """
+        Create a new strategy using AI-powered validation
+        
+        This endpoint combines strategy creation with AI analysis:
+        1. Validates and analyzes the strategy text using AI
+        2. Creates a Strategy record with the canonical JSON
+        3. Optionally creates a linked StrategyTemplate
+        4. Optionally saves canonical JSON to Backtest/codes/
+        
+        Expected payload:
+        {
+            "strategy_text": "Buy when RSI < 30...",
+            "input_type": "auto",
+            "name": "RSI Strategy",  # optional, auto-generated if not provided
+            "description": "...",  # optional
+            "template_id": 1,  # optional
+            "tags": ["momentum", "rsi"],  # optional
+            "use_gemini": true,
+            "strict_mode": false,
+            "save_to_backtest": false
+        }
+        
+        Returns:
+        - Created strategy data
+        - Complete AI validation results
+        - Template info (if auto-created)
+        - File path (if saved to Backtest/codes/)
+        """
+        serializer = StrategyCreateWithAIRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            strategy_text = data['strategy_text']
+            input_type = data.get('input_type', 'auto')
+            use_gemini = data.get('use_gemini', True)
+            strict_mode = data.get('strict_mode', False)
+            save_to_backtest = data.get('save_to_backtest', False)
+            
+            # Import the validator
+            try:
+                from Strategy.strategy_validator import StrategyValidatorBot
+            except ImportError as e:
+                return Response({
+                    'error': 'Strategy validator not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Get username
+            username = request.user.username if request.user.is_authenticated else "api_user"
+            
+            # Initialize and run AI validation
+            logger.info(f"Creating strategy with AI validation for user: {username}")
+            bot = StrategyValidatorBot(
+                username=username,
+                strict_mode=strict_mode,
+                use_gemini=use_gemini
+            )
+            
+            ai_result = bot.process_input(strategy_text, input_type)
+            
+            # Check if validation was successful
+            if ai_result.get('status') != 'success':
+                return Response({
+                    'error': 'Strategy validation failed',
+                    'validation_result': ai_result
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Extract canonical JSON
+            import json
+            canonical_json_str = ai_result.get('canonical_json', '{}')
+            try:
+                canonical_data = json.loads(canonical_json_str)
+            except json.JSONDecodeError:
+                canonical_data = {}
+            
+            # Generate strategy name if not provided
+            strategy_name = data.get('name')
+            if not strategy_name:
+                strategy_name = canonical_data.get('title', 'AI Generated Strategy')
+            
+            # Get or create template
+            template = None
+            auto_created_template = False
+            template_id = data.get('template_id')
+            
+            if template_id:
+                try:
+                    template = StrategyTemplate.objects.get(id=template_id)
+                except StrategyTemplate.DoesNotExist:
+                    return Response({
+                        'error': 'Template not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Extract metadata from AI result
+            classification = ai_result.get('classification_detail', {})
+            strategy_type = classification.get('type', '')
+            risk_tier = classification.get('risk_tier', '')
+            timeframe = canonical_data.get('metadata', {}).get('timeframe', '')
+            
+            # Create the Strategy record
+            strategy = Strategy.objects.create(
+                name=strategy_name,
+                description=data.get('description', canonical_data.get('description', '')),
+                template=template,
+                strategy_code=canonical_json_str,  # Store canonical JSON as code
+                parameters=canonical_data.get('metadata', {}),
+                tags=data.get('tags', classification.get('primary_instruments', [])),
+                timeframe=timeframe,
+                risk_level=risk_tier,
+                created_by=request.user if request.user.is_authenticated else None
+            )
+            
+            logger.info(f"Created strategy {strategy.id}: {strategy.name}")
+            
+            # Auto-create template if not provided
+            if not template:
+                try:
+                    template_name = f"Template: {strategy_name}"
+                    counter = 1
+                    while StrategyTemplate.objects.filter(name=template_name).exists():
+                        template_name = f"Template: {strategy_name} ({counter})"
+                        counter += 1
+                    
+                    template = StrategyTemplate.objects.create(
+                        name=template_name,
+                        description=f"Auto-generated from AI analysis: {canonical_data.get('description', '')}",
+                        category=strategy_type or 'custom',
+                        template_code=canonical_json_str,
+                        parameters_schema=canonical_data.get('metadata', {}),
+                        is_active=True,
+                        is_system_template=False,
+                        linked_strategy=strategy,
+                        latest_strategy_code=canonical_json_str,
+                        latest_parameters=canonical_data.get('metadata', {}),
+                        chat_history=[{
+                            'timestamp': timezone.now().isoformat(),
+                            'message': f'Strategy created with AI validation. Confidence: {ai_result.get("confidence")}',
+                            'user': username
+                        }],
+                        created_by=request.user if request.user.is_authenticated else None
+                    )
+                    
+                    strategy.template = template
+                    strategy.save(update_fields=['template'])
+                    auto_created_template = True
+                    
+                    logger.info(f"Auto-created template {template.id} for strategy {strategy.id}")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-create template: {e}")
+            
+            # Save to Backtest/codes/ if requested
+            saved_file_path = None
+            if save_to_backtest:
+                try:
+                    from datetime import datetime
+                    import re
+                    
+                    # Generate filename from strategy name
+                    clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', strategy_name.lower())
+                    words = clean_name.split()[:8]
+                    base_filename = "_".join(words) if words else f"strategy_{strategy.id}"
+                    
+                    # Create directory and file path
+                    backtest_codes_dir = PARENT_DIR / "Backtest" / "codes"
+                    backtest_codes_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    filepath = backtest_codes_dir / f"{base_filename}.json"
+                    counter = 1
+                    while filepath.exists():
+                        filepath = backtest_codes_dir / f"{base_filename}_{counter}.json"
+                        counter += 1
+                    
+                    # Save canonical JSON
+                    with open(filepath, 'w') as f:
+                        json.dump(canonical_data, f, indent=2)
+                    
+                    saved_file_path = str(filepath)
+                    logger.info(f"Saved canonical JSON to: {filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to save to Backtest/codes/: {e}")
+            
+            # Prepare response
+            strategy_serializer = StrategySerializer(strategy)
+            response_data = {
+                'strategy': strategy_serializer.data,
+                'ai_validation': ai_result,
+                'success': True
+            }
+            
+            if auto_created_template:
+                response_data['auto_created_template'] = {
+                    'id': template.id,
+                    'name': template.name,
+                    'message': 'Template automatically created for tracking strategy evolution'
+                }
+            
+            if saved_file_path:
+                response_data['saved_to_file'] = {
+                    'path': saved_file_path,
+                    'message': 'Canonical JSON saved to Backtest/codes/'
+                }
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Error in create_strategy_with_ai: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['put', 'patch'])
+    def update_strategy_with_ai(self, request, pk=None):
+        """
+        Update an existing strategy using AI-powered validation
+        
+        This endpoint allows editing a strategy with AI re-validation:
+        1. Retrieves existing strategy by ID
+        2. Re-validates updated strategy text using AI
+        3. Updates the strategy record
+        4. Updates linked template's chat history
+        
+        Expected payload:
+        {
+            "strategy_text": "Updated strategy description...",
+            "input_type": "auto",
+            "use_gemini": true,
+            "strict_mode": false,
+            "update_description": "What changed in this update"
+        }
+        """
+        # Get the existing strategy
+        try:
+            strategy = Strategy.objects.get(id=pk)
+        except Strategy.DoesNotExist:
+            return Response({
+                'error': 'Strategy not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = StrategyAIValidationRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            strategy_text = data['strategy_text']
+            input_type = data.get('input_type', 'auto')
+            use_gemini = data.get('use_gemini', True)
+            strict_mode = data.get('strict_mode', False)
+            update_description = request.data.get('update_description', 'Strategy updated via API')
+            
+            # Import validator
+            try:
+                from Strategy.strategy_validator import StrategyValidatorBot
+            except ImportError as e:
+                return Response({
+                    'error': 'Strategy validator not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Get username
+            username = request.user.username if request.user.is_authenticated else "api_user"
+            
+            # Run AI validation
+            logger.info(f"Updating strategy {pk} with AI validation")
+            bot = StrategyValidatorBot(
+                username=username,
+                strict_mode=strict_mode,
+                use_gemini=use_gemini
+            )
+            
+            ai_result = bot.process_input(strategy_text, input_type)
+            
+            # Check validation status
+            if ai_result.get('status') != 'success':
+                return Response({
+                    'error': 'Strategy validation failed',
+                    'validation_result': ai_result
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Extract canonical JSON
+            import json
+            canonical_json_str = ai_result.get('canonical_json', '{}')
+            try:
+                canonical_data = json.loads(canonical_json_str)
+            except json.JSONDecodeError:
+                canonical_data = {}
+            
+            # Update strategy
+            classification = ai_result.get('classification_detail', {})
+            strategy.strategy_code = canonical_json_str
+            strategy.parameters = canonical_data.get('metadata', {})
+            strategy.risk_level = classification.get('risk_tier', strategy.risk_level)
+            strategy.timeframe = canonical_data.get('metadata', {}).get('timeframe', strategy.timeframe)
+            strategy.save()
+            
+            logger.info(f"Updated strategy {strategy.id}")
+            
+            # Update template chat history if linked
+            if strategy.template:
+                try:
+                    chat_entry = {
+                        'timestamp': timezone.now().isoformat(),
+                        'message': update_description,
+                        'user': username,
+                        'confidence': ai_result.get('confidence'),
+                        'warnings': ai_result.get('warnings', [])
+                    }
+                    strategy.template.chat_history.append(chat_entry)
+                    
+                    # Update template code
+                    strategy.template.latest_strategy_code = canonical_json_str
+                    strategy.template.latest_parameters = canonical_data.get('metadata', {})
+                    strategy.template.save()
+                    
+                    logger.info(f"Updated template {strategy.template.id} chat history")
+                except Exception as e:
+                    logger.warning(f"Failed to update template: {e}")
+            
+            # Prepare response
+            strategy_serializer = StrategySerializer(strategy)
+            response_data = {
+                'strategy': strategy_serializer.data,
+                'ai_validation': ai_result,
+                'success': True,
+                'message': 'Strategy updated successfully'
+            }
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in update_strategy_with_ai: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class StrategyValidationViewSet(viewsets.ReadOnlyModelViewSet):
