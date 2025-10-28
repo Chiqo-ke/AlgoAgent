@@ -1,0 +1,450 @@
+{
+	"info": {
+		"_postman_id": "auth-api-collection-2024",
+		"name": "AlgoAgent Authentication API",
+		"description": "Authentication, user management, and AI chat endpoints for AlgoAgent",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Register User",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"testuser\",\n    \"email\": \"testuser@example.com\",\n    \"password\": \"SecurePass123!\",\n    \"password2\": \"SecurePass123!\",\n    \"first_name\": \"Test\",\n    \"last_name\": \"User\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/register/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "register", ""]
+						},
+						"description": "Register a new user and receive JWT tokens"
+					}
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.environment.set(\"access_token\", jsonData.tokens.access);",
+									"    pm.environment.set(\"refresh_token\", jsonData.tokens.refresh);",
+									"    pm.environment.set(\"user_id\", jsonData.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{default_username}}\",\n    \"password\": \"{{default_password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login", ""]
+						},
+						"description": "Login with username and password to get JWT tokens"
+					}
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.environment.set(\"access_token\", jsonData.access);",
+									"    if (jsonData.refresh) {",
+									"        pm.environment.set(\"refresh_token\", jsonData.refresh);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/token/refresh/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "token", "refresh", ""]
+						},
+						"description": "Refresh access token using refresh token"
+					}
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/user/me/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "user", "me", ""]
+						},
+						"description": "Get current authenticated user details"
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/logout/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "logout", ""]
+						},
+						"description": "Logout and blacklist refresh token"
+					}
+				}
+			]
+		},
+		{
+			"name": "User Profile",
+			"item": [
+				{
+					"name": "Get My Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/profiles/me/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "profiles", "me", ""]
+						},
+						"description": "Get current user's profile"
+					}
+				},
+				{
+					"name": "Update My Profile",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"default_risk_tolerance\": \"moderate\",\n    \"default_timeframe\": \"1d\",\n    \"preferred_symbols\": [\"AAPL\", \"GOOGL\", \"MSFT\"],\n    \"trading_goals\": \"Build consistent income through algorithmic trading\",\n    \"strategy_preferences\": \"Momentum and trend-following strategies\",\n    \"risk_parameters\": {\n        \"max_position_size\": 0.1,\n        \"stop_loss_pct\": 0.02\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/profiles/update_me/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "profiles", "update_me", ""]
+						},
+						"description": "Update current user's profile"
+					}
+				}
+			]
+		},
+		{
+			"name": "AI Context",
+			"item": [
+				{
+					"name": "List AI Contexts",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/ai-contexts/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "ai-contexts", ""]
+						},
+						"description": "List all AI contexts for current user"
+					}
+				},
+				{
+					"name": "Create AI Context",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.environment.set(\"ai_context_id\", jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_name\": \"Momentum Strategy Development\",\n    \"instructions\": \"I want to develop a momentum-based trading strategy that works on daily timeframes. Focus on strong trending stocks with high relative strength. The strategy should include proper risk management with stop-losses and position sizing.\",\n    \"context_data\": {\n        \"strategy_type\": \"momentum\",\n        \"timeframe\": \"1d\",\n        \"indicators\": [\"RSI\", \"MACD\", \"Moving Averages\"]\n    },\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/ai-contexts/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "ai-contexts", ""]
+						},
+						"description": "Create a new AI context with instructions"
+					}
+				},
+				{
+					"name": "Get AI Context",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/ai-contexts/{{ai_context_id}}/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "ai-contexts", "{{ai_context_id}}", ""]
+						},
+						"description": "Get specific AI context details"
+					}
+				}
+			]
+		},
+		{
+			"name": "AI Chat Agent",
+			"item": [
+				{
+					"name": "Start New Chat (with context)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var jsonData = pm.response.json();",
+									"    pm.environment.set(\"session_id\", jsonData.session_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"message\": \"Hi! I want to create a momentum trading strategy. Can you help me get started?\",\n    \"ai_context_id\": {{ai_context_id}},\n    \"title\": \"Momentum Strategy Development\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/chat/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "chat", ""]
+						},
+						"description": "Start a new chat session with AI using a specific context"
+					}
+				},
+				{
+					"name": "Continue Chat",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"message\": \"Can you generate the code for this strategy?\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/chat/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "chat", ""]
+						},
+						"description": "Continue an existing chat session"
+					}
+				},
+				{
+					"name": "List Chat Sessions",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/chat-sessions/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "chat-sessions", ""]
+						},
+						"description": "List all chat sessions for current user"
+					}
+				},
+				{
+					"name": "Get Chat Session Details",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/auth/chat-sessions/1/",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "chat-sessions", "1", ""]
+						},
+						"description": "Get full details of a specific chat session including all messages"
+					}
+				}
+			]
+		},
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/api/auth/health/",
+					"host": ["{{base_url}}"],
+					"path": ["api", "auth", "health", ""]
+				},
+				"description": "Check auth API health"
+			}
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:8000",
+			"type": "string"
+		},
+		{
+			"key": "default_username",
+			"value": "algotrader",
+			"type": "string"
+		},
+		{
+			"key": "default_password",
+			"value": "Trading@2024",
+			"type": "string"
+		}
+	]
+}
