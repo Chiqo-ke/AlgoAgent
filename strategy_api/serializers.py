@@ -162,3 +162,86 @@ class StrategyListSerializer(serializers.ModelSerializer):
                 'created_at': latest_performance.created_at
             }
         return None
+
+
+class StrategyAIValidationRequestSerializer(serializers.Serializer):
+    """Serializer for AI-powered strategy validation requests"""
+    strategy_text = serializers.CharField(
+        help_text="Raw strategy description in plain text or numbered steps"
+    )
+    input_type = serializers.ChoiceField(
+        choices=['auto', 'numbered', 'freetext', 'url'],
+        default='auto',
+        help_text="Type of input format"
+    )
+    use_gemini = serializers.BooleanField(
+        default=True,
+        help_text="Enable Gemini AI-powered analysis"
+    )
+    strict_mode = serializers.BooleanField(
+        default=False,
+        help_text="Enable strict security validation"
+    )
+
+
+class StrategyAIValidationResponseSerializer(serializers.Serializer):
+    """Serializer for AI validation response"""
+    status = serializers.CharField()
+    canonicalized_steps = serializers.ListField(child=serializers.CharField(), required=False)
+    classification = serializers.CharField(required=False)
+    classification_detail = serializers.JSONField(required=False)
+    recommendations = serializers.CharField(required=False)
+    recommendations_list = serializers.ListField(child=serializers.JSONField(), required=False)
+    confidence = serializers.CharField(required=False)
+    next_actions = serializers.ListField(child=serializers.CharField(), required=False)
+    warnings = serializers.ListField(child=serializers.CharField(), required=False)
+    canonical_json = serializers.CharField(required=False)
+    canonical_json_formatted = serializers.CharField(required=False)
+    metadata = serializers.JSONField(required=False)
+    provenance = serializers.JSONField(required=False)
+    message = serializers.CharField(required=False)
+    issues = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+class StrategyCreateWithAIRequestSerializer(serializers.Serializer):
+    """Serializer for creating a strategy with AI validation"""
+    strategy_text = serializers.CharField(
+        help_text="Raw strategy description - will be validated by AI"
+    )
+    input_type = serializers.ChoiceField(
+        choices=['auto', 'numbered', 'freetext', 'url'],
+        default='auto',
+        help_text="Type of input format"
+    )
+    name = serializers.CharField(
+        max_length=200,
+        required=False,
+        help_text="Strategy name (auto-generated if not provided)"
+    )
+    description = serializers.CharField(
+        required=False,
+        default='',
+        help_text="Additional description"
+    )
+    template_id = serializers.IntegerField(
+        required=False,
+        help_text="Optional template to link to"
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=50),
+        required=False,
+        default=list,
+        help_text="Tags for categorization"
+    )
+    use_gemini = serializers.BooleanField(
+        default=True,
+        help_text="Enable Gemini AI-powered analysis"
+    )
+    strict_mode = serializers.BooleanField(
+        default=False,
+        help_text="Enable strict security validation"
+    )
+    save_to_backtest = serializers.BooleanField(
+        default=False,
+        help_text="Save canonical JSON to Backtest/codes/"
+    )

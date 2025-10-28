@@ -1,6 +1,24 @@
 # 📬 How to Import AlgoAgent Postman Collections
 
-## Quick Import Guide
+## 🚀 Quick Start (AI Strategy Validation)
+
+### ⚡ Just Want to Test AI Features?
+Import the **Quick Start** collection:
+1. Click **"Import"** in Postman
+2. Select **`Quick_AI_Strategy_Validation.json`**
+3. That's it! Ready to test AI validation endpoints
+
+This mini-collection includes:
+- ✅ Validate Strategy with AI
+- ✅ Create Strategy with AI  
+- ✅ Update Strategy with AI
+- ✅ Health Check
+- ✅ Example strategies (RSI, EMA, Bollinger)
+- ✅ Auto-configured environment variables
+
+---
+
+## Full Import Guide
 
 ### Step 1: Open Postman
 - Launch the Postman desktop application or web version
@@ -9,22 +27,30 @@
 
 #### Option A: Import All at Once
 1. Click **"Import"** button (top left)
-2. Drag and drop ALL 5 files from `AlgoAgent/postman_collections/`:
-   - ✅ `Auth_API_Collection.json` ⭐ NEW!
-   - ✅ `Data_API_Collection.json`
-   - ✅ `Strategy_API_Collection.json`
-   - ✅ `Backtest_API_Collection.json`
-   - ✅ `AlgoAgent_Environment.json`
+2. Drag and drop ALL files from `AlgoAgent/postman_collections/`:
+   - ✅ `Auth_API_Collection.json` ⭐ Authentication & AI Chat
+   - ✅ `Data_API_Collection.json` - Market Data
+   - ✅ `Strategy_API_Collection.json` - Strategy Management
+   - ✅ `Strategy_AI_Validation_Collection.json` ⭐ AI Validation (Full)
+   - ✅ `Quick_AI_Strategy_Validation.json` ⭐ AI Validation (Quick)
+   - ✅ `Backtest_API_Collection.json` - Backtesting
+   - ✅ `AlgoAgent_Environment.json` - Environment Variables
 
 #### Option B: Import One by One
 1. Click **"Import"**
 2. Select **"Auth_API_Collection.json"** first
 3. Repeat for other collections
 
+#### Option C: Just AI Features (Recommended for Quick Testing)
+1. Click **"Import"**
+2. Select **`Quick_AI_Strategy_Validation.json`**
+3. Done! Environment auto-configured
+
 ### Step 3: Set Active Environment
 1. Click environment dropdown (top right)
-2. Select **"AlgoAgent Development Environment"**
-3. Verify variables are loaded (click eye icon)
+2. Select **"AlgoAgent Development Environment"** (if imported)
+3. Or use the built-in environment in Quick collection
+4. Verify variables are loaded (click eye icon)
 
 ### Step 4: Test Authentication Flow
 

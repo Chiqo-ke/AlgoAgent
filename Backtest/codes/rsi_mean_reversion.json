@@ -1,0 +1,46 @@
+{
+  "strategy_id": "strat-20251028-fea699b2",
+  "version": "0.1.0",
+  "title": "RSI Mean Reversion Strategy: - Buy when RSI(14)",
+  "description": "",
+  "classification": {
+    "type": "position",
+    "risk_tier": "medium",
+    "primary_instruments": [
+      "RSI"
+    ]
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "order": 1,
+      "title": "RSI Mean Reversion Strategy: - Buy when RSI(14)",
+      "trigger": "RSI(14) drops below 30 (oversold)\n        -",
+      "action": {
+        "type": "enter",
+        "order_type": "stop",
+        "instrument": "RSI"
+      },
+      "exit": {
+        "stop_loss": "3% below entry"
+      },
+      "notes": "Original: RSI Mean Reversion Strategy:\n        - Buy when RSI(14) drops below 30 (oversold)\n        - Sell when RSI(14) rises above 70 (overbought)\n        - Stop loss at 3% below entry\n        - Position size: 2% of account per trade\n        - Trade on 1-hour timeframe"
+    }
+  ],
+  "provenance": {
+    "sources": [
+      {
+        "fetched_at": "2025-10-28T15:30:39.546912",
+        "type": "user_input",
+        "author": "api_user",
+        "snippet": "RSI Mean Reversion Strategy:\n        - Buy when RSI(14) drops below 30 (oversold)\n        - Sell when RSI(14) rises above 70 (overbought)\n        - Stop loss at 3% below entry\n        - Position size:"
+      }
+    ]
+  },
+  "metadata": {
+    "created_at": "2025-10-28T15:30:39.547071",
+    "created_by": "user:api_user",
+    "last_updated": "2025-10-28T15:30:39.564097",
+    "confidence": "medium"
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "info": {
+    "name": "Strategy AI Validation API",
+    "description": "AI-powered strategy validation and creation endpoints using the StrategyValidatorBot",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Validate Strategy with AI",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"1. Entry: Buy when 50 EMA crosses above 200 EMA\\n2. Exit: Sell when 50 EMA crosses below 200 EMA\\n3. Stop Loss: 2% below entry price\\n4. Take Profit: 5% above entry price\\n5. Position Size: Risk 1% of account per trade\",\n  \"input_type\": \"numbered\",\n  \"use_gemini\": true,\n  \"strict_mode\": false\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "validate_strategy_with_ai", ""]
+        },
+        "description": "Validates a strategy using AI-powered analysis. Returns canonicalized steps, classification, recommendations, and confidence level.\n\nInput types:\n- `auto`: Automatically detect format\n- `numbered`: Numbered step format (1. 2. 3.)\n- `freetext`: Plain text description\n- `url`: URL to strategy content"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Create Strategy with AI",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"RSI Mean Reversion Strategy: Buy when RSI(14) drops below 30 (oversold). Sell when RSI(14) rises above 70 (overbought). Stop loss at 3% below entry. Position size: 2% of account per trade. Trade on 1-hour timeframe.\",\n  \"input_type\": \"freetext\",\n  \"name\": \"RSI Mean Reversion\",\n  \"description\": \"Simple RSI-based mean reversion strategy\",\n  \"tags\": [\"rsi\", \"mean-reversion\", \"momentum\"],\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"save_to_backtest\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/create_strategy_with_ai/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "create_strategy_with_ai", ""]
+        },
+        "description": "Creates a new strategy with AI validation. Steps:\n1. Validates strategy text using AI\n2. Creates Strategy record with canonical JSON\n3. Auto-creates linked StrategyTemplate\n4. Optionally saves canonical JSON to Backtest/codes/\n\nReturns:\n- Created strategy data\n- Complete AI validation results\n- Template info (if auto-created)\n- File path (if saved)"
+      },
+      "response": []
+    },
+    {
+      "name": "3. Update Strategy with AI",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"Enhanced RSI Mean Reversion Strategy:\\n1. Entry: Buy when RSI(14) < 30 AND price is above 200 SMA\\n2. Exit: Sell when RSI(14) > 70 OR price crosses below 200 SMA\\n3. Stop Loss: 2.5% below entry (tightened)\\n4. Take Profit: 6% above entry (added profit target)\\n5. Position Size: Risk 1.5% per trade based on ATR\",\n  \"input_type\": \"numbered\",\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"update_description\": \"Added 200 SMA filter and tightened risk parameters\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/{{strategy_id}}/update_strategy_with_ai/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "{{strategy_id}}", "update_strategy_with_ai", ""]
+        },
+        "description": "Updates an existing strategy with AI re-validation. Steps:\n1. Retrieves existing strategy by ID\n2. Re-validates updated strategy text using AI\n3. Updates the strategy record\n4. Updates linked template's chat history\n\nRequires:\n- `strategy_id` in URL path\n- Updated strategy text in body"
+      },
+      "response": []
+    },
+    {
+      "name": "4. Validate Freetext Strategy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"I want to create a scalping strategy. Buy when price breaks above the previous 15-minute high with volume confirmation. Exit after 10 points profit or 5 points loss. Use tight stops and scale in with 3 positions. Only trade during high liquidity hours.\",\n  \"input_type\": \"freetext\",\n  \"use_gemini\": true,\n  \"strict_mode\": false\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/validate_strategy_with_ai/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "validate_strategy_with_ai", ""]
+        },
+        "description": "Example of validating a free-text strategy description. The AI will extract and structure the strategy into canonical format."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Create EMA Crossover Strategy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"strategy_text\": \"1. BUY when 50-period EMA crosses ABOVE 200-period EMA (Golden Cross)\\n2. SELL when 50-period EMA crosses BELOW 200-period EMA (Death Cross)\\n3. Stop-loss: 2% below entry price\\n4. Take-profit: 5% above entry price\\n5. Position sizing: Risk 1% of total account equity per trade\\n6. Timeframe: Daily charts\\n7. Additional filter: Only take trades when price is above both EMAs\",\n  \"input_type\": \"numbered\",\n  \"name\": \"EMA Golden Cross Strategy\",\n  \"description\": \"Classic trend-following strategy using EMA crossover signals\",\n  \"tags\": [\"ema\", \"trend-following\", \"crossover\"],\n  \"use_gemini\": true,\n  \"strict_mode\": false,\n  \"save_to_backtest\": true\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/create_strategy_with_ai/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "create_strategy_with_ai", ""]
+        },
+        "description": "Creates a complete EMA crossover strategy with AI validation and saves canonical JSON to Backtest/codes/"
+      },
+      "response": []
+    },
+    {
+      "name": "6. Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/strategies/api/health/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "strategies", "api", "health", ""]
+        },
+        "description": "Check if the API is healthy and if AI validation modules are available"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "strategy_id",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

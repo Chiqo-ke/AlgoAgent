@@ -2,7 +2,43 @@
 
 This folder contains comprehensive Postman collections for testing the AlgoAgent Django API system.
 
+## 🚀 Quick Start
+
+**New to AlgoAgent? Start here:**
+
+Import **`Quick_AI_Strategy_Validation.json`** for instant access to AI-powered strategy validation:
+- Validate strategies with AI analysis
+- Create strategies with automatic canonicalization
+- Update strategies with AI re-validation
+- Pre-configured examples (RSI, EMA, Bollinger)
+- Built-in environment variables (no setup needed!)
+
+Just import and test! 🎉
+
+---
+
 ## Collections Included
+
+### Quick Collections (Recommended for Testing)
+
+#### Quick_AI_Strategy_Validation.json ⭐ NEW!
+**AI Strategy Validation - Quick Start**
+- **7 endpoints** ready to test immediately
+- **3 core operations**: Validate, Create, Update with AI
+- **3 example strategies**: RSI, EMA Crossover, Bollinger Bands
+- **1 health check**: Verify AI modules are available
+- **Auto-configured**: No environment setup required
+- **Built-in tests**: Automatic validation of responses
+
+**Perfect for:**
+- Testing new AI validation features
+- Quick demos
+- Learning the AI API
+- Development testing
+
+---
+
+### Full Collections
 
 ### 1. Auth_API_Collection.json
 **Authentication & AI Chat API** ⭐ NEW!
@@ -31,7 +67,20 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 - **Performance & Comments** (4 endpoints): Performance tracking and user feedback
 - **Tags Management** (3 endpoints): Strategy categorization and organization
 
-### 4. Backtest_API_Collection.json
+### 4. Strategy_AI_Validation_Collection.json ⭐ NEW!
+**AI-Powered Strategy Validation & Creation API**
+- **AI Validation** (2 endpoints): Validate strategies with AI analysis and recommendations
+- **AI Creation** (2 endpoints): Create strategies with AI canonicalization and auto-template generation
+- **AI Update** (1 endpoint): Update existing strategies with AI re-validation
+- **Examples** (1 endpoint): Pre-built strategy examples with AI validation
+- **Features**:
+  - Canonicalization: Convert free-text to structured JSON
+  - Classification: Auto-detect strategy type and risk level
+  - Recommendations: AI-powered improvement suggestions
+  - Security: Built-in guardrails and safety checks
+  - Integration: Works with `interactive_strategy_tester.py` logic
+
+### 5. Backtest_API_Collection.json
 **Backtesting & Performance Analysis API**
 - **Health & Status** (2 endpoints): Backtest engine health monitoring
 - **Backtest Execution** (4 endpoints): Simple, advanced, multi-symbol, and quick backtests
@@ -42,7 +91,7 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 - **Reports & Export** (4 endpoints): Report generation and data export
 - **Real-time Monitoring** (4 endpoints): Live backtest monitoring and control
 
-### 5. AlgoAgent_Environment.json
+### 6. AlgoAgent_Environment.json
 **Environment Variables**
 Pre-configured environment with common variables:
 - Base URLs for all API endpoints
@@ -55,6 +104,10 @@ Pre-configured environment with common variables:
 ## Setup Instructions
 
 ### Step 1: Import Collections
+1. Open Postman
+2. Click "Import" button
+3. Select all 6 JSON files from this folder (including Strategy_AI_Validation_Collection.json)
+4. Click "Import"
 1. Open Postman
 2. Click "Import" button
 3. Select all 5 JSON files from this folder (including Auth_API_Collection.json)
