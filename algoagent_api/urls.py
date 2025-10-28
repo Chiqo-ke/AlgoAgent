@@ -27,13 +27,27 @@ def api_root(request):
         'version': '1.0.0',
         'timestamp': timezone.now(),
         'endpoints': {
+            'auth': '/api/auth/',
             'data': '/api/data/',
             'strategies': '/api/strategies/',
             'backtests': '/api/backtests/',
             'admin': '/admin/',
             'api_browser': '/api/data/',  # For browsable API
         },
+        'authentication': {
+            'register': '/api/auth/register/',
+            'login': '/api/auth/login/',
+            'token_refresh': '/api/auth/token/refresh/',
+            'logout': '/api/auth/logout/',
+            'current_user': '/api/auth/user/me/',
+        },
+        'ai_chat': {
+            'chat': '/api/auth/chat/',
+            'sessions': '/api/auth/chat-sessions/',
+            'contexts': '/api/auth/ai-contexts/',
+        },
         'health_checks': {
+            'auth_api': '/api/auth/health/',
             'data_api': '/api/data/api/health/',
             'strategy_api': '/api/strategies/api/health/',
             'backtest_api': '/api/backtests/api/health/',
@@ -44,6 +58,7 @@ def api_root(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api_root, name='api-root'),
+    path('api/auth/', include('auth_api.urls')),
     path('api/data/', include('data_api.urls')),
     path('api/strategies/', include('strategy_api.urls')),
     path('api/backtests/', include('backtest_api.urls')),

@@ -4,7 +4,15 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 
 ## Collections Included
 
-### 1. Data_API_Collection.json
+### 1. Auth_API_Collection.json
+**Authentication & AI Chat API** ⭐ NEW!
+- **Authentication** (5 endpoints): Register, login, logout, token refresh, current user
+- **User Profile** (2 endpoints): Get and update user profiles
+- **AI Context** (3 endpoints): Create and manage AI contexts for strategy development
+- **AI Chat Agent** (4 endpoints): Interactive chat with Gemini AI for strategy development
+- **Health Check** (1 endpoint): Auth API health monitoring
+
+### 2. Data_API_Collection.json
 **Data Management & Market Data API**
 - **Health & Status** (3 endpoints): API health checks and status monitoring
 - **Symbol Management** (6 endpoints): Create, read, update symbols and market data
@@ -12,7 +20,7 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 - **Indicators** (5 endpoints): Technical indicators calculation and retrieval
 - **Data Requests** (3 endpoints): Data request management and caching
 
-### 2. Strategy_API_Collection.json
+### 3. Strategy_API_Collection.json
 **Strategy Development & Management API**
 - **Health & Status** (2 endpoints): Strategy API health and categories
 - **Strategy Templates** (4 endpoints): Template management for reusable strategies
@@ -23,7 +31,7 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 - **Performance & Comments** (4 endpoints): Performance tracking and user feedback
 - **Tags Management** (3 endpoints): Strategy categorization and organization
 
-### 3. Backtest_API_Collection.json
+### 4. Backtest_API_Collection.json
 **Backtesting & Performance Analysis API**
 - **Health & Status** (2 endpoints): Backtest engine health monitoring
 - **Backtest Execution** (4 endpoints): Simple, advanced, multi-symbol, and quick backtests
@@ -34,12 +42,14 @@ This folder contains comprehensive Postman collections for testing the AlgoAgent
 - **Reports & Export** (4 endpoints): Report generation and data export
 - **Real-time Monitoring** (4 endpoints): Live backtest monitoring and control
 
-### 4. AlgoAgent_Environment.json
+### 5. AlgoAgent_Environment.json
 **Environment Variables**
 Pre-configured environment with common variables:
 - Base URLs for all API endpoints
+- Default user credentials (algotrader/Trading@2024)
 - Test symbols (AAPL, GOOGL)
 - Default date ranges and parameters
+- JWT token storage (auto-set after login)
 - Common configuration values
 
 ## Setup Instructions
@@ -47,7 +57,7 @@ Pre-configured environment with common variables:
 ### Step 1: Import Collections
 1. Open Postman
 2. Click "Import" button
-3. Select all 4 JSON files from this folder
+3. Select all 5 JSON files from this folder (including Auth_API_Collection.json)
 4. Click "Import"
 
 ### Step 2: Set Environment
