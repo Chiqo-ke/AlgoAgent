@@ -1,0 +1,281 @@
+{
+	"info": {
+		"_postman_id": "complete-flow-uuid",
+		"name": "AlgoAgent - Complete Auth Flow",
+		"description": "Complete authentication and AI chat flow in one collection",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Login",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"access_token\", jsonData.tokens.access);",
+							"    pm.environment.set(\"refresh_token\", jsonData.tokens.refresh);",
+							"    pm.environment.set(\"user_id\", jsonData.user.id);",
+							"    console.log('✅ Step 1 Complete: Logged in as', jsonData.user.username);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"username\": \"algotrader\",\n    \"password\": \"Trading@2024\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/login/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "login", ""]
+				},
+				"description": "Step 1: Login to get JWT tokens"
+			},
+			"response": []
+		},
+		{
+			"name": "2. Get My Profile",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    console.log('✅ Step 2 Complete: Profile retrieved');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/profiles/me/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "profiles", "me", ""]
+				},
+				"description": "Step 2: Verify authentication by getting profile"
+			},
+			"response": []
+		},
+		{
+			"name": "3. Create AI Context (Optional)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 201) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"ai_context_id\", jsonData.id);",
+							"    console.log('✅ Step 3 Complete: AI Context created with ID', jsonData.id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"session_name\": \"Momentum Strategy Development\",\n    \"instructions\": \"I want to develop a momentum-based trading strategy for daily timeframes. Focus on stocks with strong trends.\",\n    \"context_data\": {\n        \"strategy_type\": \"momentum\",\n        \"timeframe\": \"1d\"\n    },\n    \"is_active\": true\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/ai-contexts/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "ai-contexts", ""]
+				},
+				"description": "Step 3: Create AI context for personalized responses (optional)"
+			},
+			"response": []
+		},
+		{
+			"name": "4. Start AI Chat",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"session_id\", jsonData.session_id);",
+							"    console.log('✅ Step 4 Complete: Chat session started');",
+							"    console.log('Session ID:', jsonData.session_id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"message\": \"Hi! I want to create a momentum trading strategy. Can you help me get started?\",\n    \"ai_context_id\": {{ai_context_id}},\n    \"title\": \"Momentum Strategy Session\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Step 4: Start chatting with AI about strategy development"
+			},
+			"response": []
+		},
+		{
+			"name": "5. Continue Chat - Ask Questions",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    console.log('✅ Step 5 Complete: Follow-up question answered');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"message\": \"What indicators should I use for detecting momentum?\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Step 5: Ask follow-up questions"
+			},
+			"response": []
+		},
+		{
+			"name": "6. Generate Strategy Code",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    console.log('✅ Step 6 Complete: Strategy code generated!');",
+							"    console.log('🎉 Complete flow finished successfully!');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"message\": \"Can you generate the Python code for this momentum strategy?\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Step 6: Ask AI to generate the strategy code"
+			},
+			"response": []
+		},
+		{
+			"name": "7. View Chat History",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat-sessions/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat-sessions", ""]
+				},
+				"description": "Step 7: View all your chat sessions"
+			},
+			"response": []
+		}
+	]
+}

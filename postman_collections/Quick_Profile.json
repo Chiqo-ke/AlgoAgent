@@ -1,0 +1,81 @@
+{
+	"info": {
+		"_postman_id": "profile-collection-uuid",
+		"name": "AlgoAgent - User Profile",
+		"description": "Manage user profile and preferences",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Get My Profile",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/profiles/me/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "profiles", "me", ""]
+				},
+				"description": "Get current user's profile with trading preferences"
+			},
+			"response": []
+		},
+		{
+			"name": "Update Trading Preferences",
+			"request": {
+				"method": "PATCH",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"default_risk_tolerance\": \"moderate\",\n    \"default_timeframe\": \"1d\",\n    \"preferred_symbols\": [\"AAPL\", \"GOOGL\", \"MSFT\"],\n    \"trading_goals\": \"Build consistent income through algorithmic trading\",\n    \"strategy_preferences\": \"Momentum and trend-following strategies\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/profiles/update_me/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "profiles", "update_me", ""]
+				},
+				"description": "Update your trading preferences"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Current User Info",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					}
+				],
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/user/me/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "user", "me", ""]
+				},
+				"description": "Get current user details including profile"
+			},
+			"response": []
+		}
+	]
+}

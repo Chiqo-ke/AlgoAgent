@@ -12,13 +12,49 @@ import json
 
 
 class StrategyTemplate(models.Model):
-    """Model for storing strategy templates"""
+    """Model for storing strategy templates
+    
+    Templates serve dual purposes:
+    1. Pre-built templates for users to start from
+    2. Auto-created templates that track strategy evolution in chat sessions
+    """
     name = models.CharField(max_length=200, unique=True)
     description = models.TextField()
     category = models.CharField(max_length=100, help_text="Strategy category (e.g., momentum, mean_reversion)")
     template_code = models.TextField(help_text="Template code with placeholders")
     parameters_schema = models.JSONField(default=dict, help_text="JSON schema for strategy parameters")
     is_active = models.BooleanField(default=True)
+    
+    # Link to the strategy this template represents (for auto-created templates)
+    linked_strategy = models.ForeignKey(
+        'Strategy', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='linked_template',
+        help_text="Strategy this template is linked to (for chat-based templates)"
+    )
+    
+    # Template type
+    is_system_template = models.BooleanField(
+        default=False, 
+        help_text="True for pre-built templates, False for user/chat-created templates"
+    )
+    
+    # Metadata for tracking latest strategy state
+    latest_strategy_code = models.TextField(
+        blank=True,
+        help_text="Most recent version of the strategy code (auto-updated)"
+    )
+    latest_parameters = models.JSONField(
+        default=dict,
+        help_text="Most recent strategy parameters"
+    )
+    chat_history = models.JSONField(
+        default=list,
+        help_text="Condensed chat history about this strategy"
+    )
+    
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

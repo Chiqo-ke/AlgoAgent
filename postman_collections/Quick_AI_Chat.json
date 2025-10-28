@@ -1,0 +1,115 @@
+{
+	"info": {
+		"_postman_id": "ai-chat-collection-uuid",
+		"name": "AlgoAgent - AI Chat",
+		"description": "Quick AI chat for strategy development",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Start AI Chat (Simple)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"session_id\", jsonData.session_id);",
+							"    console.log('✅ Chat started!');",
+							"    console.log('Session ID:', jsonData.session_id);",
+							"    console.log('AI Response:', jsonData.ai_response.substring(0, 200) + '...');",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"description": "JWT token from login"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"message\": \"Hi! I want to create a momentum trading strategy. Can you help me get started?\",\n    \"title\": \"Momentum Strategy Development\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Start a new chat session with AI - no context needed"
+			},
+			"response": []
+		},
+		{
+			"name": "Continue Chat",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"message\": \"What indicators should I use?\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Continue an existing chat conversation"
+			},
+			"response": []
+		},
+		{
+			"name": "Generate Strategy Code",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"session_id\": \"{{session_id}}\",\n    \"message\": \"Can you generate the Python code for this momentum strategy?\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/chat/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "chat", ""]
+				},
+				"description": "Ask AI to generate strategy code"
+			},
+			"response": []
+		}
+	]
+}

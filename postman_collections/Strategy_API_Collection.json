@@ -121,6 +121,41 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Sync Template from Strategy (AI Agent)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"strategy_code\": \"# Updated Strategy Code\\ndef initialize(context):\\n    context.asset = 'AAPL'\\n    context.lookback = 20\\n\\ndef handle_data(context, data):\\n    # Updated logic\\n    pass\",\n    \"parameters\": {\n        \"asset\": \"AAPL\",\n        \"lookback\": 20\n    },\n    \"chat_message\": \"Modified the strategy to add better entry logic based on RSI\",\n    \"description\": \"Enhanced momentum strategy with RSI confirmation\"\n}"
+						},
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/1/sync_from_strategy/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", "1", "sync_from_strategy", ""]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Template Context (AI Agent)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{strategyApiBase}}/templates/1/get_context/",
+							"host": ["{{strategyApiBase}}"],
+							"path": ["templates", "1", "get_context", ""]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -141,7 +176,7 @@
 					"response": []
 				},
 				{
-					"name": "Create Strategy (Simple)",
+					"name": "Create Strategy (Simple - Auto Template)",
 					"request": {
 						"method": "POST",
 						"header": [
@@ -163,7 +198,7 @@
 					"response": []
 				},
 				{
-					"name": "Create Strategy (Advanced)",
+					"name": "Create Strategy (With Existing Template)",
 					"request": {
 						"method": "POST",
 						"header": [

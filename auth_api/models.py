@@ -77,6 +77,14 @@ class ChatSession(models.Model):
     session_id = models.CharField(max_length=100, unique=True)
     title = models.CharField(max_length=200, default="New Strategy Session")
     
+    # Link to strategy template (for strategy development sessions)
+    # Note: This creates a circular import, so we use string reference
+    strategy_template_id = models.IntegerField(
+        null=True, 
+        blank=True,
+        help_text="ID of the StrategyTemplate this session is developing"
+    )
+    
     # Conversation history
     messages = models.JSONField(default=list, help_text="Chat message history")
     

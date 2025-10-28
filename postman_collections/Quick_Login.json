@@ -1,0 +1,95 @@
+{
+	"info": {
+		"_postman_id": "login-collection-uuid",
+		"name": "AlgoAgent - Login",
+		"description": "Simple login collection to get JWT tokens",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Login with Default User",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"access_token\", jsonData.tokens.access);",
+							"    pm.environment.set(\"refresh_token\", jsonData.tokens.refresh);",
+							"    pm.environment.set(\"user_id\", jsonData.user.id);",
+							"    console.log('✅ Login successful!');",
+							"    console.log('Access Token:', jsonData.tokens.access.substring(0, 50) + '...');",
+							"    console.log('User:', jsonData.user.username);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"username\": \"algotrader\",\n    \"password\": \"Trading@2024\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/login/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "login", ""]
+				},
+				"description": "Login with default user credentials and automatically save JWT tokens"
+			},
+			"response": []
+		},
+		{
+			"name": "Login with Custom Credentials",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"if (pm.response.code === 200) {",
+							"    var jsonData = pm.response.json();",
+							"    pm.environment.set(\"access_token\", jsonData.tokens.access);",
+							"    pm.environment.set(\"refresh_token\", jsonData.tokens.refresh);",
+							"    pm.environment.set(\"user_id\", jsonData.user.id);",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"username\": \"your_username\",\n    \"password\": \"your_password\"\n}"
+				},
+				"url": {
+					"raw": "http://127.0.0.1:8000/api/auth/login/",
+					"protocol": "http",
+					"host": ["127", "0", "0", "1"],
+					"port": "8000",
+					"path": ["api", "auth", "login", ""]
+				},
+				"description": "Login with your own credentials"
+			},
+			"response": []
+		}
+	]
+}
