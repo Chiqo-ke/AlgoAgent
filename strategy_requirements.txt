@@ -7,6 +7,11 @@ jsonschema>=4.20.0
 # AI/Gemini integration
 google-generativeai>=0.3.0
 
+# LangChain for conversation memory and context management
+langchain>=0.1.0
+langchain-google-genai>=0.0.5
+langchain-community>=0.0.10
+
 # Environment variables
 python-dotenv>=1.0.0
 

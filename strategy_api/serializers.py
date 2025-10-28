@@ -6,7 +6,10 @@ Django REST Framework serializers for the strategy API.
 """
 
 from rest_framework import serializers
-from .models import StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, StrategyComment, StrategyTag
+from .models import (
+    StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
+    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage
+)
 
 
 class StrategyTemplateSerializer(serializers.ModelSerializer):
@@ -245,3 +248,70 @@ class StrategyCreateWithAIRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Save canonical JSON to Backtest/codes/"
     )
+
+
+# Chat Session Serializers
+
+class StrategyChatMessageSerializer(serializers.ModelSerializer):
+    """Serializer for StrategyChatMessage model"""
+    
+    class Meta:
+        model = StrategyChatMessage
+        fields = ['id', 'role', 'content', 'tokens_used', 'metadata', 'function_call', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+
+class StrategyChatSerializer(serializers.ModelSerializer):
+    """Serializer for StrategyChat model"""
+    messages = StrategyChatMessageSerializer(many=True, read_only=True)
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    strategy_name = serializers.CharField(source='strategy.name', read_only=True)
+    
+    class Meta:
+        model = StrategyChat
+        fields = [
+            'id', 'session_id', 'user', 'user_username', 'title', 'strategy', 'strategy_name',
+            'is_active', 'context_summary', 'message_count', 'model_name', 'temperature',
+            'max_tokens', 'created_at', 'updated_at', 'last_message_at', 'messages'
+        ]
+        read_only_fields = ['id', 'session_id', 'message_count', 'created_at', 'updated_at', 'last_message_at']
+
+
+class StrategyChatListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing chat sessions (without full message history)"""
+    user_username = serializers.CharField(source='user.username', read_only=True)
+    strategy_name = serializers.CharField(source='strategy.name', read_only=True)
+    
+    class Meta:
+        model = StrategyChat
+        fields = [
+            'id', 'session_id', 'user_username', 'title', 'strategy_name',
+            'is_active', 'message_count', 'created_at', 'updated_at', 'last_message_at'
+        ]
+        read_only_fields = ['id', 'session_id', 'message_count', 'created_at', 'updated_at', 'last_message_at']
+
+
+class ChatMessageRequestSerializer(serializers.Serializer):
+    """Serializer for sending a message in a chat session"""
+    message = serializers.CharField(help_text="User's message to the AI")
+    session_id = serializers.CharField(
+        required=False,
+        help_text="Existing session ID (if not provided, creates new session)"
+    )
+    strategy_id = serializers.IntegerField(
+        required=False,
+        help_text="Link this chat to a specific strategy"
+    )
+    use_context = serializers.BooleanField(
+        default=True,
+        help_text="Include conversation history in AI response"
+    )
+
+
+class ChatResponseSerializer(serializers.Serializer):
+    """Serializer for AI chat responses"""
+    session_id = serializers.CharField(help_text="Chat session ID")
+    message = serializers.CharField(help_text="AI's response")
+    message_count = serializers.IntegerField(help_text="Total messages in session")
+    context_used = serializers.BooleanField(help_text="Whether conversation context was used")
+    

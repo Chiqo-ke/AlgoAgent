@@ -17,14 +17,18 @@ import sys
 from pathlib import Path
 import traceback
 
-from .models import StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, StrategyComment, StrategyTag
+from .models import (
+    StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
+    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage
+)
 from .serializers import (
     StrategyTemplateSerializer, StrategySerializer, StrategyValidationSerializer,
     StrategyPerformanceSerializer, StrategyCommentSerializer, StrategyTagSerializer,
     StrategyValidationRequestSerializer, StrategyCreateRequestSerializer,
     StrategyCodeGenerationRequestSerializer, StrategySearchSerializer, StrategyListSerializer,
     StrategyAIValidationRequestSerializer, StrategyAIValidationResponseSerializer,
-    StrategyCreateWithAIRequestSerializer
+    StrategyCreateWithAIRequestSerializer, StrategyChatSerializer, StrategyChatMessageSerializer,
+    StrategyChatListSerializer, ChatMessageRequestSerializer, ChatResponseSerializer
 )
 
 # Add parent directory to path for imports
@@ -1026,3 +1030,194 @@ class StrategyTagViewSet(viewsets.ModelViewSet):
     queryset = StrategyTag.objects.all()
     serializer_class = StrategyTagSerializer
     permission_classes = [AllowAny]
+
+
+class StrategyChatViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing chat sessions with AI conversation memory"""
+    queryset = StrategyChat.objects.all()
+    permission_classes = [AllowAny]
+    
+    def get_serializer_class(self):
+        """Use different serializers for list vs detail views"""
+        if self.action == 'list':
+            return StrategyChatListSerializer
+        return StrategyChatSerializer
+    
+    def get_queryset(self):
+        """Filter chat sessions by user if authenticated"""
+        queryset = StrategyChat.objects.all()
+        
+        # Filter by user
+        if self.request.user.is_authenticated:
+            user_filter = self.request.query_params.get('my_sessions', None)
+            if user_filter:
+                queryset = queryset.filter(user=self.request.user)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        # Filter by strategy
+        strategy_id = self.request.query_params.get('strategy_id', None)
+        if strategy_id:
+            queryset = queryset.filter(strategy_id=strategy_id)
+        
+        return queryset.order_by('-updated_at')
+    
+    @action(detail=False, methods=['post'])
+    def chat(self, request):
+        """
+        Send a message to the AI and get a response with conversation memory.
+        
+        Expected payload:
+        {
+            "message": "User's message",
+            "session_id": "optional_existing_session_id",
+            "strategy_id": 123,  // optional
+            "use_context": true  // optional, default true
+        }
+        
+        Returns:
+        {
+            "session_id": "chat_abc123",
+            "message": "AI's response",
+            "message_count": 5,
+            "context_used": true
+        }
+        """
+        serializer = ChatMessageRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            user_message = data['message']
+            session_id = data.get('session_id')
+            strategy_id = data.get('strategy_id')
+            use_context = data.get('use_context', True)
+            
+            # Get or create conversation manager
+            try:
+                from Strategy.conversation_manager import ConversationManager
+                from Strategy.gemini_strategy_integrator import GeminiStrategyIntegrator
+            except ImportError as e:
+                return Response({
+                    'error': 'Conversation manager not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Get user
+            user = request.user if request.user.is_authenticated else None
+            
+            # Initialize or retrieve conversation
+            conv_manager = ConversationManager(session_id=session_id, user=user)
+            
+            # Link to strategy if provided
+            if strategy_id:
+                conv_manager.link_strategy(strategy_id)
+            
+            # Initialize AI integrator with conversation context
+            ai = GeminiStrategyIntegrator(
+                session_id=conv_manager.session_id,
+                user=user
+            )
+            
+            # Get AI response
+            ai_response = ai.chat(user_message, include_strategy_context=use_context)
+            
+            # Prepare response
+            response_data = {
+                'session_id': conv_manager.session_id,
+                'message': ai_response,
+                'message_count': conv_manager.get_session().message_count,
+                'context_used': use_context
+            }
+            
+            response_serializer = ChatResponseSerializer(data=response_data)
+            if response_serializer.is_valid():
+                return Response(response_serializer.data, status=status.HTTP_200_OK)
+            else:
+                return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error in chat endpoint: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Internal server error',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['get'])
+    def messages(self, request, pk=None):
+        """Get all messages for a specific chat session"""
+        session = self.get_object()
+        messages = session.messages.all().order_by('created_at')
+        serializer = StrategyChatMessageSerializer(messages, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def summarize(self, request, pk=None):
+        """Generate an AI summary of the conversation"""
+        session = self.get_object()
+        
+        try:
+            from Strategy.gemini_strategy_integrator import GeminiStrategyIntegrator
+            
+            ai = GeminiStrategyIntegrator(
+                session_id=session.session_id,
+                user=session.user
+            )
+            
+            summary = ai.summarize_conversation()
+            
+            return Response({
+                'session_id': session.session_id,
+                'summary': summary,
+                'message_count': session.message_count
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error summarizing conversation: {e}")
+            return Response({
+                'error': 'Failed to generate summary',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def clear(self, request, pk=None):
+        """Clear all messages from a chat session"""
+        session = self.get_object()
+        
+        try:
+            from Strategy.conversation_manager import ConversationManager
+            
+            conv_manager = ConversationManager(
+                session_id=session.session_id,
+                user=session.user
+            )
+            conv_manager.clear_conversation()
+            
+            return Response({
+                'success': True,
+                'message': 'Conversation cleared',
+                'session_id': session.session_id
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error clearing conversation: {e}")
+            return Response({
+                'error': 'Failed to clear conversation',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None):
+        """Mark a chat session as inactive"""
+        session = self.get_object()
+        session.is_active = False
+        session.save(update_fields=['is_active'])
+        
+        serializer = self.get_serializer(session)
+        return Response(serializer.data)
+

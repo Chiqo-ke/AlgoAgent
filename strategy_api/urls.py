@@ -17,6 +17,7 @@ router.register(r'validations', views.StrategyValidationViewSet)
 router.register(r'performance', views.StrategyPerformanceViewSet)
 router.register(r'comments', views.StrategyCommentViewSet)
 router.register(r'tags', views.StrategyTagViewSet)
+router.register(r'chat', views.StrategyChatViewSet, basename='chat')
 router.register(r'api', views.StrategyAPIViewSet, basename='strategy-api')
 
 app_name = 'strategy_api'

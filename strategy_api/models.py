@@ -215,3 +215,78 @@ class StrategyTag(models.Model):
     
     def __str__(self):
         return self.name
+
+
+class StrategyChat(models.Model):
+    """Model for storing AI chat sessions with conversation history for strategy development"""
+    session_id = models.CharField(max_length=100, unique=True, help_text="Unique session identifier")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='strategy_chat_sessions')
+    title = models.CharField(max_length=200, blank=True, help_text="Auto-generated or user-set session title")
+    
+    # Link to strategy if the chat is about a specific strategy
+    strategy = models.ForeignKey(
+        Strategy, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='strategy_chat_sessions',
+        help_text="Associated strategy for this chat session"
+    )
+    
+    # Session metadata
+    is_active = models.BooleanField(default=True, help_text="Is this session still active?")
+    context_summary = models.TextField(blank=True, help_text="AI-generated summary of the conversation")
+    message_count = models.IntegerField(default=0, help_text="Total number of messages in this session")
+    
+    # Session configuration
+    model_name = models.CharField(max_length=50, default='gemini-1.5-flash', help_text="AI model used")
+    temperature = models.FloatField(default=0.7, help_text="Temperature setting for AI responses")
+    max_tokens = models.IntegerField(default=2048, help_text="Max tokens for AI responses")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_message_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp of last message")
+    
+    class Meta:
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['session_id']),
+            models.Index(fields=['user', '-updated_at']),
+        ]
+    
+    def __str__(self):
+        return f"StrategyChat {self.session_id} - {self.title or 'Untitled'}"
+
+
+class StrategyChatMessage(models.Model):
+    """Model for storing individual messages in strategy chat sessions"""
+    MESSAGE_ROLE_CHOICES = [
+        ('user', 'User'),
+        ('assistant', 'Assistant'),
+        ('system', 'System'),
+    ]
+    
+    session = models.ForeignKey(StrategyChat, on_delete=models.CASCADE, related_name='messages')
+    role = models.CharField(max_length=20, choices=MESSAGE_ROLE_CHOICES, help_text="Message sender role")
+    content = models.TextField(help_text="Message content")
+    
+    # Message metadata
+    tokens_used = models.IntegerField(null=True, blank=True, help_text="Number of tokens in this message")
+    
+    # Additional context stored with message
+    metadata = models.JSONField(default=dict, help_text="Additional metadata (strategy references, validation results, etc.)")
+    
+    # For assistant messages - track the function/action taken
+    function_call = models.JSONField(null=True, blank=True, help_text="Function call data if assistant performed an action")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['session', 'created_at']),
+        ]
+    
+    def __str__(self):
+        preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
+        return f"{self.role}: {preview}"
