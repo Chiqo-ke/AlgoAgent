@@ -4,6 +4,8 @@ LangChain Conversation Manager for AlgoAgent
 
 This module provides conversation memory and context management using LangChain
 integrated with Django's SQLite database for persistent storage.
+
+Note: Updated for LangChain 1.0+ which deprecated the memory module.
 """
 
 import os
@@ -12,7 +14,6 @@ from datetime import datetime
 import uuid
 import logging
 
-from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage
@@ -107,7 +108,10 @@ class DjangoSQLiteChatHistory(BaseChatMessageHistory):
 
 class ConversationManager:
     """
-    Manages conversation sessions with LangChain memory and Django persistence.
+    Manages conversation sessions with LangChain chat history and Django persistence.
+    
+    Note: Updated for LangChain 1.0+ - ConversationBufferMemory has been deprecated.
+    We now use the chat_history directly for memory management.
     """
     
     def __init__(self, session_id: Optional[str] = None, user=None):
@@ -122,13 +126,6 @@ class ConversationManager:
         self.user = user
         self.chat_history = DjangoSQLiteChatHistory(self.session_id)
         
-        # Initialize LangChain memory
-        self.memory = ConversationBufferMemory(
-            chat_memory=self.chat_history,
-            return_messages=True,
-            memory_key="chat_history"
-        )
-        
         logger.info(f"Initialized ConversationManager for session {self.session_id}")
     
     def _generate_session_id(self) -> str:
@@ -139,6 +136,15 @@ class ConversationManager:
         """Get the StrategyChat model instance"""
         from strategy_api.models import StrategyChat
         return StrategyChat.objects.get(session_id=self.session_id)
+    
+    def get_messages(self) -> List[BaseMessage]:
+        """
+        Get all messages in the conversation.
+        
+        Returns:
+            List of LangChain message objects
+        """
+        return self.chat_history.messages
     
     def add_user_message(self, content: str, metadata: Optional[Dict] = None) -> None:
         """

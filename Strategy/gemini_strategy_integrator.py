@@ -41,7 +41,8 @@ class GeminiStrategyIntegrator:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
+                # Use gemini-2.5-flash for fast, efficient responses
+                self.model = genai.GenerativeModel('gemini-2.5-flash')
                 self.client = genai
                 print("✓ Gemini API initialized successfully")
             except ImportError:

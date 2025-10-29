@@ -239,7 +239,7 @@ class StrategyChat(models.Model):
     message_count = models.IntegerField(default=0, help_text="Total number of messages in this session")
     
     # Session configuration
-    model_name = models.CharField(max_length=50, default='gemini-1.5-flash', help_text="AI model used")
+    model_name = models.CharField(max_length=50, default='gemini-2.5-flash', help_text="AI model used")
     temperature = models.FloatField(default=0.7, help_text="Temperature setting for AI responses")
     max_tokens = models.IntegerField(default=2048, help_text="Max tokens for AI responses")
     

@@ -1036,6 +1036,7 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
     """ViewSet for managing chat sessions with AI conversation memory"""
     queryset = StrategyChat.objects.all()
     permission_classes = [AllowAny]
+    lookup_field = 'session_id'  # Allow lookup by session_id instead of pk
     
     def get_serializer_class(self):
         """Use different serializers for list vs detail views"""
@@ -1149,7 +1150,7 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['get'])
-    def messages(self, request, pk=None):
+    def messages(self, request, session_id=None):
         """Get all messages for a specific chat session"""
         session = self.get_object()
         messages = session.messages.all().order_by('created_at')
@@ -1157,7 +1158,7 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
-    def summarize(self, request, pk=None):
+    def summarize(self, request, session_id=None):
         """Generate an AI summary of the conversation"""
         session = self.get_object()
         
@@ -1185,7 +1186,7 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['post'])
-    def clear(self, request, pk=None):
+    def clear(self, request, session_id=None):
         """Clear all messages from a chat session"""
         session = self.get_object()
         
@@ -1212,7 +1213,7 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['post'])
-    def deactivate(self, request, pk=None):
+    def deactivate(self, request, session_id=None):
         """Mark a chat session as inactive"""
         session = self.get_object()
         session.is_active = False
