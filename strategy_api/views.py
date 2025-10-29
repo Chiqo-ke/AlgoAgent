@@ -354,6 +354,8 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 tags=data.get('tags', []),
                 timeframe=data.get('timeframe', ''),
                 risk_level=data.get('risk_level', ''),
+                expected_return=data.get('expected_return'),
+                max_drawdown=data.get('max_drawdown'),
                 created_by=request.user if request.user.is_authenticated else None
             )
             
@@ -583,17 +585,20 @@ class StrategyAPIViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def validate_strategy_with_ai(self, request):
         """
-        Validate a strategy using AI-powered analysis
+        Validate a strategy using AI-powered analysis with conversation memory
         
         This endpoint uses the StrategyValidatorBot to analyze strategy text,
         providing canonicalized steps, classification, and AI recommendations.
+        Now supports conversation memory to track validation history.
         
         Expected payload:
         {
             "strategy_text": "Buy when RSI < 30, sell when RSI > 70...",
             "input_type": "auto",  # or "numbered", "freetext", "url"
             "use_gemini": true,
-            "strict_mode": false
+            "strict_mode": false,
+            "session_id": "chat_abc123",  # optional, for conversation memory
+            "use_context": true  # optional, use conversation history
         }
         
         Returns:
@@ -603,6 +608,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
         - Confidence level
         - Next actions
         - Canonical JSON schema
+        - Session ID (new or existing)
         """
         serializer = StrategyAIValidationRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -614,25 +620,44 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             input_type = data.get('input_type', 'auto')
             use_gemini = data.get('use_gemini', True)
             strict_mode = data.get('strict_mode', False)
+            session_id = data.get('session_id')
+            use_context = data.get('use_context', True)
             
-            # Import the validator
+            # Import the validator and conversation manager
             try:
                 from Strategy.strategy_validator import StrategyValidatorBot
+                from Strategy.conversation_manager import ConversationManager
             except ImportError as e:
                 return Response({
                     'error': 'Strategy validator not available',
                     'details': str(e)
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Get username from authenticated user or default
+            # Get username and user from authenticated user or default
             username = request.user.username if request.user.is_authenticated else "api_user"
+            user = request.user if request.user.is_authenticated else None
             
-            # Initialize validator bot
-            logger.info(f"Initializing StrategyValidatorBot for user: {username}")
+            # Initialize or retrieve conversation manager
+            conv_manager = ConversationManager(session_id=session_id, user=user)
+            
+            # Store user's validation request in conversation
+            conv_manager.add_user_message(
+                f"Validate strategy: {strategy_text[:200]}...",
+                metadata={
+                    'action': 'validate_strategy',
+                    'input_type': input_type,
+                    'use_context': use_context
+                }
+            )
+            
+            # Initialize validator bot with conversation context
+            logger.info(f"Initializing StrategyValidatorBot for user: {username}, session: {conv_manager.session_id}")
             bot = StrategyValidatorBot(
                 username=username,
                 strict_mode=strict_mode,
-                use_gemini=use_gemini
+                use_gemini=use_gemini,
+                session_id=conv_manager.session_id,
+                user=user
             )
             
             # Process the strategy
@@ -641,7 +666,38 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             logger.info(f"Validation result status: {result.get('status')}")
             
-            # Return the complete AI analysis
+            # ✨ NEW: Let AI format the response with full freedom
+            if use_gemini and result.get('status') == 'success':
+                try:
+                    # Give AI opportunity to provide custom formatted response
+                    result = bot.gemini.generate_formatted_validation_response(
+                        strategy_text=strategy_text,
+                        validation_result=result,
+                        use_context=use_context
+                    )
+                except Exception as e:
+                    logger.warning(f"Could not generate custom AI formatting: {e}")
+                    # Continue with structured response
+            
+            # Store AI's validation result in conversation
+            ai_summary = f"Validation {result.get('status')}: {result.get('classification', 'N/A')}"
+            conv_manager.add_ai_message(
+                ai_summary,
+                metadata={
+                    'action': 'validation_result',
+                    'status': result.get('status'),
+                    'confidence': result.get('confidence'),
+                    'has_custom_format': 'formatted_response' in result,
+                    'full_result': result
+                }
+            )
+            
+            # Add session info to result
+            result['session_id'] = conv_manager.session_id
+            result['message_count'] = conv_manager.get_session().message_count
+            result['context_used'] = use_context
+            
+            # Return the complete AI analysis with conversation tracking
             return Response(result, status=status.HTTP_200_OK)
             
         except Exception as e:
@@ -655,13 +711,14 @@ class StrategyAPIViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def create_strategy_with_ai(self, request):
         """
-        Create a new strategy using AI-powered validation
+        Create a new strategy using AI-powered validation with conversation memory
         
         This endpoint combines strategy creation with AI analysis:
         1. Validates and analyzes the strategy text using AI
         2. Creates a Strategy record with the canonical JSON
         3. Optionally creates a linked StrategyTemplate
         4. Optionally saves canonical JSON to Backtest/codes/
+        5. Tracks the entire creation process in conversation memory
         
         Expected payload:
         {
@@ -673,7 +730,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             "tags": ["momentum", "rsi"],  # optional
             "use_gemini": true,
             "strict_mode": false,
-            "save_to_backtest": false
+            "save_to_backtest": false,
+            "session_id": "chat_abc123",  # optional, for conversation memory
+            "use_context": true  # optional, use conversation history
         }
         
         Returns:
@@ -681,6 +740,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
         - Complete AI validation results
         - Template info (if auto-created)
         - File path (if saved to Backtest/codes/)
+        - Session ID for tracking
         """
         serializer = StrategyCreateWithAIRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -693,34 +753,65 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             use_gemini = data.get('use_gemini', True)
             strict_mode = data.get('strict_mode', False)
             save_to_backtest = data.get('save_to_backtest', False)
+            session_id = data.get('session_id')
+            use_context = data.get('use_context', True)
             
-            # Import the validator
+            # Import the validator and conversation manager
             try:
                 from Strategy.strategy_validator import StrategyValidatorBot
+                from Strategy.conversation_manager import ConversationManager
             except ImportError as e:
                 return Response({
                     'error': 'Strategy validator not available',
                     'details': str(e)
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Get username
+            # Get username and user
             username = request.user.username if request.user.is_authenticated else "api_user"
+            user = request.user if request.user.is_authenticated else None
             
-            # Initialize and run AI validation
-            logger.info(f"Creating strategy with AI validation for user: {username}")
+            # Initialize or retrieve conversation manager
+            conv_manager = ConversationManager(session_id=session_id, user=user)
+            
+            # Store user's create request in conversation
+            conv_manager.add_user_message(
+                f"Create strategy: {strategy_text[:200]}...",
+                metadata={
+                    'action': 'create_strategy',
+                    'input_type': input_type,
+                    'use_context': use_context,
+                    'name': data.get('name', 'auto-generated'),
+                    'tags': data.get('tags', [])
+                }
+            )
+            
+            # Initialize and run AI validation with conversation context
+            logger.info(f"Creating strategy with AI validation for user: {username}, session: {conv_manager.session_id}")
             bot = StrategyValidatorBot(
                 username=username,
                 strict_mode=strict_mode,
-                use_gemini=use_gemini
+                use_gemini=use_gemini,
+                session_id=conv_manager.session_id,
+                user=user
             )
             
             ai_result = bot.process_input(strategy_text, input_type)
             
             # Check if validation was successful
             if ai_result.get('status') != 'success':
+                # Store failure in conversation
+                conv_manager.add_ai_message(
+                    f"Strategy validation failed: {ai_result.get('message', 'Unknown error')}",
+                    metadata={
+                        'action': 'creation_failed',
+                        'status': ai_result.get('status'),
+                        'result': ai_result
+                    }
+                )
                 return Response({
                     'error': 'Strategy validation failed',
-                    'validation_result': ai_result
+                    'validation_result': ai_result,
+                    'session_id': conv_manager.session_id
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Extract canonical JSON
@@ -752,8 +843,23 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             # Extract metadata from AI result
             classification = ai_result.get('classification_detail', {})
             strategy_type = classification.get('type', '')
-            risk_tier = classification.get('risk_tier', '')
-            timeframe = canonical_data.get('metadata', {}).get('timeframe', '')
+            risk_tier = (classification.get('risk_tier', '') or '')[:20]
+            timeframe = (canonical_data.get('metadata', {}).get('timeframe', '') or '')[:20]
+            
+            # Parse optional numeric fields
+            expected_return = None
+            max_drawdown = None
+            try:
+                if 'expected_return' in canonical_data.get('metadata', {}):
+                    expected_return = float(canonical_data['metadata']['expected_return'])
+            except (ValueError, TypeError):
+                pass
+            
+            try:
+                if 'max_drawdown' in canonical_data.get('metadata', {}):
+                    max_drawdown = float(canonical_data['metadata']['max_drawdown'])
+            except (ValueError, TypeError):
+                pass
             
             # Create the Strategy record
             strategy = Strategy.objects.create(
@@ -765,6 +871,8 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 tags=data.get('tags', classification.get('primary_instruments', [])),
                 timeframe=timeframe,
                 risk_level=risk_tier,
+                expected_return=expected_return,
+                max_drawdown=max_drawdown,
                 created_by=request.user if request.user.is_authenticated else None
             )
             
@@ -806,6 +914,22 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 except Exception as e:
                     logger.warning(f"Failed to auto-create template: {e}")
             
+            # Link strategy to conversation session
+            conv_manager.link_strategy(strategy.id)
+            
+            # Store AI's creation result in conversation
+            ai_summary = f"Successfully created strategy '{strategy.name}' (ID: {strategy.id}). Classification: {classification.get('type', 'N/A')}, Risk: {risk_tier}"
+            conv_manager.add_ai_message(
+                ai_summary,
+                metadata={
+                    'action': 'strategy_created',
+                    'strategy_id': strategy.id,
+                    'strategy_name': strategy.name,
+                    'classification': classification,
+                    'confidence': ai_result.get('confidence')
+                }
+            )
+            
             # Save to Backtest/codes/ if requested
             saved_file_path = None
             if save_to_backtest:
@@ -842,7 +966,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             response_data = {
                 'strategy': strategy_serializer.data,
                 'ai_validation': ai_result,
-                'success': True
+                'success': True,
+                'session_id': conv_manager.session_id,
+                'message_count': conv_manager.get_session().message_count
             }
             
             if auto_created_template:
@@ -871,13 +997,14 @@ class StrategyAPIViewSet(viewsets.ViewSet):
     @action(detail=True, methods=['put', 'patch'])
     def update_strategy_with_ai(self, request, pk=None):
         """
-        Update an existing strategy using AI-powered validation
+        Update an existing strategy using AI-powered validation with conversation memory
         
         This endpoint allows editing a strategy with AI re-validation:
         1. Retrieves existing strategy by ID
         2. Re-validates updated strategy text using AI
         3. Updates the strategy record
         4. Updates linked template's chat history
+        5. Tracks the update process in conversation memory
         
         Expected payload:
         {
@@ -885,7 +1012,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             "input_type": "auto",
             "use_gemini": true,
             "strict_mode": false,
-            "update_description": "What changed in this update"
+            "update_description": "What changed in this update",
+            "session_id": "chat_abc123",  # optional, for conversation memory
+            "use_context": true  # optional, use conversation history
         }
         """
         # Get the existing strategy
@@ -907,34 +1036,67 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             use_gemini = data.get('use_gemini', True)
             strict_mode = data.get('strict_mode', False)
             update_description = request.data.get('update_description', 'Strategy updated via API')
+            session_id = data.get('session_id')
+            use_context = data.get('use_context', True)
             
-            # Import validator
+            # Import validator and conversation manager
             try:
                 from Strategy.strategy_validator import StrategyValidatorBot
+                from Strategy.conversation_manager import ConversationManager
             except ImportError as e:
                 return Response({
                     'error': 'Strategy validator not available',
                     'details': str(e)
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Get username
+            # Get username and user
             username = request.user.username if request.user.is_authenticated else "api_user"
+            user = request.user if request.user.is_authenticated else None
             
-            # Run AI validation
-            logger.info(f"Updating strategy {pk} with AI validation")
+            # Initialize or retrieve conversation manager
+            conv_manager = ConversationManager(session_id=session_id, user=user)
+            
+            # Link to existing strategy
+            conv_manager.link_strategy(strategy.id)
+            
+            # Store user's update request in conversation
+            conv_manager.add_user_message(
+                f"Update strategy '{strategy.name}' (ID: {strategy.id}): {update_description}. New definition: {strategy_text[:200]}...",
+                metadata={
+                    'action': 'update_strategy',
+                    'strategy_id': strategy.id,
+                    'update_description': update_description,
+                    'use_context': use_context
+                }
+            )
+            
+            # Run AI validation with conversation context
+            logger.info(f"Updating strategy {pk} with AI validation, session: {conv_manager.session_id}")
             bot = StrategyValidatorBot(
                 username=username,
                 strict_mode=strict_mode,
-                use_gemini=use_gemini
+                use_gemini=use_gemini,
+                session_id=conv_manager.session_id,
+                user=user
             )
             
             ai_result = bot.process_input(strategy_text, input_type)
             
             # Check validation status
             if ai_result.get('status') != 'success':
+                # Store failure in conversation
+                conv_manager.add_ai_message(
+                    f"Strategy update validation failed: {ai_result.get('message', 'Unknown error')}",
+                    metadata={
+                        'action': 'update_failed',
+                        'status': ai_result.get('status'),
+                        'result': ai_result
+                    }
+                )
                 return Response({
                     'error': 'Strategy validation failed',
-                    'validation_result': ai_result
+                    'validation_result': ai_result,
+                    'session_id': conv_manager.session_id
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Extract canonical JSON
@@ -949,11 +1111,38 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             classification = ai_result.get('classification_detail', {})
             strategy.strategy_code = canonical_json_str
             strategy.parameters = canonical_data.get('metadata', {})
-            strategy.risk_level = classification.get('risk_tier', strategy.risk_level)
-            strategy.timeframe = canonical_data.get('metadata', {}).get('timeframe', strategy.timeframe)
+            strategy.risk_level = (classification.get('risk_tier', strategy.risk_level) or '')[:20]
+            strategy.timeframe = (canonical_data.get('metadata', {}).get('timeframe', strategy.timeframe) or '')[:20]
+            
+            # Update optional numeric fields if present
+            if 'expected_return' in canonical_data.get('metadata', {}):
+                try:
+                    strategy.expected_return = float(canonical_data['metadata']['expected_return'])
+                except (ValueError, TypeError):
+                    pass
+            
+            if 'max_drawdown' in canonical_data.get('metadata', {}):
+                try:
+                    strategy.max_drawdown = float(canonical_data['metadata']['max_drawdown'])
+                except (ValueError, TypeError):
+                    pass
+            
             strategy.save()
             
             logger.info(f"Updated strategy {strategy.id}")
+            
+            # Store successful update in conversation
+            ai_summary = f"Successfully updated strategy '{strategy.name}' (ID: {strategy.id}). {update_description}"
+            conv_manager.add_ai_message(
+                ai_summary,
+                metadata={
+                    'action': 'strategy_updated',
+                    'strategy_id': strategy.id,
+                    'update_description': update_description,
+                    'classification': classification,
+                    'confidence': ai_result.get('confidence')
+                }
+            )
             
             # Update template chat history if linked
             if strategy.template:
@@ -982,7 +1171,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 'strategy': strategy_serializer.data,
                 'ai_validation': ai_result,
                 'success': True,
-                'message': 'Strategy updated successfully'
+                'message': 'Strategy updated successfully',
+                'session_id': conv_manager.session_id,
+                'message_count': conv_manager.get_session().message_count
             }
             
             return Response(response_data, status=status.HTTP_200_OK)

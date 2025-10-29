@@ -44,7 +44,8 @@ class GeminiStrategyIntegrator:
                 # Use gemini-2.5-flash for fast, efficient responses
                 self.model = genai.GenerativeModel('gemini-2.5-flash')
                 self.client = genai
-                print("✓ Gemini API initialized successfully")
+                self.allow_custom_formatting = True  # AI can provide formatted_response
+                print("✓ Gemini API initialized successfully (custom formatting enabled)")
             except ImportError:
                 print("⚠ google-generativeai not installed. Run: pip install google-generativeai")
                 self.use_mock = True
@@ -52,7 +53,7 @@ class GeminiStrategyIntegrator:
                 print(f"⚠ Gemini API initialization failed: {e}")
                 self.use_mock = True
         else:
-            print("⚠ No valid Gemini API key found - Using mock mode")
+            print("⚠ No Gemini API key found. Using mock responses.")
             self.use_mock = True
         
         # Initialize conversation manager if session_id provided
@@ -555,6 +556,158 @@ Be conversational and friendly. Return just the question text, nothing else.
                 "test_params": {"commission": "0.01-0.05%", "slippage": "0.05%"}
             }
         ]
+    
+    def generate_formatted_validation_response(
+        self, 
+        strategy_text: str, 
+        validation_result: Dict[str, Any],
+        use_context: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Generate a custom formatted response for strategy validation.
+        Gives AI full freedom to format the response as it sees best.
+        
+        Args:
+            strategy_text: Original strategy text from user
+            validation_result: The structured validation result from StrategyValidatorBot
+            use_context: Whether to include conversation history
+            
+        Returns:
+            Updated validation_result with optional 'formatted_response' field
+        """
+        if self.use_mock:
+            # In mock mode, let frontend handle formatting
+            return validation_result
+        
+        # Get conversation context if available
+        context = self._get_conversation_context() if use_context else ""
+        
+        # Build AI prompt giving full formatting freedom
+        prompt = f"""You are an expert trading strategy analyst. A user has submitted a strategy for validation.
+You have complete freedom to format your response in the most helpful way possible.
+
+{context}
+
+USER'S STRATEGY:
+{strategy_text}
+
+VALIDATION RESULTS (structured data):
+{json.dumps(validation_result, indent=2)}
+
+YOUR TASK:
+Provide a clear, helpful response about this strategy validation. You have TWO options:
+
+OPTION 1 (Recommended): Provide a custom markdown-formatted response
+- Use emojis, headers, lists, bold/italic text to make it engaging
+- Structure the information in the most logical way
+- Be conversational and helpful
+- Focus on what matters most to the user
+- Return JSON with "formatted_response" key containing your markdown text
+- IMPORTANT: Ensure all newlines are properly escaped as \\n in the JSON string
+
+Example:
+{{
+  "formatted_response": "## 🎯 Your EMA Crossover Strategy\\n\\n**Great start!** You've outlined a classic trend-following approach...\\n\\n### ✅ What's Working\\n- Clear entry signal (30/50 EMA cross)\\n- Simple to understand...\\n\\n### ⚠️ Critical Gaps (Fix These First!)\\n1. **Missing stop-loss** - Risk unlimited losses...\\n\\n### 💡 Recommended Next Steps\\n1. Add 10-pip stop below entry\\n2. Define position size (1-2% risk)\\n3. Test on historical data..."
+}}
+
+OPTION 2: Let the frontend handle formatting
+- Just return empty JSON {{}}
+- The structured data will be formatted by the frontend template
+
+Choose whichever approach will best serve the user! If the strategy is complex or there's important context from our conversation, use Option 1 (custom formatting). For simple validations, Option 2 is fine.
+
+CRITICAL: Return ONLY valid JSON. All newlines in the formatted_response must be escaped as \\n, not actual line breaks.
+"""
+        
+        try:
+            response = self.model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Remove markdown code blocks if present
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]
+            if response_text.startswith('```'):
+                response_text = response_text[3:]
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]
+            
+            response_text = response_text.strip()
+            
+            # Try to parse the JSON response with better error handling
+            try:
+                ai_format = json.loads(response_text)
+            except json.JSONDecodeError as json_err:
+                # If JSON parsing fails, try to fix it
+                print(f"⚠ Initial JSON parse failed: {json_err}")
+                print(f"⚠ Error at line {json_err.lineno}, column {json_err.colno}")
+                
+                # Save the problematic response for debugging
+                import os
+                import datetime
+                debug_dir = os.path.join(os.path.dirname(__file__), 'debug_logs')
+                os.makedirs(debug_dir, exist_ok=True)
+                timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+                debug_file = os.path.join(debug_dir, f'json_parse_error_{timestamp}.txt')
+                with open(debug_file, 'w', encoding='utf-8') as f:
+                    f.write(f"JSON Parse Error:\n")
+                    f.write(f"Error: {json_err}\n")
+                    f.write(f"Line {json_err.lineno}, Column {json_err.colno}\n\n")
+                    f.write("Raw Response:\n")
+                    f.write(response_text)
+                print(f"⚠ Raw response saved to: {debug_file}")
+                
+                # Try to extract and fix the formatted_response
+                try:
+                    # Attempt 1: Find the JSON object boundaries and parse more carefully
+                    # Sometimes the AI adds extra text before/after the JSON
+                    start_idx = response_text.find('{')
+                    end_idx = response_text.rfind('}')
+                    if start_idx != -1 and end_idx != -1:
+                        json_only = response_text[start_idx:end_idx+1]
+                        
+                        # Try parsing just the JSON portion
+                        try:
+                            ai_format = json.loads(json_only)
+                            print("✓ Successfully parsed JSON after trimming extra text")
+                        except json.JSONDecodeError:
+                            # Attempt 2: Try to use ast.literal_eval as fallback
+                            # This is more forgiving with some syntax issues
+                            import ast
+                            try:
+                                # Replace escaped newlines with actual newlines for literal_eval
+                                ai_format = ast.literal_eval(json_only)
+                                print("✓ Successfully parsed using ast.literal_eval")
+                            except:
+                                # Attempt 3: Manual extraction of formatted_response value
+                                # This is a last resort for when JSON is truly malformed
+                                print("⚠ Attempting manual extraction of formatted_response...")
+                                if '"formatted_response"' in response_text:
+                                    # Just fall back to empty - let structured response handle it
+                                    print("⚠ Found formatted_response key but couldn't parse - using structured fallback")
+                                ai_format = {}
+                    else:
+                        ai_format = {}
+                except Exception as extract_err:
+                    print(f"⚠ All JSON recovery attempts failed: {extract_err}")
+                    ai_format = {}
+            
+            # If AI provided a formatted_response, add it to validation_result
+            if 'formatted_response' in ai_format and ai_format['formatted_response']:
+                validation_result['formatted_response'] = ai_format['formatted_response']
+                print("✓ AI provided custom formatted response")
+            
+            # Store in conversation if available
+            if self.conversation_manager:
+                self.conversation_manager.add_ai_message(
+                    ai_format.get('formatted_response', 'Structured validation provided'),
+                    metadata={'action': 'formatted_validation'}
+                )
+            
+            return validation_result
+            
+        except Exception as e:
+            print(f"⚠ Error generating formatted response: {e}")
+            return validation_result
 
 
 # Convenience function

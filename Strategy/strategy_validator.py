@@ -29,7 +29,7 @@ class StrategyValidatorBot:
     Implements the production-ready specification with AI-enhanced analysis.
     """
     
-    def __init__(self, username: str = "user", strict_mode: bool = False, use_gemini: bool = True):
+    def __init__(self, username: str = "user", strict_mode: bool = False, use_gemini: bool = True, session_id: str = None, user=None):
         """
         Initialize the validator bot.
         
@@ -37,6 +37,8 @@ class StrategyValidatorBot:
             username: User identifier for provenance
             strict_mode: If True, raise exceptions on security violations
             use_gemini: If True, use Gemini API for enhanced analysis
+            session_id: Optional chat session ID for conversation memory
+            user: Optional Django user object for conversation tracking
         """
         self.username = username
         self.strict_mode = strict_mode
@@ -46,12 +48,16 @@ class StrategyValidatorBot:
         self.metadata = MetadataManager(username)
         self.guardrails = Guardrails(strict_mode=strict_mode)
         self.recommendation_engine = RecommendationEngine()
+        self.session_id = session_id
+        self.user = user
         
-        # Initialize Gemini integration
+        # Initialize Gemini integration with conversation context
         self.use_gemini = use_gemini
-        self.gemini = GeminiStrategyIntegrator() if use_gemini else None
+        self.gemini = GeminiStrategyIntegrator(session_id=session_id, user=user) if use_gemini else None
         if self.gemini and not self.gemini.use_mock:
             print("✓ AI-enhanced strategy analysis enabled")
+            if session_id:
+                print(f"✓ Conversation memory enabled for session {session_id}")
     
     def process_input(
         self,
