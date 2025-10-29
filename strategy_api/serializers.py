@@ -100,8 +100,10 @@ class StrategyCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=list
     )
-    timeframe = serializers.CharField(max_length=20, required=False, default='')
-    risk_level = serializers.CharField(max_length=20, required=False, default='')
+    timeframe = serializers.CharField(max_length=20, required=False, allow_blank=True, default='')
+    risk_level = serializers.CharField(max_length=20, required=False, allow_blank=True, default='')
+    expected_return = serializers.DecimalField(max_digits=10, decimal_places=4, required=False, allow_null=True, default=None)
+    max_drawdown = serializers.DecimalField(max_digits=10, decimal_places=4, required=False, allow_null=True, default=None)
 
 
 class StrategyCodeGenerationRequestSerializer(serializers.Serializer):
@@ -185,6 +187,15 @@ class StrategyAIValidationRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Enable strict security validation"
     )
+    session_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional chat session ID for conversation memory"
+    )
+    use_context = serializers.BooleanField(
+        default=True,
+        help_text="Use conversation context from session history"
+    )
 
 
 class StrategyAIValidationResponseSerializer(serializers.Serializer):
@@ -247,6 +258,15 @@ class StrategyCreateWithAIRequestSerializer(serializers.Serializer):
     save_to_backtest = serializers.BooleanField(
         default=False,
         help_text="Save canonical JSON to Backtest/codes/"
+    )
+    session_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional chat session ID for conversation memory"
+    )
+    use_context = serializers.BooleanField(
+        default=True,
+        help_text="Use conversation context from session history"
     )
 
 
