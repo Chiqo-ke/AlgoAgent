@@ -480,6 +480,175 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'])
+    def generate_executable_code(self, request):
+        """
+        Generate executable Python strategy code from canonical JSON.
+        This is used after strategy confirmation to create a runnable Python file
+        that can be used with SimBroker for backtesting.
+        
+        Request body:
+        {
+            "canonical_json": {...},  // The canonical strategy JSON
+            "strategy_name": "MyStrategy",  // Strategy name for class naming
+            "strategy_id": 123  // Optional: existing strategy ID to link
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "strategy_code": "...",  // Generated Python code
+            "file_path": "...",  // Path where code was saved
+            "strategy_id": 123  // Strategy ID if linked
+        }
+        """
+        try:
+            data = request.data
+            canonical_json = data.get('canonical_json')
+            strategy_name = data.get('strategy_name', 'GeneratedStrategy')
+            strategy_id = data.get('strategy_id')
+            
+            if not canonical_json:
+                return Response({
+                    'error': 'canonical_json is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Import strategy generator
+            try:
+                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+            except ImportError as e:
+                return Response({
+                    'error': 'Strategy generator not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Parse canonical JSON if it's a string
+            if isinstance(canonical_json, str):
+                import json
+                try:
+                    canonical_json = json.loads(canonical_json)
+                except json.JSONDecodeError as e:
+                    return Response({
+                        'error': 'Invalid JSON format',
+                        'details': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Build strategy description from canonical JSON
+            description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
+            description += f"{canonical_json.get('description', '')}\n\n"
+            
+            # Add entry rules
+            if canonical_json.get('entry_rules'):
+                description += "Entry Rules:\n"
+                for i, rule in enumerate(canonical_json['entry_rules'], 1):
+                    description += f"{i}. {rule.get('description', str(rule))}\n"
+                description += "\n"
+            
+            # Add exit rules
+            if canonical_json.get('exit_rules'):
+                description += "Exit Rules:\n"
+                for i, rule in enumerate(canonical_json['exit_rules'], 1):
+                    description += f"{i}. {rule.get('description', str(rule))}\n"
+                description += "\n"
+            
+            # Add risk management
+            if canonical_json.get('risk_management'):
+                description += "Risk Management:\n"
+                risk = canonical_json['risk_management']
+                if risk.get('stop_loss'):
+                    description += f"- Stop Loss: {risk['stop_loss']}\n"
+                if risk.get('take_profit'):
+                    description += f"- Take Profit: {risk['take_profit']}\n"
+                if risk.get('position_sizing'):
+                    description += f"- Position Sizing: {risk['position_sizing']}\n"
+                description += "\n"
+            
+            # Add indicators
+            if canonical_json.get('indicators'):
+                description += "Indicators:\n"
+                for indicator in canonical_json['indicators']:
+                    description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
+                description += "\n"
+            
+            # Add symbol-agnostic instructions
+            description += "\nIMPORTANT INSTRUCTIONS FOR CODE GENERATION:\n"
+            description += "- Strategy should work with ANY symbol (do not hardcode symbols)\n"
+            description += "- Symbol will be provided dynamically through market_data parameter\n"
+            description += "- Use market_data dictionary to access OHLCV data for any symbol\n"
+            description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
+            description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
+            
+            # Generate the code
+            generator = GeminiStrategyGenerator()
+            
+            logger.info(f"Generating executable code for: {strategy_name}")
+            
+            strategy_code = generator.generate_strategy(
+                description=description,
+                strategy_name=strategy_name
+            )
+            
+            # Save to Backtest/codes/ directory
+            import re
+            from pathlib import Path
+            
+            # Create safe filename
+            safe_name = re.sub(r'[^a-zA-Z0-9\s]', '', strategy_name.lower())
+            words = safe_name.split()[:8]
+            base_filename = "_".join(words) if words else f"strategy_{strategy_id or 'new'}"
+            
+            backtest_codes_dir = Path(__file__).parent.parent / "Backtest" / "codes"
+            backtest_codes_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save Python file
+            python_file = backtest_codes_dir / f"{base_filename}.py"
+            counter = 1
+            while python_file.exists():
+                python_file = backtest_codes_dir / f"{base_filename}_{counter}.py"
+                counter += 1
+            
+            with open(python_file, 'w', encoding='utf-8') as f:
+                f.write(strategy_code)
+            
+            # Also save the canonical JSON for reference
+            json_file = python_file.with_suffix('.json')
+            with open(json_file, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(canonical_json, f, indent=2)
+            
+            logger.info(f"Strategy code saved to: {python_file}")
+            
+            # Update strategy record if strategy_id provided
+            if strategy_id:
+                try:
+                    strategy = Strategy.objects.get(id=strategy_id)
+                    # Store the file path in parameters
+                    if not strategy.parameters:
+                        strategy.parameters = {}
+                    strategy.parameters['generated_code_path'] = str(python_file)
+                    strategy.parameters['generated_code_filename'] = python_file.name
+                    strategy.save(update_fields=['parameters'])
+                    logger.info(f"Updated strategy {strategy_id} with generated code path")
+                except Strategy.DoesNotExist:
+                    logger.warning(f"Strategy {strategy_id} not found for update")
+            
+            return Response({
+                'success': True,
+                'strategy_code': strategy_code,
+                'file_path': str(python_file),
+                'file_name': python_file.name,
+                'json_file_path': str(json_file),
+                'strategy_id': strategy_id,
+                'message': 'Executable strategy code generated successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in generate_executable_code: {e}", exc_info=True)
+            return Response({
+                'error': 'Failed to generate executable code',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
     def search(self, request):
         """Advanced strategy search"""
         serializer = StrategySearchSerializer(data=request.data)

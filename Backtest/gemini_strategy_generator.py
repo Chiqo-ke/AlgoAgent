@@ -72,14 +72,26 @@ class GeminiStrategyGenerator:
         # Use gemini-2.0-flash (fast, stable, suitable for code generation)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # Load system prompt
-        self.system_prompt = self._load_system_prompt()
+        # Framework selection (default to backtesting.py)
+        self.use_backtesting_py = True
         
-        logger.info("GeminiStrategyGenerator initialized")
+        # Load system prompt
+        self.system_prompt = self._load_system_prompt(use_backtesting_py=self.use_backtesting_py)
+        
+        logger.info(f"GeminiStrategyGenerator initialized (Framework: {'backtesting.py' if self.use_backtesting_py else 'SimBroker'})")
     
-    def _load_system_prompt(self) -> str:
-        """Load the system prompt for strategy generation"""
-        prompt_file = Path(__file__).parent / "SYSTEM_PROMPT.md"
+    def _load_system_prompt(self, use_backtesting_py: bool = True) -> str:
+        """
+        Load the system prompt for strategy generation
+        
+        Args:
+            use_backtesting_py: If True, use backtesting.py framework (default)
+                              If False, use legacy SimBroker framework
+        """
+        if use_backtesting_py:
+            prompt_file = Path(__file__).parent / "SYSTEM_PROMPT_BACKTESTING_PY.md"
+        else:
+            prompt_file = Path(__file__).parent / "SYSTEM_PROMPT.md"
         
         if prompt_file.exists():
             with open(prompt_file, 'r', encoding='utf-8') as f:
