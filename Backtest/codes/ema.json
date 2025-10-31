@@ -1,0 +1,65 @@
+{
+  "strategy_id": "strat-20251031-01654f97",
+  "version": "0.1.0",
+  "title": "EMA_30/EMA_50 Buy when 30 EMA crosses 50 EMA",
+  "description": "",
+  "classification": {
+    "type": "trend-following",
+    "risk_tier": "medium",
+    "primary_instruments": [
+      "EMA"
+    ]
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "order": 1,
+      "title": "Buy when 30 EMA crosses 50 EMA",
+      "trigger": "30 EMA crosses 50 EMA",
+      "action": {
+        "type": "enter",
+        "order_type": "market",
+        "instrument": "EMA"
+      },
+      "condition": "30 EMA crosses 50 EMA",
+      "params": [
+        {
+          "name": "ema_30",
+          "value": 30
+        },
+        {
+          "name": "ema_50",
+          "value": 50
+        }
+      ],
+      "notes": "Original: Buy when 30 EMA crosses 50 EMA"
+    },
+    {
+      "step_id": "s2",
+      "order": 2,
+      "title": "Set my stop loss 15 pips below entry",
+      "trigger": "Set my stop loss 15 pips below entry and take profit 40 pips above entry",
+      "action": {
+        "type": "cancel",
+        "order_type": "stop"
+      },
+      "notes": "Original: Set my stop loss 15 pips below entry and take profit 40 pips above entry"
+    }
+  ],
+  "provenance": {
+    "sources": [
+      {
+        "fetched_at": "2025-10-31T19:18:30.929900",
+        "type": "user_input",
+        "author": "api_user",
+        "snippet": "Buy when 30 EMA crosses 50 EMA. Set my stop loss 15 pips below entry and take profit 40 pips above entry. I want to use lot size of 0.03"
+      }
+    ]
+  },
+  "metadata": {
+    "created_at": "2025-10-31T19:18:30.929900",
+    "created_by": "user:api_user",
+    "last_updated": "2025-10-31T19:18:30.930759",
+    "confidence": "medium"
+  }
+}

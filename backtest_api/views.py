@@ -303,7 +303,21 @@ class BacktestAPIViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def quick_run(self, request):
-        """Run a quick backtest with minimal configuration"""
+        """
+        Run a quick backtest using backtesting.py framework
+        
+        Request body:
+        {
+            "strategy_code": "...",  # Python code or canonical JSON
+            "strategy_id": 123,  # Optional: existing strategy ID
+            "symbol": "AAPL",
+            "start_date": "2024-01-01",
+            "end_date": "2024-10-31",
+            "timeframe": "1d",
+            "initial_balance": 10000,
+            "commission": 0.002
+        }
+        """
         serializer = BacktestQuickRunSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -311,45 +325,140 @@ class BacktestAPIViewSet(viewsets.ViewSet):
         try:
             data = serializer.validated_data
             
-            # Try to run quick backtest
+            # Import backtesting adapter
             try:
-                from Backtest.interactive_backtest_runner import InteractiveBacktestRunner
-                
-                runner = InteractiveBacktestRunner()
-                
-                # Prepare minimal backtest parameters
-                backtest_params = {
-                    'strategy_code': data['strategy_code'],
-                    'symbols': [data['symbol']],
-                    'start_date': data['start_date'].isoformat(),
-                    'end_date': data['end_date'].isoformat(),
-                    'initial_capital': float(data.get('initial_capital', 10000))
-                }
-                
-                # Run backtest
-                result = runner.run_quick_backtest(backtest_params)
-                
-                if result.get('success', False):
-                    return Response({
-                        'status': 'completed',
-                        'metrics': result.get('metrics', {}),
-                        'chart_data': result.get('chart_data', {}),
-                        'trades': result.get('trades', [])
-                    })
-                else:
-                    return Response({
-                        'error': 'Quick backtest failed',
-                        'details': result.get('error', 'Unknown error')
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                    
+                from Backtest.backtesting_adapter import (
+                    fetch_and_prepare_data, 
+                    BacktestingAdapter,
+                    create_strategy_from_canonical,
+                    run_backtest_from_canonical
+                )
             except ImportError as e:
                 return Response({
-                    'error': 'Backtest runner not available',
+                    'error': 'Backtesting adapter not available',
                     'details': str(e)
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Get strategy code
+            strategy_code = data.get('strategy_code')
+            strategy_id = data.get('strategy_id')
+            
+            # If strategy_id provided, fetch from database
+            if strategy_id and not strategy_code:
+                try:
+                    from strategy_api.models import Strategy
+                    strategy = Strategy.objects.get(id=strategy_id)
+                    strategy_code = strategy.strategy_code
+                except Exception as e:
+                    return Response({
+                        'error': 'Strategy not found',
+                        'details': str(e)
+                    }, status=status.HTTP_404_NOT_FOUND)
+            
+            if not strategy_code:
+                return Response({
+                    'error': 'strategy_code or strategy_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Parse strategy code
+            import json
+            canonical_json = None
+            strategy_class = None
+            
+            # Try to parse as JSON (canonical format)
+            if isinstance(strategy_code, str) and strategy_code.strip().startswith('{'):
+                try:
+                    canonical_json = json.loads(strategy_code)
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(strategy_code, dict):
+                canonical_json = strategy_code
+            
+            # Extract parameters
+            symbol = data['symbol']
+            start_date = data['start_date'].isoformat() if hasattr(data['start_date'], 'isoformat') else data['start_date']
+            end_date = data['end_date'].isoformat() if hasattr(data['end_date'], 'isoformat') else data['end_date']
+            timeframe = data.get('timeframe', '1d')
+            initial_balance = float(data.get('initial_balance', 10000))
+            commission = float(data.get('commission', 0.002))
+            
+            logger.info(f"Running backtest: {symbol} from {start_date} to {end_date}")
+            
+            # If canonical JSON, use direct workflow
+            if canonical_json:
+                try:
+                    results, trades = run_backtest_from_canonical(
+                        canonical_json=canonical_json,
+                        symbol=symbol,
+                        start_date=start_date,
+                        end_date=end_date,
+                        interval=timeframe,
+                        initial_cash=initial_balance,
+                        commission=commission,
+                        strategy_name=canonical_json.get('strategy_name', 'Strategy')
+                    )
+                    
+                    # Convert results to response format
+                    return Response({
+                        'status': 'completed',
+                        'summary': {
+                            'total_return': float(results['Return [%]']),
+                            'total_trades': int(results['# Trades']),
+                            'win_rate': float(results['Win Rate [%]']),
+                            'sharpe_ratio': float(results.get('Sharpe Ratio', 0)),
+                            'max_drawdown': float(results['Max. Drawdown [%]']),
+                            'final_equity': float(results['Equity Final [$]']),
+                        },
+                        'metrics': {
+                            'start_date': str(results['Start']),
+                            'end_date': str(results['End']),
+                            'duration': str(results['Duration']),
+                            'exposure_time': float(results['Exposure Time [%]']),
+                            'equity_final': float(results['Equity Final [$]']),
+                            'equity_peak': float(results['Equity Peak [$]']),
+                            'return_pct': float(results['Return [%]']),
+                            'buy_hold_return': float(results['Buy & Hold Return [%]']),
+                            'return_ann': float(results['Return (Ann.) [%]']),
+                            'volatility_ann': float(results['Volatility (Ann.) [%]']),
+                            'sharpe_ratio': float(results.get('Sharpe Ratio', 0)),
+                            'sortino_ratio': float(results.get('Sortino Ratio', 0)),
+                            'calmar_ratio': float(results.get('Calmar Ratio', 0)),
+                            'max_drawdown': float(results['Max. Drawdown [%]']),
+                            'avg_drawdown': float(results['Avg. Drawdown [%]']),
+                            'total_trades': int(results['# Trades']),
+                            'win_rate': float(results['Win Rate [%]']),
+                            'best_trade': float(results.get('Best Trade [%]', 0)),
+                            'worst_trade': float(results.get('Worst Trade [%]', 0)),
+                            'avg_trade': float(results.get('Avg. Trade [%]', 0)),
+                            'profit_factor': float(results.get('Profit Factor', 0)),
+                        },
+                        'trades': trades.to_dict('records') if len(trades) > 0 else [],
+                        'daily_stats': [],  # Could add equity curve data here
+                        'symbol_stats': [{
+                            'symbol': symbol,
+                            'trades': int(results['# Trades']),
+                            'profit': float(results['Equity Final [$]']) - initial_balance,
+                        }]
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Backtest execution failed: {e}")
+                    logger.error(traceback.format_exc())
+                    return Response({
+                        'error': 'Backtest execution failed',
+                        'details': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # If Python code, try to load and execute
+            else:
+                return Response({
+                    'error': 'Direct Python code execution not yet implemented',
+                    'details': 'Please provide canonical JSON format or use strategy_id'
+                }, status=status.HTTP_501_NOT_IMPLEMENTED)
                 
         except Exception as e:
             logger.error(f"Error in quick_run: {e}")
+            logger.error(traceback.format_exc())
             return Response({
                 'error': 'Internal server error',
                 'details': str(e)
