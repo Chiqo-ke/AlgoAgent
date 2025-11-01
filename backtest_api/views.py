@@ -18,6 +18,7 @@ from pathlib import Path
 import traceback
 import uuid
 from decimal import Decimal
+import math
 
 from .models import BacktestConfig, BacktestRun, BacktestResult, Trade, BacktestAlert
 from .serializers import (
@@ -32,6 +33,17 @@ PARENT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PARENT_DIR))
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_float(value, default=0.0):
+    """Convert value to float and handle NaN/Infinity values"""
+    try:
+        float_val = float(value)
+        if math.isnan(float_val) or math.isinf(float_val):
+            return default
+        return float_val
+    except (ValueError, TypeError):
+        return default
 
 
 class BacktestConfigViewSet(viewsets.ModelViewSet):
@@ -398,46 +410,46 @@ class BacktestAPIViewSet(viewsets.ViewSet):
                         strategy_name=canonical_json.get('strategy_name', 'Strategy')
                     )
                     
-                    # Convert results to response format
+                    # Convert results to response format with sanitized floats
                     return Response({
                         'status': 'completed',
                         'summary': {
-                            'total_return': float(results['Return [%]']),
+                            'total_return': sanitize_float(results['Return [%]']),
                             'total_trades': int(results['# Trades']),
-                            'win_rate': float(results['Win Rate [%]']),
-                            'sharpe_ratio': float(results.get('Sharpe Ratio', 0)),
-                            'max_drawdown': float(results['Max. Drawdown [%]']),
-                            'final_equity': float(results['Equity Final [$]']),
+                            'win_rate': sanitize_float(results['Win Rate [%]']),
+                            'sharpe_ratio': sanitize_float(results.get('Sharpe Ratio', 0)),
+                            'max_drawdown': sanitize_float(results['Max. Drawdown [%]']),
+                            'final_equity': sanitize_float(results['Equity Final [$]']),
                         },
                         'metrics': {
                             'start_date': str(results['Start']),
                             'end_date': str(results['End']),
                             'duration': str(results['Duration']),
-                            'exposure_time': float(results['Exposure Time [%]']),
-                            'equity_final': float(results['Equity Final [$]']),
-                            'equity_peak': float(results['Equity Peak [$]']),
-                            'return_pct': float(results['Return [%]']),
-                            'buy_hold_return': float(results['Buy & Hold Return [%]']),
-                            'return_ann': float(results['Return (Ann.) [%]']),
-                            'volatility_ann': float(results['Volatility (Ann.) [%]']),
-                            'sharpe_ratio': float(results.get('Sharpe Ratio', 0)),
-                            'sortino_ratio': float(results.get('Sortino Ratio', 0)),
-                            'calmar_ratio': float(results.get('Calmar Ratio', 0)),
-                            'max_drawdown': float(results['Max. Drawdown [%]']),
-                            'avg_drawdown': float(results['Avg. Drawdown [%]']),
+                            'exposure_time': sanitize_float(results['Exposure Time [%]']),
+                            'equity_final': sanitize_float(results['Equity Final [$]']),
+                            'equity_peak': sanitize_float(results['Equity Peak [$]']),
+                            'return_pct': sanitize_float(results['Return [%]']),
+                            'buy_hold_return': sanitize_float(results['Buy & Hold Return [%]']),
+                            'return_ann': sanitize_float(results['Return (Ann.) [%]']),
+                            'volatility_ann': sanitize_float(results['Volatility (Ann.) [%]']),
+                            'sharpe_ratio': sanitize_float(results.get('Sharpe Ratio', 0)),
+                            'sortino_ratio': sanitize_float(results.get('Sortino Ratio', 0)),
+                            'calmar_ratio': sanitize_float(results.get('Calmar Ratio', 0)),
+                            'max_drawdown': sanitize_float(results['Max. Drawdown [%]']),
+                            'avg_drawdown': sanitize_float(results['Avg. Drawdown [%]']),
                             'total_trades': int(results['# Trades']),
-                            'win_rate': float(results['Win Rate [%]']),
-                            'best_trade': float(results.get('Best Trade [%]', 0)),
-                            'worst_trade': float(results.get('Worst Trade [%]', 0)),
-                            'avg_trade': float(results.get('Avg. Trade [%]', 0)),
-                            'profit_factor': float(results.get('Profit Factor', 0)),
+                            'win_rate': sanitize_float(results['Win Rate [%]']),
+                            'best_trade': sanitize_float(results.get('Best Trade [%]', 0)),
+                            'worst_trade': sanitize_float(results.get('Worst Trade [%]', 0)),
+                            'avg_trade': sanitize_float(results.get('Avg. Trade [%]', 0)),
+                            'profit_factor': sanitize_float(results.get('Profit Factor', 0)),
                         },
                         'trades': trades.to_dict('records') if len(trades) > 0 else [],
                         'daily_stats': [],  # Could add equity curve data here
                         'symbol_stats': [{
                             'symbol': symbol,
                             'trades': int(results['# Trades']),
-                            'profit': float(results['Equity Final [$]']) - initial_balance,
+                            'profit': sanitize_float(results['Equity Final [$]']) - initial_balance,
                         }]
                     })
                     
