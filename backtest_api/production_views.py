@@ -21,26 +21,27 @@ import sys
 import json
 import traceback
 
+# Set up logger FIRST
+logger = logging.getLogger(__name__)
+
 # Add Backtest module to path
 BACKTEST_DIR = Path(__file__).parent.parent / "Backtest"
 sys.path.insert(0, str(BACKTEST_DIR))
 
 # Import production components
 try:
-    from canonical_schema_v2 import BacktestConfig as PydanticBacktestConfig
     from state_manager import StateManager, StrategyStatus
     from output_validator import OutputValidator
     from sandbox_orchestrator import SandboxRunner, SandboxConfig
     
     PRODUCTION_COMPONENTS_AVAILABLE = True
 except ImportError as e:
+    logger.error(f"Failed to import production components: {e}")
     PRODUCTION_COMPONENTS_AVAILABLE = False
 
 # Import Django models
 from backtest_api.models import BacktestConfig, BacktestRun, BacktestResult
 from backtest_api.serializers import BacktestConfigSerializer, BacktestRunSerializer
-
-logger = logging.getLogger(__name__)
 
 # Initialize production components
 state_manager = None
