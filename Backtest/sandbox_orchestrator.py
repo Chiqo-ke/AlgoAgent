@@ -48,7 +48,7 @@ class SandboxStatus(str, Enum):
 class SandboxConfig(BaseModel):
     """Configuration for sandbox creation"""
     sandbox_id: str = Field(default_factory=lambda: f"sandbox_{uuid.uuid4().hex[:8]}")
-    image: str = Field(default="python:3.11-slim")
+    image: str = Field(default="python:3.10-slim")
     
     # Resource limits
     cpu_limit: str = Field(default="0.5")  # CPU cores
@@ -164,9 +164,10 @@ class SandboxOrchestrator:
         sandbox_dir = self.sandbox_storage / sandbox_id
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         
-        # Copy workspace to sandbox (copy-on-write)
+        # Create empty workspace directory (don't copy entire workspace - too slow!)
+        # Files will be mounted via Docker volume instead
         workspace_copy = sandbox_dir / "workspace"
-        shutil.copytree(self.workspace_root, workspace_copy, dirs_exist_ok=True)
+        workspace_copy.mkdir(parents=True, exist_ok=True)
         
         # Track sandbox
         self.active_sandboxes[sandbox_id] = {
@@ -481,7 +482,7 @@ class SandboxRunner:
         Run Python script in sandbox
         
         Args:
-            script_path: Relative path to Python script
+            script_path: Relative path to Python script from workspace_root
             timeout: Timeout in seconds
             capture_outputs: Whether to capture output files
             
@@ -498,8 +499,17 @@ class SandboxRunner:
         sandbox_id = self.orchestrator.create_sandbox(config)
         
         try:
+            # Copy the script file to sandbox workspace
+            src_script = self.orchestrator.workspace_root / script_path
+            if not src_script.exists():
+                raise FileNotFoundError(f"Script not found: {src_script}")
+            
+            sandbox_info = self.orchestrator.active_sandboxes[sandbox_id]
+            dest_script = sandbox_info["workspace"] / Path(script_path).name
+            shutil.copy2(src_script, dest_script)
+            
             # Run script
-            command = f"python {script_path}"
+            command = f"python {Path(script_path).name}"
             request = CommandRequest(
                 command=command,
                 timeout=timeout,
