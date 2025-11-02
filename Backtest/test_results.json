@@ -1,0 +1,168 @@
+{
+  "canonical_schema_v2": {
+    "tests": [
+      {
+        "name": "import_models",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "signal_creation",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "negative_size_validation",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "json_schema_export",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "strategy_definition",
+        "passed": true,
+        "error": null
+      }
+    ],
+    "passed": 5,
+    "failed": 0
+  },
+  "state_manager": {
+    "tests": [
+      {
+        "name": "import",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "initialization",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "register_strategy",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "update_status",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "enqueue_job",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "audit_logging",
+        "passed": false,
+        "error": "PASSED"
+      }
+    ],
+    "passed": 5,
+    "failed": 1
+  },
+  "safe_tools": {
+    "tests": [
+      {
+        "name": "import",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "initialization",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "write_file",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "read_file",
+        "passed": false,
+        "error": ""
+      },
+      {
+        "name": "path_traversal_protection",
+        "passed": true,
+        "error": null
+      }
+    ],
+    "passed": 4,
+    "failed": 1
+  },
+  "sandbox_orchestrator": {
+    "tests": [
+      {
+        "name": "import",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "docker_available",
+        "passed": false,
+        "error": "Command '['docker', '--version']' timed out after 5 seconds"
+      }
+    ],
+    "passed": 1,
+    "failed": 1
+  },
+  "output_validator": {
+    "tests": [
+      {
+        "name": "import",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "initialization",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "validate_safe_code",
+        "passed": false,
+        "error": ""
+      },
+      {
+        "name": "detect_dangerous_code",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "detect_syntax_errors",
+        "passed": true,
+        "error": null
+      }
+    ],
+    "passed": 4,
+    "failed": 1
+  },
+  "git_patch_manager": {
+    "tests": [
+      {
+        "name": "import",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "git_available",
+        "passed": true,
+        "error": null
+      },
+      {
+        "name": "initialization",
+        "passed": false,
+        "error": "Not a git repository: ."
+      }
+    ],
+    "passed": 2,
+    "failed": 1
+  }
+}
