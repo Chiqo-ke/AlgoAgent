@@ -15,12 +15,13 @@ STRATEGY_DIR = Path(__file__).parent
 if str(STRATEGY_DIR) not in sys.path:
     sys.path.insert(0, str(STRATEGY_DIR))
 
-from canonical_schema import CanonicalStrategy, CANONICAL_STRATEGY_SCHEMA
-from input_parser import InputParser, parse_strategy_input
-from provenance_tracker import ProvenanceTracker, MetadataManager
-from recommendation_engine import RecommendationEngine, generate_recommendations
-from guardrails import Guardrails, check_strategy_safety
-from gemini_strategy_integrator import GeminiStrategyIntegrator
+# Use explicit relative imports to avoid conflicts with Backtest/canonical_schema.py
+from .canonical_schema import CanonicalStrategy, CANONICAL_STRATEGY_SCHEMA
+from .input_parser import InputParser, parse_strategy_input
+from .provenance_tracker import ProvenanceTracker, MetadataManager
+from .recommendation_engine import RecommendationEngine, generate_recommendations
+from .guardrails import Guardrails, check_strategy_safety
+from .gemini_strategy_integrator import GeminiStrategyIntegrator
 
 
 class StrategyValidatorBot:

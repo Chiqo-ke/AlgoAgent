@@ -24,6 +24,9 @@ import json
 import traceback
 from typing import Dict, Any
 
+# Set up logger FIRST (before any other imports that might use it)
+logger = logging.getLogger(__name__)
+
 # Add Backtest module to path
 BACKTEST_DIR = Path(__file__).parent.parent / "Backtest"
 sys.path.insert(0, str(BACKTEST_DIR))
@@ -48,8 +51,6 @@ except ImportError as e:
 # Import existing models and serializers
 from strategy_api.models import Strategy, StrategyValidation
 from strategy_api.serializers import StrategySerializer, StrategyValidationSerializer
-
-logger = logging.getLogger(__name__)
 
 # Initialize production components
 state_manager = None
