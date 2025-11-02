@@ -51,6 +51,14 @@ def api_root(request):
             'data_api': '/api/data/api/health/',
             'strategy_api': '/api/strategies/api/health/',
             'backtest_api': '/api/backtests/api/health/',
+        },
+        'production': {
+            'strategies': '/api/production/strategies/',
+            'backtests': '/api/production/backtests/',
+            'health': {
+                'strategies': '/api/production/strategies/health/',
+                'backtests': '/api/production/backtests/health/',
+            }
         }
     })
 
@@ -62,4 +70,6 @@ urlpatterns = [
     path('api/data/', include('data_api.urls')),
     path('api/strategies/', include('strategy_api.urls')),
     path('api/backtests/', include('backtest_api.urls')),
+    # Production-hardened endpoints with sandbox execution
+    path('api/production/', include('production_api_urls')),
 ]
