@@ -138,7 +138,8 @@ class PatternLogger:
                 'total_rows': 0,
                 'patterns_found': 0,
                 'patterns_not_found': 0,
-                'detection_rate': 0.0
+                'detection_rate': 0.0,
+                'log_file': str(self.pattern_log_file) if self.pattern_log_file else 'N/A'
             }
         
         total = len(self.pattern_logs)

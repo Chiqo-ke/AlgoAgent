@@ -20,7 +20,7 @@ Last Updated: 2025-10-17
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Generator
 from datetime import datetime
 import logging
 import sys
@@ -197,14 +197,66 @@ def describe_indicator_params(indicator_name: str) -> Dict[str, Any]:
         return {'error': str(e)}
 
 
+def _stream_data(df: pd.DataFrame, ticker: str) -> Generator[Tuple[datetime, Dict[str, Any], float], None, None]:
+    """
+    Generator that yields data row-by-row with progress tracking.
+    
+    This enables sequential processing of market data, simulating real-time
+    data feed for more realistic backtesting.
+    
+    Args:
+        df: DataFrame with OHLCV and indicator columns
+        ticker: Stock ticker symbol
+    
+    Yields:
+        Tuple of (timestamp, market_data_dict, progress_pct)
+        - timestamp: pd.Timestamp of the bar
+        - market_data_dict: Dict formatted for strategy consumption
+        - progress_pct: Float percentage of completion (0-100)
+    
+    Example:
+        >>> for timestamp, data, progress in _stream_data(df, 'AAPL'):
+        ...     print(f"Processing {timestamp} ({progress:.1f}%)")
+        ...     strategy.on_bar(timestamp, data)
+    """
+    total_bars = len(df)
+    
+    logger.info(f"🔄 Streaming {total_bars} bars for {ticker} (sequential mode)")
+    
+    for i, (timestamp, row) in enumerate(df.iterrows()):
+        # Build market data dictionary in format expected by strategies
+        market_data = {
+            ticker: {
+                'open': row.get('Open', row.get('open')),
+                'high': row.get('High', row.get('high')),
+                'low': row.get('Low', row.get('low')),
+                'close': row.get('Close', row.get('close')),
+                'volume': row.get('Volume', row.get('volume')),
+            }
+        }
+        
+        # Add indicator columns (lowercase keys for consistency)
+        for col in df.columns:
+            col_lower = col.lower()
+            # Skip OHLCV columns (already added)
+            if col_lower not in ['open', 'high', 'low', 'close', 'volume']:
+                market_data[ticker][col_lower] = row[col]
+        
+        # Calculate progress percentage
+        progress_pct = ((i + 1) / total_bars) * 100
+        
+        yield timestamp, market_data, progress_pct
+
+
 def load_market_data(
     ticker: str,
     indicators: Optional[Dict[str, Optional[Dict[str, Any]]]] = None,
     period: str = "1mo",
     interval: str = "1d",
     cache_dir: Optional[Path] = None,
-    use_cache: bool = True
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    use_cache: bool = True,
+    stream: bool = False
+) -> Tuple[pd.DataFrame, Dict[str, Any]] | Generator[Tuple[datetime, Dict[str, Any], float], None, None]:
     """
     Load market data dynamically with optional indicators.
     
@@ -222,17 +274,31 @@ def load_market_data(
                  Valid: '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo'
         cache_dir: Directory to cache processed data (default: Backtest/data)
         use_cache: Whether to use cached data if available
+        stream: If True, returns a generator for row-by-row sequential processing (default: False)
     
     Returns:
-        Tuple of (DataFrame with OHLCV + indicators, metadata dict)
+        If stream=False: Tuple of (DataFrame with OHLCV + indicators, metadata dict)
+        If stream=True: Generator yielding (timestamp, market_data_dict, progress_pct)
     
     Example:
+        >>> # Batch mode (default)
         >>> df, meta = load_market_data(
         ...     ticker='AAPL',
         ...     indicators={'RSI': {'timeperiod': 14}, 'SMA': {'timeperiod': 20}},
         ...     period='1mo',
         ...     interval='1d'
         ... )
+        >>> 
+        >>> # Streaming mode (sequential)
+        >>> data_stream = load_market_data(
+        ...     ticker='AAPL',
+        ...     indicators={'RSI': {'timeperiod': 14}},
+        ...     period='1mo',
+        ...     interval='1d',
+        ...     stream=True
+        ... )
+        >>> for timestamp, market_data, progress_pct in data_stream:
+        ...     process_bar(timestamp, market_data)
     """
     # Set default cache directory
     if cache_dir is None:
@@ -263,6 +329,9 @@ def load_market_data(
                         'period': period,
                         'interval': interval
                     }
+                    # Return generator if streaming mode
+                    if stream:
+                        return _stream_data(df, ticker)
                     return df, metadata
                 except Exception as e:
                     logger.warning(f"Failed to load cache: {e}, fetching fresh data")
@@ -295,6 +364,10 @@ def load_market_data(
         'columns': list(df.columns),
         'date_range': (str(df.index.min()), str(df.index.max()))
     }
+    
+    # Return generator if streaming mode
+    if stream:
+        return _stream_data(df, ticker)
     
     return df, metadata
 

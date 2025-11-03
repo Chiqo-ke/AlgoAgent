@@ -172,7 +172,9 @@ class SignalLogger:
                 'exit_signals': 0,
                 'market_orders': 0,
                 'limit_orders': 0,
-                'stop_orders': 0
+                'stop_orders': 0,
+                'csv_file': str(self.signal_log_csv) if self.signal_log_csv else 'N/A',
+                'json_file': str(self.signal_log_json) if self.signal_log_json else 'N/A'
             }
         
         total = len(self.signals)
