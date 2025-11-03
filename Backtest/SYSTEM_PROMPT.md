@@ -46,6 +46,94 @@ from Backtest.config import BacktestConfig  # CORRECT
 from Backtest.canonical_schema import ...  # CORRECT
 ```
 
+## Data Loading Modes
+
+The system supports TWO data loading modes:
+
+### 1. STREAMING MODE (Default - Sequential)
+**Recommended for realistic backtesting**
+
+```python
+# Get a streaming generator that yields data row-by-row
+data_stream = load_market_data(
+    ticker=strategy.symbol,
+    indicators={'RSI': {'timeperiod': 14}, 'SMA': {'timeperiod': 20}},
+    period='6mo',
+    interval='1d',
+    stream=True  # ✅ Enable streaming
+)
+
+# Process row-by-row with automatic progress tracking
+for timestamp, market_data, progress_pct in data_stream:
+    # Data comes pre-formatted for strategy consumption
+    strategy.on_bar(timestamp, market_data)
+    broker.step_to(timestamp, market_data)
+    
+    # Progress is tracked automatically
+    if int(progress_pct) % 10 == 0:
+        print(f"  Progress: {progress_pct:.1f}%")
+```
+
+**Benefits:**
+- ✅ Sequential processing (prevents look-ahead bias)
+- ✅ Simulates real-time data feed
+- ✅ More realistic backtesting
+- ✅ Data comes pre-formatted
+- ✅ Automatic progress tracking
+
+### 2. BATCH MODE (Bulk Processing)
+**Use for rapid prototyping or when vectorization is needed**
+
+```python
+# Load all data at once
+df, metadata = load_market_data(
+    ticker=strategy.symbol,
+    indicators={'RSI': {'timeperiod': 14}},
+    period='6mo',
+    interval='1d',
+    stream=False  # Default: batch mode
+)
+
+print(f"✓ Loaded {len(df)} bars")
+
+# Then iterate manually
+for timestamp, row in df.iterrows():
+    # Must build market_data dict manually
+    market_data = {
+        strategy.symbol: {
+            'open': row.get('Open'),
+            'high': row.get('High'),
+            'low': row.get('Low'),
+            'close': row.get('Close'),
+            'volume': row.get('Volume'),
+            **{col.lower(): row[col] for col in df.columns 
+               if col.lower() not in ['open', 'high', 'low', 'close', 'volume']}
+        }
+    }
+    strategy.on_bar(timestamp, market_data)
+    broker.step_to(timestamp, market_data)
+```
+
+**Benefits:**
+- ✅ Faster processing
+- ✅ Can access full DataFrame for vectorized operations
+- ⚠️ Risk of look-ahead bias
+
+### When to Use Each Mode
+
+**Use STREAMING MODE (stream=True) when:**
+- Default choice for most strategies
+- Need strict sequential processing
+- Want to prevent look-ahead bias
+- Simulating real-time trading behavior
+- Testing production-like scenarios
+
+**Use BATCH MODE (stream=False) when:**
+- Rapid prototyping and testing
+- Need to perform vectorized calculations
+- Performance is critical
+- Debugging with full data visibility
+
 ## Code Structure Requirements
 
 ### 1. File Header
@@ -226,9 +314,14 @@ class StrategyNameHere:
 ```
 
 ### 3. Backtest Runner Function
+
+**IMPORTANT: By default, use STREAMING MODE for all generated strategies unless explicitly requested otherwise.**
+
+#### Pattern 1: Streaming Mode (Default - Sequential)
+
 ```python
 def run_backtest():
-    """Runs the backtest"""
+    """Runs the backtest in STREAMING mode (sequential row-by-row processing)"""
     
     # 1. Configure backtest
     config = BacktestConfig(
@@ -245,49 +338,44 @@ def run_backtest():
     strategy = StrategyNameHere(broker, strategy_id="strategy_001")
     print(f"✓ Strategy initialized: {strategy.__class__.__name__}")
     
-    # 4. Load market data with indicators
-    indicators = [
-        {'name': 'SMA', 'params': {'period': 20}},
-        {'name': 'RSI', 'params': {'period': 14}},
-        # Add indicators as needed
-    ]
+    # 4. Define indicators
+    indicators = {
+        'SMA': {'timeperiod': 20},
+        'RSI': {'timeperiod': 14}
+    }
     
-    df = load_market_data(
+    # 5. Load data in STREAMING mode
+    print(f"🔄 Loading data in STREAMING mode (sequential)...")
+    data_stream = load_market_data(
         ticker=strategy.symbol,
         indicators=indicators,
         period='6mo',
-        interval='1d'
+        interval='1d',
+        stream=True  # ✅ Enable streaming
     )
     
-    # 5. Verify data
-    print(f"✓ Loaded {len(df)} bars")
-    print(f"✓ Columns: {list(df.columns)}")
+    print(f"✓ Data stream initialized")
+    print(f"✓ Processing bars sequentially...")
     
-    # 6. Run simulation - SEQUENTIAL ROW-BY-ROW PROCESSING
-    for timestamp, row in df.iterrows():
-        market_data = {
-            strategy.symbol: {
-                'open': row.get('Open', row.get('open')),
-                'high': row.get('High', row.get('high')),
-                'low': row.get('Low', row.get('low')),
-                'close': row.get('Close', row.get('close')),
-                'volume': row.get('Volume', row.get('volume')),
-                # Add ALL indicator columns dynamically
-                **{col: row[col] for col in df.columns if col.startswith(('EMA_', 'SMA_', 'RSI', 'MACD'))}
-            }
-        }
+    # 6. Process each bar sequentially
+    bar_count = 0
+    for timestamp, market_data, progress_pct in data_stream:
+        bar_count += 1
         
-        # Strategy processes this row and logs patterns
+        # Strategy processes this bar
         strategy.on_bar(timestamp, market_data)
         
         # Broker executes any signals
         broker.step_to(timestamp, market_data)
+        
+        # Show progress every 10%
+        if int(progress_pct) % 10 == 0 and bar_count > 1:
+            print(f"  Progress: {progress_pct:.1f}% ({bar_count} bars)")
+    
+    print(f"✓ Processed {bar_count} bars sequentially")
     
     # 7. Finalize strategy (close loggers)
     strategy.finalize()
-    
-    # 8. Get metrics
-    metrics = broker.compute_metrics()
     
     # 8. Get metrics
     metrics = broker.compute_metrics()
@@ -342,6 +430,95 @@ def run_backtest():
     print(f"Signal CSV: {signal_summary['csv_file']}")
     print(f"Signal JSON: {signal_summary['json_file']}")
     print("=" * 70)
+    
+    return metrics
+
+
+if __name__ == "__main__":
+    metrics = run_backtest()
+```
+
+#### Pattern 2: Batch Mode (Bulk Processing)
+
+```python
+def run_backtest():
+    """Runs the backtest in BATCH mode (bulk processing)"""
+    
+    # 1. Configure backtest
+    config = BacktestConfig(
+        start_cash=100000,
+        fee_flat=1.0,
+        fee_pct=0.001,
+        slippage_pct=0.0005
+    )
+    
+    # 2. Initialize broker
+    broker = SimBroker(config)
+    
+    # 3. Initialize strategy
+    strategy = StrategyNameHere(broker, strategy_id="strategy_001")
+    print(f"✓ Strategy initialized: {strategy.__class__.__name__}")
+    
+    # 4. Define indicators
+    indicators = {
+        'SMA': {'timeperiod': 20},
+        'RSI': {'timeperiod': 14}
+    }
+    
+    # 5. Load all data at once (BATCH mode)
+    print(f"⚡ Loading data in BATCH mode...")
+    df, metadata = load_market_data(
+        ticker=strategy.symbol,
+        indicators=indicators,
+        period='6mo',
+        interval='1d',
+        stream=False  # Batch mode
+    )
+    
+    print(f"✓ Loaded {len(df)} bars")
+    print(f"✓ Columns: {list(df.columns)}")
+    
+    # 6. Process all bars
+    for i, (timestamp, row) in enumerate(df.iterrows()):
+        market_data = {
+            strategy.symbol: {
+                'open': row.get('Open', row.get('open')),
+                'high': row.get('High', row.get('high')),
+                'low': row.get('Low', row.get('low')),
+                'close': row.get('Close', row.get('close')),
+                'volume': row.get('Volume', row.get('volume')),
+                **{col.lower(): row[col] for col in df.columns 
+                   if col.lower() not in ['open', 'high', 'low', 'close', 'volume']}
+            }
+        }
+        
+        # Strategy processes this bar
+        strategy.on_bar(timestamp, market_data)
+        
+        # Broker executes any signals
+        broker.step_to(timestamp, market_data)
+        
+        # Show progress every 10%
+        if i % (len(df) // 10 or 1) == 0:
+            progress = (i / len(df)) * 100
+            print(f"  Progress: {progress:.1f}%")
+    
+    # 7. Finalize strategy (close loggers)
+    strategy.finalize()
+    
+    # 8. Get metrics
+    metrics = broker.compute_metrics()
+    
+    # 9. Export results
+    results_dir = Path(__file__).parent / "results"
+    trades_dir = Path(__file__).parent / "trades"
+    results_dir.mkdir(exist_ok=True)
+    trades_dir.mkdir(exist_ok=True)
+    
+    broker.export_trades(str(trades_dir / "trades.csv"))
+    
+    # 10-11. Print results and summaries (same as streaming mode)
+    # ... (same printing code as above)
     
     return metrics
 

@@ -35,12 +35,14 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver']
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',  # ASGI server - must be first for Channels support
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'channels',  # WebSocket support
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
@@ -49,6 +51,7 @@ INSTALLED_APPS = [
     'backtest_api',
     'strategy_api',
     'auth_api',
+    'trading',  # Trading app with WebSocket consumers
 ]
 
 MIDDLEWARE = [
@@ -80,7 +83,20 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'algoagent_api.wsgi.application'
+ASGI_APPLICATION = 'algoagent_api.asgi.application'
 
+# Channels Configuration
+CHANNEL_LAYERS = {
+    'default': {
+        # Use in-memory channel layer for development (no Redis required)
+        'BACKEND': 'channels.layers.InMemoryChannelLayer'
+        # For production, use Redis:
+        # 'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        # 'CONFIG': {
+        #     "hosts": [('127.0.0.1', 6379)],
+        # },
+    },
+}
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

@@ -8,6 +8,9 @@ djangorestframework>=3.14.0
 # Django Extensions
 django-cors-headers>=4.3.0
 djangorestframework-simplejwt>=5.3.0
+channels>=4.0.0  # WebSocket support
+channels-redis>=4.1.0  # Redis channel layer (optional but recommended)
+daphne>=4.0.0  # ASGI server for Channels
 
 # Database
 psycopg2-binary>=2.9.0  # PostgreSQL adapter (optional, SQLite is default)
