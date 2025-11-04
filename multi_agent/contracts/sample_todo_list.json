@@ -1,0 +1,156 @@
+{
+  "todo_list_id": "workflow_sample_20251104_001",
+  "workflow_name": "Create RSI Strategy Module",
+  "created_at": "2025-11-04T10:00:00Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "Create a trading strategy that buys when RSI < 30 and sells when RSI > 70",
+    "planner_version": "1.0.0",
+    "repo_context": {
+      "branch": "agent",
+      "base_path": "AlgoAgent/Backtest"
+    }
+  },
+  "items": [
+    {
+      "id": "task_architect_001",
+      "title": "Design RSI Strategy Contract",
+      "description": "Create a machine-readable contract for the RSI strategy including:\n- Strategy class interface\n- init() and next() method signatures\n- RSI indicator parameters\n- Entry/exit conditions\n- Test skeleton with sample data",
+      "agent_role": "architect",
+      "priority": 1,
+      "dependencies": [],
+      "expected_duration_seconds": 180,
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "python -m contracts.validate_contract contract_rsi_strategy.json --type contract",
+            "timeout_seconds": 30
+          }
+        ],
+        "expected_artifacts": [
+          "contracts/contract_rsi_strategy.json",
+          "tests/test_rsi_strategy_skeleton.py"
+        ],
+        "validation_rules": [
+          {
+            "type": "schema",
+            "command": "python -m contracts.validate_contract contract_rsi_strategy.json --type contract",
+            "expected_exit_code": 0
+          }
+        ]
+      },
+      "input_artifacts": [],
+      "output_artifacts": [
+        "contracts/contract_rsi_strategy.json",
+        "tests/test_rsi_strategy_skeleton.py",
+        "docs/rsi_strategy_architecture.md"
+      ],
+      "tags": ["design", "contract", "rsi"]
+    },
+    {
+      "id": "task_coder_001",
+      "title": "Implement RSI Strategy Code",
+      "description": "Implement the RSI strategy according to the contract:\n- Extend backtesting.Strategy base class\n- Implement RSI indicator using ta-lib or pandas\n- Implement buy logic (RSI < 30)\n- Implement sell logic (RSI > 70)\n- Add proper error handling and validation",
+      "agent_role": "coder",
+      "priority": 2,
+      "dependencies": ["task_architect_001"],
+      "expected_duration_seconds": 300,
+      "max_retries": 5,
+      "timeout_seconds": 600,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "python -m pytest tests/test_rsi_strategy.py -v",
+            "timeout_seconds": 60
+          },
+          {
+            "cmd": "python -m mypy codes/rsi_strategy.py --strict",
+            "timeout_seconds": 30
+          },
+          {
+            "cmd": "python -m flake8 codes/rsi_strategy.py --max-line-length=100",
+            "timeout_seconds": 30
+          }
+        ],
+        "expected_artifacts": [
+          "codes/rsi_strategy.py",
+          "tests/test_rsi_strategy.py"
+        ],
+        "metrics": {
+          "min_test_coverage": 80,
+          "max_cyclomatic_complexity": 10
+        },
+        "validation_rules": [
+          {
+            "type": "type_check",
+            "command": "python -m mypy codes/rsi_strategy.py",
+            "expected_exit_code": 0
+          },
+          {
+            "type": "lint",
+            "command": "python -m flake8 codes/rsi_strategy.py",
+            "expected_exit_code": 0
+          },
+          {
+            "type": "security_scan",
+            "command": "python -m bandit codes/rsi_strategy.py",
+            "expected_exit_code": 0
+          }
+        ]
+      },
+      "input_artifacts": [
+        "contracts/contract_rsi_strategy.json",
+        "tests/test_rsi_strategy_skeleton.py"
+      ],
+      "output_artifacts": [
+        "codes/rsi_strategy.py",
+        "tests/test_rsi_strategy.py",
+        "build_report.json"
+      ],
+      "tags": ["implementation", "code", "rsi"]
+    },
+    {
+      "id": "task_tester_001",
+      "title": "Run Integration Tests for RSI Strategy",
+      "description": "Execute comprehensive tests for the RSI strategy:\n- Unit tests for RSI calculation\n- Integration tests with sample OHLCV data\n- Backtest execution with known dataset\n- Performance metrics validation\n- Edge case testing (missing data, extreme values)",
+      "agent_role": "tester",
+      "priority": 3,
+      "dependencies": ["task_coder_001"],
+      "expected_duration_seconds": 240,
+      "max_retries": 2,
+      "timeout_seconds": 400,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "python -m pytest tests/test_rsi_strategy.py -v --json-report --json-report-file=test_report.json",
+            "timeout_seconds": 120
+          },
+          {
+            "cmd": "python codes/rsi_strategy.py",
+            "timeout_seconds": 180,
+            "working_dir": "Backtest"
+          }
+        ],
+        "expected_artifacts": [
+          "test_report.json",
+          "backtest_results.json"
+        ],
+        "metrics": {
+          "min_test_coverage": 85
+        }
+      },
+      "input_artifacts": [
+        "codes/rsi_strategy.py",
+        "tests/test_rsi_strategy.py"
+      ],
+      "output_artifacts": [
+        "test_report.json",
+        "backtest_results.json",
+        "coverage_report.html"
+      ],
+      "tags": ["testing", "validation", "rsi"]
+    }
+  ]
+}

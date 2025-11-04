@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Test Report Schema",
+  "description": "Structured test execution results",
+  "type": "object",
+  "required": ["report_id", "task_id", "timestamp", "status", "summary"],
+  "properties": {
+    "report_id": {
+      "type": "string",
+      "pattern": "^report_[a-zA-Z0-9_-]+$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^task_[a-zA-Z0-9_-]+$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["passed", "failed", "error", "timeout", "skipped"]
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total", "passed", "failed", "errors", "duration_seconds"],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "test_results": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TestResult"
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "line_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "branch_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lines_covered": {
+          "type": "integer"
+        },
+        "lines_total": {
+          "type": "integer"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "python_version": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "container_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "TestResult": {
+      "type": "object",
+      "required": ["test_name", "status", "duration_seconds"],
+      "properties": {
+        "test_name": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed", "error", "skipped"]
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "message": {
+          "type": "string"
+        },
+        "traceback": {
+          "type": "string"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

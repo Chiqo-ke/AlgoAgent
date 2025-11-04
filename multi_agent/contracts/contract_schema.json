@@ -1,0 +1,182 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Contract Schema",
+  "description": "Machine-readable contract for code generation",
+  "type": "object",
+  "required": ["contract_id", "task_id", "version", "interfaces"],
+  "properties": {
+    "contract_id": {
+      "type": "string",
+      "pattern": "^contract_[a-zA-Z0-9_-]+$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^task_[a-zA-Z0-9_-]+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "interfaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/Interface"
+      }
+    },
+    "data_models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DataModel"
+      }
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Example"
+      }
+    },
+    "test_skeletons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "documentation": {
+      "type": "string",
+      "description": "Markdown documentation for this contract"
+    }
+  },
+  "definitions": {
+    "Interface": {
+      "type": "object",
+      "required": ["name", "type", "signature"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["function", "class", "method", "api_endpoint"]
+        },
+        "signature": {
+          "type": "string",
+          "description": "Full function/method signature"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Parameter"
+          }
+        },
+        "return_type": {
+          "type": "string"
+        },
+        "raises": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "docstring": {
+          "type": "string"
+        },
+        "decorators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Parameter": {
+      "type": "object",
+      "required": ["name", "type"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "default": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "DataModel": {
+      "type": "object",
+      "required": ["name", "type", "fields"],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["pydantic", "dataclass", "typed_dict", "class"]
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "default": {},
+              "validators": {
+                "type": "array"
+              }
+            }
+          }
+        },
+        "base_classes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Example": {
+      "type": "object",
+      "required": ["description", "code"],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "input": {},
+        "expected_output": {}
+      }
+    }
+  }
+}
