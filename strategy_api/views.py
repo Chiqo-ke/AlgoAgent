@@ -344,7 +344,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                         'error': 'Template not found'
                     }, status=status.HTTP_404_NOT_FOUND)
             
-            # Create strategy first
+            # Create strategy with 'validating' status
             strategy = Strategy.objects.create(
                 name=data['name'],
                 description=data.get('description', ''),
@@ -356,6 +356,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 risk_level=data.get('risk_level', ''),
                 expected_return=data.get('expected_return'),
                 max_drawdown=data.get('max_drawdown'),
+                status='validating',  # Start in validating state
                 created_by=request.user if request.user.is_authenticated else None
             )
             
@@ -396,6 +397,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     logger.warning(f"Failed to auto-create template: {e}")
                     # Don't fail the entire request if template creation fails
             
+            # Trigger async validation
+            self._trigger_async_validation(strategy)
+            
             serializer = StrategySerializer(strategy)
             response_data = serializer.data
             
@@ -407,6 +411,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     'message': 'Template automatically created for tracking strategy evolution'
                 }
             
+            # Add validation status message
+            response_data['validation_message'] = 'Strategy is being validated in the background. Check status before backtesting.'
+            
             return Response(response_data, status=status.HTTP_201_CREATED)
             
         except Exception as e:
@@ -415,6 +422,69 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 'error': 'Internal server error',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _trigger_async_validation(self, strategy):
+        """
+        Trigger async validation for newly created strategy
+        Runs validation in background thread to avoid blocking API response
+        """
+        import threading
+        
+        def validate_strategy_background():
+            """Background validation task"""
+            try:
+                logger.info(f"[VALIDATION] Starting background validation for strategy {strategy.id}: {strategy.name}")
+                
+                # Import validator
+                sys.path.insert(0, str(PARENT_DIR / "Backtest"))
+                from Backtest.strategy_validator import StrategyValidator
+                
+                validator = StrategyValidator()
+                result = validator.validate_strategy_code(
+                    strategy_code=strategy.strategy_code,
+                    strategy_name=strategy.name,
+                    test_symbol='AAPL',
+                    test_period_days=365  # 1 year test
+                )
+                
+                # Update strategy status based on validation
+                if result['valid']:
+                    strategy.status = 'valid'
+                    strategy.last_validated = timezone.now()
+                    logger.info(f"[VALIDATION] Strategy {strategy.id} is VALID ({result['trades_executed']} trades)")
+                else:
+                    strategy.status = 'invalid'
+                    logger.warning(f"[VALIDATION] Strategy {strategy.id} is INVALID: {result['errors']}")
+                
+                strategy.save(update_fields=['status', 'last_validated'])
+                
+                # Create or update StrategyValidation record
+                StrategyValidation.objects.update_or_create(
+                    strategy=strategy,
+                    defaults={
+                        'status': 'passed' if result['valid'] else 'failed',
+                        'validation_errors': result.get('errors', []),
+                        'validation_warnings': result.get('warnings', []),
+                        'validation_suggestions': result.get('suggestions', []),
+                        'validated_at': timezone.now(),
+                        'validated_by': None,  # System validation
+                        'results': result
+                    }
+                )
+                
+                logger.info(f"[VALIDATION] Strategy {strategy.id} validation complete: {strategy.status}")
+                
+            except Exception as e:
+                logger.error(f"[VALIDATION] Error validating strategy {strategy.id}: {e}")
+                logger.error(traceback.format_exc())
+                # Mark as invalid on error
+                strategy.status = 'invalid'
+                strategy.save(update_fields=['status'])
+        
+        # Start validation in background thread
+        thread = threading.Thread(target=validate_strategy_background, daemon=True)
+        thread.start()
+        logger.info(f"[VALIDATION] Triggered background validation thread for strategy {strategy.id}")
     
     @action(detail=False, methods=['post'])
     def generate_code(self, request):

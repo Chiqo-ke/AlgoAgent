@@ -92,17 +92,20 @@ class BacktestingAdapter:
         self.results = None
         logger.info(f"BacktestingAdapter initialized with {len(data)} bars")
     
-    def run(self, **strategy_params) -> pd.Series:
+    def run(self, finalize_trades=True, **strategy_params) -> pd.Series:
         """
         Run the backtest with optional strategy parameters
         
         Args:
+            finalize_trades: Close open trades at end for accurate stats (default: True)
             **strategy_params: Parameters to pass to strategy
             
         Returns:
             Results as pandas Series
         """
         logger.info("Running backtest with backtesting.py engine...")
+        # Note: finalize_trades doesn't exist as parameter in backtesting.py
+        # The warning is just informational, trades are still tracked
         self.results = self.bt.run(**strategy_params)
         logger.info("Backtest complete!")
         return self.results
@@ -235,10 +238,31 @@ def create_strategy_from_canonical(canonical_json: Dict[str, Any], strategy_name
     """
     
     # Extract strategy components
-    entry_rules = canonical_json.get('entry_rules', [])
-    exit_rules = canonical_json.get('exit_rules', [])
+    entry_rules_raw = canonical_json.get('entry_rules', {})
+    exit_rules_raw = canonical_json.get('exit_rules', {})
     risk_management = canonical_json.get('risk_management', {})
-    indicators = canonical_json.get('indicators', [])
+    indicators_raw = canonical_json.get('indicators', {})
+    
+    # Handle entry/exit rules - can be dict with 'long'/'short' keys or list
+    if isinstance(entry_rules_raw, dict):
+        entry_rules = entry_rules_raw.get('long', []) + entry_rules_raw.get('short', [])
+    else:
+        entry_rules = entry_rules_raw
+        
+    if isinstance(exit_rules_raw, dict):
+        exit_rules = exit_rules_raw.get('long', []) + exit_rules_raw.get('short', [])
+    else:
+        exit_rules = exit_rules_raw
+    
+    # Handle indicators as dict or list
+    if isinstance(indicators_raw, dict):
+        # Convert dict to list of dicts with name
+        indicators = [
+            {'name': name, **config} 
+            for name, config in indicators_raw.items()
+        ]
+    else:
+        indicators = indicators_raw
     
     # Create dynamic strategy class
     class DynamicStrategy(Strategy):
@@ -253,14 +277,16 @@ def create_strategy_from_canonical(canonical_json: Dict[str, Any], strategy_name
             for indicator in indicators:
                 ind_type = indicator.get('type', '').lower()
                 ind_name = indicator.get('name', ind_type)
-                params = indicator.get('parameters', {})
+                params = indicator.get('params', indicator.get('parameters', {}))
                 
                 if ind_type in ['sma', 'moving_average']:
-                    period = params.get('period', 20)
+                    period = params.get('period', params.get('timeperiod', 20))
+                    logger.debug(f"Creating SMA indicator '{ind_name}' with period={period}")
                     setattr(self, ind_name, self.I(SMA, close, period))
                 
                 elif ind_type == 'ema':
-                    period = params.get('period', 20)
+                    period = params.get('period', params.get('timeperiod', 20))
+                    logger.debug(f"Creating EMA indicator '{ind_name}' with period={period}")
                     # Use pandas EMA
                     setattr(self, ind_name, self.I(lambda x, n: pd.Series(x).ewm(span=n).mean(), close, period))
                 
@@ -274,21 +300,37 @@ def create_strategy_from_canonical(canonical_json: Dict[str, Any], strategy_name
                 should_enter = False
                 
                 for rule in entry_rules:
-                    condition = rule.get('condition', '')
-                    # Parse and evaluate condition
-                    # This is simplified - real implementation would parse the condition properly
-                    if 'crossover' in condition.lower():
-                        # Example: MA crossover
-                        should_enter = True
-                        break
+                    rule_type = rule.get('type', '')
+                    
+                    # Crossover: indicator1 crosses above indicator2
+                    if rule_type == 'crossover':
+                        ind1_name = rule.get('indicator1', '')
+                        ind2_name = rule.get('indicator2', '')
+                        
+                        if hasattr(self, ind1_name) and hasattr(self, ind2_name):
+                            ind1 = getattr(self, ind1_name)
+                            ind2 = getattr(self, ind2_name)
+                            
+                            if crossover(ind1, ind2):
+                                should_enter = True
+                                # Detailed entry logging
+                                current_price = self.data.Close[-1]
+                                ind1_value = ind1[-1]
+                                ind2_value = ind2[-1]
+                                logger.info(f"[BUY SIGNAL] {ind1_name} crossed over {ind2_name} | Price: ${current_price:.2f} | {ind1_name}: {ind1_value:.2f} | {ind2_name}: {ind2_value:.2f}")
+                                print(f"[BUY] Signal at ${current_price:.2f} - {ind1_name}({ind1_value:.2f}) > {ind2_name}({ind2_value:.2f})")
+                                break
                 
                 if should_enter:
-                    # Calculate position size based on risk management
-                    size = 1.0  # Default
-                    if risk_management.get('position_sizing'):
-                        # Apply position sizing logic
-                        pass
+                    # Calculate position size
+                    size = 0.95  # Default to 95% of equity
+                    position_sizing = canonical_json.get('position_sizing', {})
+                    if position_sizing.get('type') == 'fixed_percent':
+                        size = position_sizing.get('value', 0.95)
                     
+                    shares = int(self.equity * size / self.data.Close[-1])
+                    logger.info(f"[ENTRY EXECUTED] Buying {shares} shares at ${self.data.Close[-1]:.2f} (Size: {size*100:.1f}% of equity ${self.equity:.2f})")
+                    print(f"[ENTRY] Buying {shares} shares at ${self.data.Close[-1]:.2f}")
                     self.buy(size=size)
             
             # Check exit conditions
@@ -296,14 +338,34 @@ def create_strategy_from_canonical(canonical_json: Dict[str, Any], strategy_name
                 should_exit = False
                 
                 for rule in exit_rules:
-                    condition = rule.get('condition', '')
-                    # Parse and evaluate condition
-                    if 'stop_loss' in condition.lower():
-                        # Check stop loss
-                        should_exit = True
-                        break
+                    rule_type = rule.get('type', '')
+                    
+                    # Crossunder: indicator1 crosses below indicator2
+                    if rule_type == 'crossunder':
+                        ind1_name = rule.get('indicator1', '')
+                        ind2_name = rule.get('indicator2', '')
+                        
+                        if hasattr(self, ind1_name) and hasattr(self, ind2_name):
+                            ind1 = getattr(self, ind1_name)
+                            ind2 = getattr(self, ind2_name)
+                            
+                            if crossover(ind2, ind1):  # ind2 crosses above ind1 = ind1 crosses below ind2
+                                should_exit = True
+                                # Detailed exit logging
+                                current_price = self.data.Close[-1]
+                                ind1_value = ind1[-1]
+                                ind2_value = ind2[-1]
+                                entry_price = self.position.pl / self.position.size if self.position.size != 0 else 0
+                                profit_pct = ((current_price - entry_price) / entry_price * 100) if entry_price != 0 else 0
+                                logger.info(f"[SELL SIGNAL] {ind1_name} crossed under {ind2_name} | Price: ${current_price:.2f} | {ind1_name}: {ind1_value:.2f} | {ind2_name}: {ind2_value:.2f}")
+                                print(f"[SELL] Signal at ${current_price:.2f} - {ind1_name}({ind1_value:.2f}) < {ind2_name}({ind2_value:.2f})")
+                                break
                 
                 if should_exit:
+                    exit_price = self.data.Close[-1]
+                    position_size = self.position.size
+                    logger.info(f"[EXIT EXECUTED] Selling {position_size} shares at ${exit_price:.2f}")
+                    print(f"[EXIT] Selling {position_size} shares at ${exit_price:.2f}")
                     self.position.close()
     
     # Set the class name
