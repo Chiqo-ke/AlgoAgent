@@ -8,6 +8,7 @@ URL patterns for the strategy API endpoints.
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from strategies import views_validation
 
 # Create router and register viewsets
 router = DefaultRouter()
@@ -24,4 +25,7 @@ app_name = 'strategy_api'
 
 urlpatterns = [
     path('', include(router.urls)),
+    # Strategy validation endpoints
+    path('validate/', views_validation.validate_strategy, name='validate-strategy'),
+    path('validate-file/', views_validation.validate_strategy_file, name='validate-strategy-file'),
 ]

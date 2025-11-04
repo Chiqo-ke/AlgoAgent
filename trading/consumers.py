@@ -17,6 +17,11 @@ sys.path.insert(0, str(BACKTEST_DIR))
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.data_loader import load_market_data
+from Backtest.backtesting_adapter import (
+    fetch_and_prepare_data,
+    create_strategy_from_canonical,
+    BacktestingAdapter
+)
 
 
 class BacktestStreamConsumer(AsyncWebsocketConsumer):
@@ -95,7 +100,12 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
 
     async def run_backtest_stream(self, config: dict):
         """
-        Run backtest and stream data sequentially
+        Run backtest with backtesting.py and stream visualization
+        
+        Strategy:
+        1. Load all data first
+        2. Run backtest with backtesting.py (fast, gets all trades)
+        3. Stream the candles + trade signals for visualization
         
         Args:
             config: Backtest configuration dictionary
@@ -106,51 +116,114 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             indicators = config.get("indicators", {})
             period = self.normalize_period(config.get("period", "6mo"))
             interval = config.get("interval", "1d")
+            strategy_code = config.get("strategy_code")  # Strategy code or canonical JSON
             
             # Convert to proper types (frontend may send as strings)
             initial_balance = float(config.get("initial_balance", 10000))
             commission = float(config.get("commission", 0.002))
             slippage = float(config.get("slippage", 0.0005))
-
-            # Initialize broker
-            backtest_config = BacktestConfig(
-                start_cash=initial_balance,
-                fee_flat=1.0,
-                fee_pct=commission,
-                slippage_pct=slippage
-            )
-            broker = SimBroker(backtest_config)
-
-            # Load data in streaming mode
-            # Note: load_market_data returns a generator, not blocking
-            data_stream = load_market_data(
-                ticker=symbol,
-                indicators=indicators,
-                period=period,
-                interval=interval,
-                stream=True  # Enable streaming mode
-            )
-
-            # Get total bar count (we need to consume the generator to get this)
-            # For now, we'll estimate or count in real-time
-            total_bars_sent = 0
-
-            # Send metadata
+            
+            # Send initial metadata
             await self.send(text_data=json.dumps({
                 "type": "metadata",
                 "symbol": symbol,
                 "period": period,
                 "interval": interval,
-                "total_bars": "streaming"  # Unknown until complete
+                "status": "loading_data"
+            }))
+            
+            # STEP 1: Load all data (not streaming, need full dataset for backtesting.py)
+            print(f"📥 Loading data for {symbol}...")
+            result = load_market_data(
+                ticker=symbol,
+                indicators=indicators,
+                period=period,
+                interval=interval,
+                stream=False  # Get full dataframe
+            )
+            
+            # Unpack result - load_market_data returns (df, ticker) tuple
+            if isinstance(result, tuple):
+                data_df, _ = result
+            else:
+                data_df = result
+            
+            total_bars = len(data_df)
+            print(f"✅ Loaded {total_bars} bars")
+            
+            # STEP 2: Run backtest with backtesting.py (if strategy provided)
+            trades_list = []
+            backtest_results = None
+            
+            if strategy_code:
+                print(f"🚀 Running backtest with strategy...")
+                await self.send(text_data=json.dumps({
+                    "type": "metadata",
+                    "status": "running_backtest",
+                    "total_bars": total_bars
+                }))
+                
+                # Parse and run strategy
+                try:
+                    # Try to parse as canonical JSON
+                    canonical_json = json.loads(strategy_code) if isinstance(strategy_code, str) else strategy_code
+                    
+                    # Create strategy class from canonical
+                    strategy_class = create_strategy_from_canonical(canonical_json)
+                    
+                    # Run backtest
+                    adapter = BacktestingAdapter(
+                        data=data_df,
+                        strategy_class=strategy_class,
+                        cash=initial_balance,
+                        commission=commission
+                    )
+                    
+                    backtest_results = adapter.run()
+                    
+                    # Extract trades
+                    if hasattr(adapter.results, '_trades') and adapter.results._trades is not None:
+                        trades_df = adapter.results._trades
+                        # Convert trades to list of dicts with timestamps
+                        for _, trade in trades_df.iterrows():
+                            trades_list.append({
+                                'entry_time': str(trade.get('EntryTime', '')),
+                                'exit_time': str(trade.get('ExitTime', '')),
+                                'entry_price': float(trade.get('EntryPrice', 0)),
+                                'exit_price': float(trade.get('ExitPrice', 0)),
+                                'size': float(trade.get('Size', 0)),
+                                'pnl': float(trade.get('PnL', 0)),
+                                'return_pct': float(trade.get('ReturnPct', 0))
+                            })
+                    
+                    print(f"✅ Backtest complete: {len(trades_list)} trades")
+                    
+                except json.JSONDecodeError:
+                    print("⚠️  Strategy code is not JSON, skipping backtest execution")
+                except Exception as e:
+                    print(f"⚠️  Error running backtest: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # STEP 3: Stream visualization with trade signals
+            print(f"📺 Starting visualization stream...")
+            await self.send(text_data=json.dumps({
+                "type": "metadata",
+                "status": "streaming_visualization",
+                "total_bars": total_bars,
+                "total_trades": len(trades_list)
             }))
 
-            # Process each bar sequentially
+            # Stream candles with trade signals
             bar_number = 0
-            for timestamp, market_data, progress_pct in data_stream:
+            trades_sent = 0
+            winning_trades = 0
+            losing_trades = 0
+            total_pnl = 0.0
+            
+            for idx, (timestamp, row) in enumerate(data_df.iterrows()):
                 bar_number += 1
-
-                # Extract candle data
-                symbol_data = market_data.get(symbol, {})
+                progress_pct = (bar_number / total_bars) * 100
                 
                 # Send candle data
                 await self.send(text_data=json.dumps({
@@ -158,60 +231,82 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                     "bar_number": bar_number,
                     "progress": progress_pct,
                     "timestamp": str(timestamp),
-                    "open": symbol_data.get("open"),
-                    "high": symbol_data.get("high"),
-                    "low": symbol_data.get("low"),
-                    "close": symbol_data.get("close"),
-                    "volume": symbol_data.get("volume"),
+                    "open": float(row.get("open", row.get("Open", 0))),
+                    "high": float(row.get("high", row.get("High", 0))),
+                    "low": float(row.get("low", row.get("Low", 0))),
+                    "close": float(row.get("close", row.get("Close", 0))),
+                    "volume": float(row.get("volume", row.get("Volume", 0))),
                 }))
-
-                # Execute strategy (if provided) and capture signals
-                # Note: This would require strategy execution integration
-                # For now, we'll simulate the broker stepping through
-                broker.step_to(timestamp, market_data)
-
-                # Check for new signals/trades
-                recent_signals = self.get_recent_signals(broker)
-                for signal in recent_signals:
+                
+                # Check for trades at this timestamp
+                timestamp_str = str(timestamp)
+                for trade in trades_list:
+                    # Send entry signal
+                    if trade['entry_time'] == timestamp_str:
+                        side = "BUY" if trade['size'] > 0 else "SELL"
+                        print(f"[SIGNAL] Sending {side} signal at {timestamp_str}: ${trade['entry_price']:.2f} x {abs(trade['size'])}")
+                        await self.send(text_data=json.dumps({
+                            "type": "signal",
+                            "timestamp": timestamp_str,
+                            "action": "ENTRY",
+                            "side": side,
+                            "price": trade['entry_price'],
+                            "size": abs(trade['size']),
+                        }))
+                    
+                    # Send exit signal
+                    if trade['exit_time'] == timestamp_str:
+                        trades_sent += 1
+                        if trade['pnl'] > 0:
+                            winning_trades += 1
+                        else:
+                            losing_trades += 1
+                        total_pnl += trade['pnl']
+                        
+                        pnl_pct = (trade['pnl'] / trade['entry_price']) * 100 if trade['entry_price'] != 0 else 0
+                        print(f"[SIGNAL] Sending EXIT signal at {timestamp_str}: ${trade['exit_price']:.2f} | PnL: ${trade['pnl']:.2f} ({pnl_pct:+.2f}%)")
+                        await self.send(text_data=json.dumps({
+                            "type": "signal",
+                            "timestamp": timestamp_str,
+                            "action": "EXIT",
+                            "side": "CLOSE",
+                            "price": trade['exit_price'],
+                            "size": abs(trade['size']),
+                        }))
+                
+                # Send updated statistics (every 10 bars or at trade)
+                if bar_number % 10 == 0 or any(t['entry_time'] == timestamp_str or t['exit_time'] == timestamp_str for t in trades_list):
+                    win_rate = (winning_trades / trades_sent * 100) if trades_sent > 0 else 0
                     await self.send(text_data=json.dumps({
-                        "type": "signal",
-                        "timestamp": str(timestamp),
-                        "action": signal.get("action"),
-                        "side": signal.get("side"),
-                        "price": signal.get("price"),
-                        "size": signal.get("size"),
+                        "type": "stats",
+                        "total_trades": trades_sent,
+                        "winning_trades": winning_trades,
+                        "losing_trades": losing_trades,
+                        "pnl": total_pnl,
+                        "win_rate": win_rate,
                     }))
-
-                # Send updated statistics
-                metrics = broker.compute_metrics()
-                await self.send(text_data=json.dumps({
-                    "type": "stats",
-                    "total_trades": metrics.get("total_trades", 0),
-                    "winning_trades": metrics.get("winning_trades", 0),
-                    "losing_trades": metrics.get("losing_trades", 0),
-                    "pnl": metrics.get("net_profit", 0),
-                }))
-
-                # Small delay to simulate real-time streaming (adjust as needed)
-                await asyncio.sleep(0.05)  # 50ms between candles
-
-                total_bars_sent += 1
-
-            # Send completion message
-            final_metrics = broker.compute_metrics()
+                
+                # Delay for visualization (adjust speed here)
+                await asyncio.sleep(0.02)  # 20ms = faster, 50ms = slower
+            
+            # Send final completion message
+            final_win_rate = (winning_trades / trades_sent * 100) if trades_sent > 0 else 0
+            
             await self.send(text_data=json.dumps({
                 "type": "complete",
-                "total_bars": total_bars_sent,
+                "total_bars": total_bars,
                 "metrics": {
-                    "total_trades": final_metrics.get("total_trades", 0),
-                    "win_rate": final_metrics.get("win_rate", 0),
-                    "net_profit": final_metrics.get("net_profit", 0),
-                    "max_drawdown": final_metrics.get("max_drawdown_pct", 0),
-                    "sharpe_ratio": final_metrics.get("sharpe_ratio", 0),
+                    "total_trades": trades_sent,
+                    "winning_trades": winning_trades,
+                    "losing_trades": losing_trades,
+                    "win_rate": final_win_rate,
+                    "net_profit": total_pnl,
+                    "max_drawdown": backtest_results.get("Max. Drawdown [%]", 0) if backtest_results is not None else 0,
+                    "sharpe_ratio": backtest_results.get("Sharpe Ratio", 0) if backtest_results is not None else 0,
                 }
             }))
-
-            print(f"✅ Backtest streaming completed: {total_bars_sent} bars")
+            
+            print(f"✅ Visualization streaming completed: {total_bars} bars, {trades_sent} trades")
 
         except Exception as e:
             print(f"❌ Backtest streaming error: {e}")

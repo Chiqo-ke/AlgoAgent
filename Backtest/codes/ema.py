@@ -19,10 +19,7 @@ if str(parent_dir) not in sys.path:
 # Import backtesting.py components
 from backtesting import Strategy
 from backtesting.lib import crossover
-from backtesting.test import SMA, GOOG  # Built-in indicators
-
-# Import data fetcher
-from Data.data_fetcher import DataFetcher
+from backtesting.test import SMA  # Built-in indicators
 
 
 class EMAStrategy(Strategy):
@@ -44,24 +41,40 @@ class EMAStrategy(Strategy):
         """
         close = self.data.Close
         
-        # Calculate fast EMA
-        def EMA(series, period):
-            return pd.Series(series).ewm(span=period).mean()
+        # Calculate EMAs using pandas ewm - returns numpy array
+        def EMA(values, n):
+            """Calculate EMA and return as numpy array"""
+            return pd.Series(values).ewm(span=n, adjust=False).mean().values
         
+        # Use self.I to make indicators plottable
         self.ema_fast = self.I(EMA, close, self.fast_period)
         self.ema_slow = self.I(EMA, close, self.slow_period)
+        
+        print(f"[INIT] Strategy initialized with fast={self.fast_period}, slow={self.slow_period}")
     
     def next(self):
         """
         Implement strategy logic.
         """
+        # Skip if we don't have valid indicator values
+        if np.isnan(self.ema_fast[-1]) or np.isnan(self.ema_slow[-1]):
+            return
+        
         # Buy condition: fast EMA crosses above slow EMA
         if crossover(self.ema_fast, self.ema_slow):
-            self.buy()
+            if not self.position:
+                print(f"[BUY SIGNAL] Bar {len(self.data)} | Price: ${self.data.Close[-1]:.2f} | "
+                      f"EMA_fast: {self.ema_fast[-1]:.2f} | EMA_slow: {self.ema_slow[-1]:.2f}")
+                self.buy()
+                print(f"[ENTRY] Bought at ${self.data.Close[-1]:.2f}")
         
-        # Sell condition: fast EMA crosses below slow EMA, close position
+        # Sell condition: fast EMA crosses below slow EMA
         elif crossover(self.ema_slow, self.ema_fast):
-            self.position.close()
+            if self.position:
+                print(f"[SELL SIGNAL] Bar {len(self.data)} | Price: ${self.data.Close[-1]:.2f} | "
+                      f"EMA_fast: {self.ema_fast[-1]:.2f} | EMA_slow: {self.ema_slow[-1]:.2f}")
+                self.position.close()
+                print(f"[EXIT] Sold at ${self.data.Close[-1]:.2f}")
 
 
 def run_backtest(
@@ -88,12 +101,20 @@ def run_backtest(
     Returns:
         Backtest results
     """
-    from Backtest.backtesting_adapter import fetch_and_prepare_data, BacktestingAdapter
+    # Import from parent directory (already in sys.path)
+    from backtesting_adapter import fetch_and_prepare_data, BacktestingAdapter
+    
+    print(f"[DATA] Fetching {symbol} data from {start_date} to {end_date}...")
     
     # Fetch data
     data = fetch_and_prepare_data(symbol, start_date, end_date, interval)
     
+    print(f"[DATA] Loaded {len(data)} bars")
+    print(f"[DATA] Columns: {list(data.columns)}")
+    print(f"[DATA] Date range: {data.index[0]} to {data.index[-1]}")
+    
     # Run backtest
+    print(f"\n[BACKTEST] Running backtest...")
     adapter = BacktestingAdapter(
         data=data,
         strategy_class=strategy_class,
@@ -109,20 +130,19 @@ def run_backtest(
     print("=" * 70)
     print(f"Period: {start_date} to {end_date}")
     print(f"Symbol: {symbol}")
+    print(f"Bars: {len(data)}")
     print()
     print(results)
     print("=" * 70)
-    
-    # Get detailed stats
-    stats = adapter.get_stats()
-    print("\nDETAILED STATISTICS:")
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
     
     return results, adapter
 
 
 if __name__ == "__main__":
+    # Activate venv first
+    print("Testing EMA Strategy with detailed logging...")
+    print("=" * 70)
+    
     # Run the backtest
     results, adapter = run_backtest(
         strategy_class=EMAStrategy,
@@ -132,6 +152,11 @@ if __name__ == "__main__":
         cash=10000,
         commission=0.002
     )
+    
+    print("\n[TEST] Test completed!")
+    
+    # Optionally plot results (opens interactive browser chart)
+    # adapter.plot()
     
     # Optionally plot results (opens interactive browser chart)
     # adapter.plot()

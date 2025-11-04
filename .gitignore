@@ -135,3 +135,5 @@ tmp/
 *.tmp
 *.temp
 *db
+
+*.parquet
