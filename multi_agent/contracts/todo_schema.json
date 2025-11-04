@@ -1,0 +1,227 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TodoList Schema",
+  "description": "Schema for multi-agent workflow todo lists",
+  "type": "object",
+  "required": ["todo_list_id", "workflow_name", "created_at", "items"],
+  "properties": {
+    "todo_list_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "description": "Unique identifier for this todo list"
+    },
+    "workflow_name": {
+      "type": "string",
+      "description": "Human-readable name for this workflow"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "User or system that created this list"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "user_request": {
+          "type": "string",
+          "description": "Original natural language request"
+        },
+        "repo_context": {
+          "type": "object"
+        },
+        "planner_version": {
+          "type": "string"
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/TodoItem"
+      }
+    }
+  },
+  "definitions": {
+    "TodoItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "description",
+        "agent_role",
+        "acceptance_criteria",
+        "priority",
+        "max_retries"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^task_[a-zA-Z0-9_-]+$",
+          "description": "Unique task identifier within this workflow"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200,
+          "description": "Brief task summary"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 10,
+          "description": "Detailed task description including context and requirements"
+        },
+        "agent_role": {
+          "type": "string",
+          "enum": ["architect", "coder", "tester", "debugger", "optimizer"],
+          "description": "Agent type responsible for this task"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Task priority (1=highest, 10=lowest)"
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^task_[a-zA-Z0-9_-]+$"
+          },
+          "description": "List of task IDs that must complete before this task"
+        },
+        "expected_duration_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Estimated time to complete"
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum retry attempts on failure"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 300,
+          "description": "Maximum execution time before timeout"
+        },
+        "acceptance_criteria": {
+          "$ref": "#/definitions/AcceptanceCriteria"
+        },
+        "input_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Required input files or artifacts from previous tasks"
+        },
+        "output_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Expected output files or artifacts"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "AcceptanceCriteria": {
+      "type": "object",
+      "required": ["tests"],
+      "properties": {
+        "tests": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/TestCommand"
+          },
+          "description": "Test commands that must pass"
+        },
+        "expected_artifacts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Files that must exist after task completion"
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Measurable success criteria",
+          "properties": {
+            "min_test_coverage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "max_cyclomatic_complexity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_execution_time_ms": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "validation_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["schema", "lint", "type_check", "security_scan", "custom"]
+              },
+              "command": {
+                "type": "string"
+              },
+              "expected_exit_code": {
+                "type": "integer",
+                "default": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "TestCommand": {
+      "type": "object",
+      "required": ["cmd"],
+      "properties": {
+        "cmd": {
+          "type": "string",
+          "description": "Shell command to execute"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60
+        },
+        "expected_exit_code": {
+          "type": "integer",
+          "default": 0
+        },
+        "working_dir": {
+          "type": "string",
+          "description": "Working directory for command execution"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables"
+        }
+      }
+    }
+  }
+}
