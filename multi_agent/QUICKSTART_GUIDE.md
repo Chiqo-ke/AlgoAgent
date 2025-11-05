@@ -2,7 +2,7 @@
 
 ## Overview
 
-You now have a **production-ready foundation** for a multi-agent AI development system that transforms the single-agent `AIDeveloperAgent` into a sophisticated Planner→Orchestrator→Agents workflow.
+You now have a **Phase 1-3 complete** multi-agent AI development system that transforms the single-agent `AIDeveloperAgent` into a sophisticated Planner→Orchestrator→Agents workflow with automated debugging capabilities.
 
 ---
 
@@ -34,19 +34,37 @@ AlgoAgent/multi_agent/
 ├── orchestrator_service/               ✅ COMPLETE
 │   └── orchestrator.py                ✅ Workflow engine
 │
-├── agents/                             ⏳ NEXT PHASE
-│   ├── architect_agent/               🔨 To implement
+├── agents/                             ✅ Phase 3 agents
+│   ├── architect_agent/               ✅ Contract generation
+│   ├── debugger_agent/                ✅ Failure analysis
 │   ├── coder_agent/                   🔨 To implement
 │   └── tester_agent/                  🔨 To implement
 │
+├── fixture_manager/                    ✅ Deterministic test data
+├── phase3_integration_test.py          ✅ Integration tests
 ├── sandbox_runner/                     ⏳ To implement
-├── artifacts/                          ⏳ To implement
-└── tests/                              ⏳ To implement
+└── artifacts/                          ⏳ To implement
 ```
 
 ---
 
-## ✅ Phase 1-2 Complete: Foundation Ready
+## ✅ Phase 1-3 Complete: Core System Ready
+
+### Virtual Environment Setup
+
+All Python scripts should run inside the `.venv` at the repository root:
+
+```powershell
+# Setup (first time only)
+cd c:\Users\nyaga\Documents\AlgoAgent\multi_agent
+.\scripts\setup_venv.ps1
+
+# Activate for interactive sessions (optional)
+c:\Users\nyaga\Documents\AlgoAgent\.venv\Scripts\Activate.ps1
+
+# Run scripts using the venv python
+c:\Users\nyaga\Documents\AlgoAgent\.venv\Scripts\python.exe <script.py>
+```
 
 ### What Works Right Now
 
@@ -67,22 +85,23 @@ python -m contracts.validate_contract contracts/sample_todo_list.json --type tod
 # Set API key
 $env:GOOGLE_API_KEY = "your_gemini_api_key"
 
-# Generate plan from natural language
-python -m planner_service.planner "Create a momentum trading strategy using 14-day RSI" -o plans
+# Generate plan from natural language (uses 4-step template)
+.\.venv\Scripts\python.exe -m planner_service.planner "Create a momentum trading strategy using 14-day RSI" -o plans
 
 # Output:
 # ✅ Created plan: plans/workflow_abc123.json
 # Workflow: Create Momentum Trading Strategy
-# Tasks: 3
-#   - Design Momentum Strategy Contract (architect)
-#   - Implement Momentum Strategy Code (coder)
-#   - Run Integration Tests (tester)
+# Tasks: 4 (Data Loading → Indicators → Entry → Exit)
+#   - Data Loading Integration (coder)
+#   - Indicator & Candle Pattern Loading (architect → coder)
+#   - Entry Conditions Setup (coder)
+#   - Exit Conditions Setup (coder)
 ```
 
 #### 3. Orchestrator Execution ✅
 ```powershell
-# Execute a workflow
-python -m orchestrator_service.orchestrator contracts/sample_todo_list.json
+# Execute a workflow (with branch todo support)
+.\.venv\Scripts\python.exe -m orchestrator_service.orchestrator contracts/sample_todo_list.json
 
 # Output:
 # ✅ Loaded todo list: workflow_sample_20251104_001
@@ -92,10 +111,12 @@ python -m orchestrator_service.orchestrator contracts/sample_todo_list.json
 # Tasks:
 #   ✅ task_architect_001: completed
 #   ✅ task_coder_001: completed
-#   ✅ task_tester_001: completed
+#   ⚠️  task_tester_001: failed → creating branch todo
+#   ✅ task_tester_001_branch_1: completed (fixed by debugger)
+#   ✅ task_tester_001: completed (retry)
 # 
 # Workflow Status: completed
-# Duration: 12.34s
+# Duration: 18.45s
 ```
 
 #### 4. Message Bus ✅
@@ -123,10 +144,34 @@ bus.publish(Channels.WORKFLOW_EVENTS, event)
 # Output: Received: workflow.created
 ```
 
-#### 5. Quick Test Suite ✅
+#### 5. Phase 3 Integration Tests ✅
+```powershell
+# Run Phase 3 integration tests
+.\.venv\Scripts\python.exe phase3_integration_test.py
+
+# Output:
+# TEST 1: Fixture Manager - ✅ PASSED
+# TEST 2: Debugger Agent - ✅ PASSED
+# TEST 3: Orchestrator Branch Logic - ✅ PASSED
+# Passed: 3/3 🎉
+```
+
+#### 6. Fixture Generation ✅
+```powershell
+# Generate deterministic test fixtures
+.\.venv\Scripts\python.exe fixture_manager/fixture_manager.py --symbol AAPL --bars 30
+
+# Output:
+# Created: fixtures/sample_aapl.csv (30 bars, seed=42)
+# Created: fixtures/rsi_expected.json
+# Created: fixtures/entry_scenarios.json
+# Created: fixtures/exit_scenarios.json
+```
+
+#### 7. Quick Test Suite ✅
 ```powershell
 # Run all tests
-python quick_test.py
+.\.venv\Scripts\python.exe quick_test.py
 
 # Output:
 # ╭──────────────────────────────────────────────╮

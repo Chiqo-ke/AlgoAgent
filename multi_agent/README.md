@@ -70,11 +70,18 @@ Artifact Store (git)
 - Event correlation and tracing
 - Channels: `agent.requests`, `agent.results`, `workflow.events`, `audit.logs`
 
-### 8. **Debugger Agent** (`agents/debugger_agent/`)
+### 8. **Debugger Agent** (`agents/debugger_agent/`) ✅
 - Handles branch todos for automated debugging
-- Analyzes test failures and routes to appropriate agents
+- Analyzes test failures and routes to appropriate agents (coder/architect/tester)
+- Classifies 5 failure types: implementation_bug, spec_mismatch, timeout, missing_dependency, flaky_test
 - Collects diagnostics (tracebacks, logs, sample inputs)
-- Outputs: failure reports, fix suggestions, escalation notices
+- Outputs: failure reports, branch todos, fix suggestions
+
+### 9. **Fixture Manager** (`fixture_manager/`) ✅
+- Generates deterministic test data for reproducible testing
+- OHLCV fixtures (seeded CSV), indicator expected values (JSON)
+- Entry/exit scenario fixtures
+- CLI tool: `python fixture_manager.py --symbol AAPL --bars 30`
 
 ## Planner Design: Predictable & Testable Workflows
 
@@ -170,10 +177,17 @@ Structured test results with:
 ### Prerequisites
 
 ```powershell
-# Install dependencies
+# Setup virtual environment
+cd c:\Users\nyaga\Documents\AlgoAgent\multi_agent
+.\scripts\setup_venv.ps1  # Creates .venv and installs core dependencies
+
+# Activate venv (optional for interactive sessions)
+c:\Users\nyaga\Documents\AlgoAgent\.venv\Scripts\Activate.ps1
+
+# Install additional dependencies (if needed)
 pip install -r requirements.txt
 
-# Install Redis (for message bus)
+# Install Redis (for production message bus)
 # Option 1: Docker
 docker run -d -p 6379:6379 redis:latest
 
@@ -185,15 +199,20 @@ docker run -d -p 6379:6379 redis:latest
 
 ```powershell
 # 1. Validate a todo list
-python -m contracts.validate_contract contracts/sample_todo_list.json --type todo
+.\.venv\Scripts\python.exe -m contracts.validate_contract contracts/sample_todo_list.json --type todo
 
-# 2. Start the orchestrator (coming soon)
-python -m orchestrator_service.main
+# 2. Run integration tests
+.\.venv\Scripts\python.exe phase3_integration_test.py
 
-# 3. Submit a workflow
-curl -X POST http://localhost:8000/orchestrator/execute \
-  -H "Content-Type: application/json" \
-  -d '{"todo_list_id": "workflow_sample_20251104_001"}'
+# 3. Generate fixtures
+.\.venv\Scripts\python.exe fixture_manager/fixture_manager.py --symbol AAPL --bars 30
+
+# 4. Create a plan (requires GOOGLE_API_KEY)
+$env:GOOGLE_API_KEY = "your_key"
+.\.venv\Scripts\python.exe -m planner_service.planner "Create RSI momentum strategy" -o plans
+
+# 5. Execute workflow
+.\.venv\Scripts\python.exe -m orchestrator_service.orchestrator plans/workflow_*.json
 ```
 
 ### Validation Tools
@@ -211,23 +230,26 @@ python -m contracts.validate_contract path/to/test_report.json --type test_repor
 
 ## Development Workflow
 
-### Phase 1: Design ✅
-- [x] Create `todo_schema.json` with validation
+### Phase 1: Design ✅ COMPLETE
+- [x] Create `todo_schema.json` with validation and branch todo fields
 - [x] Create `contract_schema.json` and `test_report_schema.json`
 - [x] Build validation tools (`validate_contract.py`)
-- [x] Implement event types and message bus
+- [x] Implement event types (23 types) and message bus (Redis + InMemory)
 
-### Phase 2: Core Services (In Progress)
-- [ ] Build Planner service with LLM integration
-- [ ] Build Orchestrator with workflow engine
-- [ ] Implement task scheduling and retry logic
-- [ ] Add database for workflow state
+### Phase 2: Core Services ✅ COMPLETE
+- [x] Build Planner service with Gemini integration and 4-step template
+- [x] Build Orchestrator with workflow engine
+- [x] Implement task scheduling, retry logic, and dependency resolution
+- [x] Add workflow state tracking (in-memory, DB integration pending)
 
-### Phase 3: Agents
-- [ ] Implement Architect agent (contract generation)
-- [ ] Implement Coder agent (code generation)
-- [ ] Implement Tester agent (sandbox execution)
-- [ ] Add Debugger agent (error analysis)
+### Phase 3: Core Agents ✅ COMPLETE
+- [x] Implement Architect agent (contract generation with fixtures)
+- [x] Implement Debugger agent (failure analysis and branch todos)
+- [x] Implement Fixture Manager (deterministic test data)
+- [x] Add branch todo logic to Orchestrator (depth limiting, auto-fix mode)
+- [x] Integration tests for Phase 3 components (all passing)
+- [ ] Implement Coder agent (code generation) - **NEXT**
+- [ ] Implement Tester agent (sandbox execution) - **NEXT**
 
 ### Phase 4: Integration
 - [ ] Build artifact store with Git integration
@@ -236,10 +258,10 @@ python -m contracts.validate_contract path/to/test_report.json --type test_repor
 - [ ] Implement observability and metrics
 
 ### Phase 5: Testing & Deployment
-- [ ] Unit tests for all components
-- [ ] Integration tests with mocked agents
-- [ ] End-to-end workflow tests
+- [x] Integration tests for Phase 1-3 components
+- [ ] End-to-end workflow tests (with actual LLM calls)
 - [ ] CI/CD pipeline setup
+- [ ] Production deployment (PostgreSQL, Redis, Git storage)
 
 ## Testing Strategy
 
