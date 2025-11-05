@@ -1,0 +1,83 @@
+{
+  "contract_id": "contract_rsi_001",
+  "name": "RSI Momentum Strategy Contract",
+  "description": "Contract for implementing RSI-based entry and exit logic",
+  "interfaces": {
+    "data_fn": {
+      "name": "fetch_data",
+      "signature": "def fetch_data(symbol: str, start: str, end: str) -> pd.DataFrame",
+      "description": "Fetch OHLCV data from Data module",
+      "returns": "DataFrame with columns: Date, Open, High, Low, Close, Volume"
+    },
+    "indicators_fn": {
+      "name": "prepare_indicators",
+      "signature": "def prepare_indicators(df: pd.DataFrame) -> Dict[str, pd.Series]",
+      "description": "Compute technical indicators",
+      "returns": "Dictionary mapping indicator names to Series"
+    },
+    "entry_fn": {
+      "name": "find_entries",
+      "signature": "def find_entries(df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]",
+      "description": "Find entry signals when RSI < 30",
+      "returns": "List of entry dictionaries with keys: timestamp, price, reason"
+    },
+    "exit_fn": {
+      "name": "find_exits",
+      "signature": "def find_exits(position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]",
+      "description": "Find exit signals when RSI > 70 or stop loss hit",
+      "returns": "List of exit dictionaries with keys: timestamp, price, reason"
+    },
+    "expected_columns": ["Date", "Open", "High", "Low", "Close", "Volume"],
+    "indicator_contracts": [
+      {
+        "name": "RSI",
+        "signature": "def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series",
+        "description": "Relative Strength Index"
+      }
+    ]
+  },
+  "example_inputs": {
+    "sample_df_path": "fixtures/sample_aapl.csv",
+    "indicators": {
+      "RSI": "fixtures/rsi_expected.json"
+    },
+    "position": {
+      "entry_price": 150.0,
+      "start_idx": 20,
+      "stop_loss_pct": 5.0
+    }
+  },
+  "example_outputs": {
+    "entries": [
+      {
+        "timestamp": "2020-03-23",
+        "price": 224.37,
+        "reason": "RSI<30"
+      }
+    ],
+    "exits": [
+      {
+        "timestamp": "2020-04-01",
+        "price": 240.91,
+        "reason": "RSI>70"
+      }
+    ]
+  },
+  "test_skeletons": [
+    "tests/test_entry.py",
+    "tests/test_exit.py"
+  ],
+  "fixtures": [
+    "fixtures/sample_aapl.csv",
+    "fixtures/rsi_expected.json",
+    "fixtures/entry_scenarios.json",
+    "fixtures/exit_scenarios.json"
+  ],
+  "constraints": {
+    "allowed_libraries": ["pandas", "numpy", "typing"],
+    "forbidden_operations": ["network_calls", "file_writes_in_functions"],
+    "deterministic": true
+  },
+  "created_at": "2025-11-05T10:00:00Z",
+  "created_by": "architect-001"
+}
