@@ -297,7 +297,116 @@ class CoderAgent:
 }
 ```
 
-### 2.3: Tester Agent (Week 5)
+### 2.3: Debugger Agent (Week 4.5)
+
+**Goal**: Handle branch todos for automated debugging and failure analysis
+
+**Implementation Plan**:
+```python
+# agents/debugger_agent/debugger.py
+
+class DebuggerAgent:
+    """Analyzes failures and creates targeted fixes."""
+    
+    def handle_branch_todo(self, branch_todo: TodoItem, parent_task: TodoItem, diagnostics: dict) -> DebugResult:
+        """
+        Analyze failure and attempt resolution.
+        
+        Process:
+        1. Parse diagnostics (tracebacks, test reports, logs)
+        2. Classify failure type (implementation_bug, spec_mismatch, timeout)
+        3. Generate targeted fix or route to specialist agent
+        4. Run quick fixes for common patterns
+        5. Create failure report with suggestions
+        
+        Returns:
+            DebugResult with fix attempt or escalation notice
+        """
+        # Analyze failure
+        failure_type = self._classify_failure(diagnostics)
+        
+        # Check for common patterns
+        if self._is_common_pattern(failure_type, diagnostics):
+            fix = self._apply_quick_fix(failure_type, diagnostics)
+            return DebugResult(status="fixed", fix=fix)
+        
+        # Route to specialist
+        target_agent = self._determine_target_agent(failure_type)
+        return DebugResult(
+            status="routed",
+            target_agent=target_agent,
+            analysis=self._generate_analysis(diagnostics)
+        )
+    
+    def _classify_failure(self, diagnostics: dict) -> str:
+        """Classify failure into categories."""
+        error_msg = diagnostics['test_report']['error_message']
+        
+        if "ImportError" in error_msg or "ModuleNotFoundError" in error_msg:
+            return "missing_dependency"
+        elif "AssertionError" in error_msg:
+            if "signature" in error_msg.lower() or "type" in error_msg.lower():
+                return "spec_mismatch"
+            else:
+                return "implementation_bug"
+        elif diagnostics['test_report']['duration'] > diagnostics['test_report']['timeout']:
+            return "timeout"
+        elif "flaky" in error_msg.lower() or "intermittent" in error_msg.lower():
+            return "flaky_test"
+        else:
+            return "unknown"
+    
+    def _apply_quick_fix(self, failure_type: str, diagnostics: dict) -> str:
+        """Apply common fixes."""
+        if failure_type == "missing_dependency":
+            # Extract missing module and suggest install
+            return self._suggest_dependency_install(diagnostics)
+        elif failure_type == "implementation_bug":
+            # Check for common mistakes (off-by-one, type conversion, etc.)
+            return self._suggest_bug_fix(diagnostics)
+        # Add more patterns...
+```
+
+**Failure Classification Rules**:
+```json
+{
+  "failure_patterns": {
+    "missing_dependency": {
+      "keywords": ["ImportError", "ModuleNotFoundError"],
+      "target_agent": "coder",
+      "auto_fixable": true
+    },
+    "spec_mismatch": {
+      "keywords": ["signature", "type", "interface"],
+      "target_agent": "architect",
+      "auto_fixable": false
+    },
+    "implementation_bug": {
+      "keywords": ["AssertionError", "ValueError", "calculation"],
+      "target_agent": "coder",
+      "auto_fixable": false
+    },
+    "timeout": {
+      "keywords": ["timeout", "exceeded"],
+      "target_agent": "tester",
+      "auto_fixable": false
+    }
+  }
+}
+```
+
+**Test Strategy**:
+```powershell
+# Unit tests for classification
+pytest tests/unit/test_debugger_classification.py
+
+# Integration tests with simulated failures
+pytest tests/integration/test_debugger_branch_handling.py
+```
+
+---
+
+### 2.4: Tester Agent (Week 5)
 
 **Goal**: Run tests in isolated sandbox
 
@@ -403,6 +512,196 @@ class SandboxRunner:
 
 ---
 
+## Phase 2.5: Branch Todo Implementation (Week 5.5)
+
+### 2.5.1: Orchestrator Branch Logic
+
+**Add branch todo creation and management**:
+
+```python
+# orchestrator_service/orchestrator.py
+
+class BranchTodoManager:
+    """Manages branch todo lifecycle."""
+    
+    def handle_task_failure(self, task: TodoItem, test_report: dict) -> TodoItem:
+        """Create branch todo when primary task fails."""
+        # Analyze failure
+        failure_type = self._determine_failure_type(test_report)
+        target_agent = task.failure_routing.get(failure_type, "debugger")
+        
+        # Create branch todo
+        branch = TodoItem(
+            id=f"{task.id}_branch_{self.branch_counter:02d}",
+            parent_id=task.id,
+            title=f"Debug {task.title} - {failure_type}",
+            agent_role=target_agent,
+            branch_reason=failure_type,
+            debug_instructions=self._generate_debug_instructions(test_report),
+            acceptance_criteria=task.acceptance_criteria,  # Re-use parent tests
+            is_temporary=True,
+            max_debug_attempts=3,
+            dependencies=[]
+        )
+        
+        # Block downstream tasks
+        self._block_dependent_tasks(task.id)
+        
+        # Persist branch
+        self.db.save_branch_todo(branch)
+        
+        return branch
+    
+    def handle_branch_resolution(self, branch: TodoItem, result: ExecutionResult):
+        """Handle branch todo completion."""
+        if result.status == "passed":
+            # Re-run parent tests
+            parent_result = self._rerun_acceptance_tests(branch.parent_id)
+            
+            if parent_result.status == "passed":
+                # Success! Mark parent completed
+                self._mark_completed(branch.parent_id)
+                self._unblock_dependent_tasks(branch.parent_id)
+            else:
+                # Still failing - check depth
+                current_depth = self._get_branch_depth(branch.id)
+                
+                if current_depth < self.config.max_branch_depth:
+                    # Create deeper branch
+                    deeper_branch = self.handle_task_failure(
+                        task=self._get_task(branch.parent_id),
+                        test_report=parent_result.test_report
+                    )
+                    self._dispatch_task(deeper_branch)
+                else:
+                    # Max depth reached - escalate
+                    self._escalate_to_human(branch.parent_id, parent_result)
+        else:
+            # Branch failed - retry or escalate
+            if branch.attempt < branch.max_debug_attempts:
+                self._retry_branch(branch)
+            else:
+                self._escalate_to_human(branch.parent_id, result)
+    
+    def _determine_failure_type(self, test_report: dict) -> str:
+        """Classify failure into routing category."""
+        error_msg = test_report.get('error_message', '')
+        
+        if "ImportError" in error_msg:
+            return "missing_dependency"
+        elif "AssertionError: signature" in error_msg:
+            return "spec_mismatch"
+        elif test_report.get('duration', 0) > test_report.get('timeout', float('inf')):
+            return "timeout"
+        else:
+            return "implementation_bug"
+```
+
+### 2.5.2: Update Todo Schema
+
+**Add branch fields to `todo_schema.json`**:
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "parent_id": {
+      "type": "string",
+      "description": "ID of parent task (for branch todos)"
+    },
+    "branch_reason": {
+      "type": "string",
+      "enum": ["test_failure", "spec_mismatch", "timeout", "implementation_bug", "missing_dependency", "flaky_test"],
+      "description": "Reason for branch creation"
+    },
+    "debug_instructions": {
+      "type": "string",
+      "description": "Diagnostic summary and debugging hints"
+    },
+    "is_temporary": {
+      "type": "boolean",
+      "description": "True for branch todos"
+    },
+    "max_debug_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3,
+      "description": "Maximum retry attempts for branch"
+    },
+    "failure_routing": {
+      "type": "object",
+      "description": "Map failure types to target agents",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "example": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester"
+      }
+    }
+  }
+}
+```
+
+### 2.5.3: Testing Strategy
+
+**Unit Tests**:
+```python
+def test_branch_creation_on_failure():
+    """Verify branch todo created when task fails."""
+    manager = BranchTodoManager()
+    task = create_sample_task()
+    test_report = {"error_message": "AssertionError: RSI mismatch", "status": "failed"}
+    
+    branch = manager.handle_task_failure(task, test_report)
+    
+    assert branch.parent_id == task.id
+    assert branch.branch_reason == "implementation_bug"
+    assert branch.is_temporary == True
+    assert branch.max_debug_attempts == 3
+
+def test_branch_depth_limiting():
+    """Verify max_branch_depth is enforced."""
+    manager = BranchTodoManager(config={"max_branch_depth": 2})
+    
+    # Create nested branches
+    task = create_sample_task()
+    branch1 = manager.handle_task_failure(task, {...})  # depth=1
+    branch2 = manager.handle_task_failure(task, {...})  # depth=2
+    
+    # Attempt depth=3 should escalate
+    with pytest.raises(MaxDepthExceeded):
+        branch3 = manager.handle_task_failure(task, {...})
+```
+
+**Integration Tests**:
+```python
+def test_branch_lifecycle_success():
+    """Test complete branch lifecycle with resolution."""
+    orchestrator = MinimalOrchestrator()
+    workflow_id = orchestrator.load_todo_list("sample_todo.json")
+    
+    # Simulate task failure
+    inject_failure("t2_indicators", "RSI calculation wrong")
+    
+    # Verify branch created
+    branches = orchestrator.get_branches(workflow_id)
+    assert len(branches) == 1
+    assert branches[0].agent_role == "coder"
+    
+    # Simulate branch fix
+    inject_success(branches[0].id)
+    
+    # Verify parent re-run and completion
+    status = orchestrator.get_task_status("t2_indicators")
+    assert status == "completed"
+```
+
+---
+
 ## Phase 3: Integration & Testing (Week 6)
 
 ### 3.1: Agent Integration
@@ -419,6 +718,10 @@ bus.subscribe(Channels.AGENT_REQUESTS, architect.handle_task)
 # Coder
 coder = CoderAgent()
 bus.subscribe(Channels.AGENT_REQUESTS, coder.handle_task)
+
+# Debugger
+debugger = DebuggerAgent()
+bus.subscribe(Channels.AGENT_REQUESTS, debugger.handle_task)
 
 # Tester
 tester = TesterAgent()

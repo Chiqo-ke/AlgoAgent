@@ -1,0 +1,72 @@
+{
+  "todo_list_id": "workflow_momentum_001_branch",
+  "workflow_name": "Branch Todo Example: Debug RSI Indicator",
+  "created_at": "2025-11-05T10:30:00Z",
+  "created_by": "orchestrator_service",
+  "metadata": {
+    "parent_workflow_id": "workflow_momentum_001",
+    "branch_trigger": "test_failure",
+    "auto_generated": true
+  },
+  "items": [
+    {
+      "id": "task_t2_branch_01",
+      "parent_id": "task_t2_indicators",
+      "title": "Debug RSI Indicator Calculation Mismatch",
+      "description": "The RSI indicator test failed with value mismatch. Expected RSI: 28.5, Actual RSI: 32.1 for the given fixture data. This suggests an issue with either the SMA window calculation, NaN handling at the start of the series, or the Wilder's smoothing formula implementation. Review the RSI calculation logic in indicators/rsi.py and compare against the expected values in fixtures/rsi_expected.json.",
+      "agent_role": "debugger",
+      "priority": 1,
+      "dependencies": [],
+      "expected_duration_seconds": 300,
+      "max_retries": 0,
+      "timeout_seconds": 600,
+      "branch_reason": "test_failure",
+      "is_temporary": true,
+      "max_debug_attempts": 3,
+      "debug_instructions": "pytest failed: test_rsi_values\n\nAssertion Error:\nExpected RSI value: 28.5\nActual RSI value: 32.1\nDifference: 3.6 (12.9%)\n\nSample Input:\nFile: fixtures/rsi_expected.json\nPeriod: 14\nData points: 30\n\nPossible causes:\n1. SMA window calculation incorrect (check if using period+1 vs period)\n2. NaN handling at series start (first 14 values should be NaN)\n3. Wilder's smoothing formula: should use (prev_avg * 13 + current) / 14\n4. Gains/losses calculation (check absolute vs relative)\n\nSteps to debug:\n1. Add print statements in compute_rsi() for intermediate values\n2. Compare against known RSI calculation (e.g., TA-Lib reference)\n3. Verify NaN padding matches expected output\n4. Test with minimal dataset (exactly 15 values)\n\nExpected fix location: indicators/rsi.py, lines 15-40",
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py::test_rsi_values -v --json-report",
+            "timeout_seconds": 30,
+            "fixture": "fixtures/rsi_expected.json"
+          },
+          {
+            "cmd": "pytest tests/test_indicators.py::test_rsi_edge_cases -v --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/rsi_edge_cases.json"
+          }
+        ],
+        "expected_artifacts": [
+          "diagnostics/t2_indicators_failure_report.json",
+          "indicators/rsi.py"
+        ],
+        "metrics": {
+          "max_rsi_error_percent": 1.0
+        }
+      },
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester"
+      },
+      "input_artifacts": [
+        "contracts/indicator_contract.json",
+        "fixtures/rsi_expected.json",
+        "tests/test_indicators.py"
+      ],
+      "output_artifacts": [
+        "diagnostics/t2_indicators_failure_report.json",
+        "indicators/rsi.py",
+        "test_results/branch_t2_01_results.json"
+      ],
+      "tags": [
+        "branch_todo",
+        "debug",
+        "rsi",
+        "indicator",
+        "calculation_error"
+      ]
+    }
+  ]
+}

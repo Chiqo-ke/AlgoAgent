@@ -1,0 +1,238 @@
+{
+  "todo_list_id": "workflow_momentum_with_branch_001",
+  "workflow_name": "Momentum Strategy with Branch Todo Example",
+  "created_at": "2025-11-05T10:00:00Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "Create a momentum trading strategy using 14-day RSI",
+    "planner_version": "2.0.0",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3,
+    "repo_context": {
+      "branch": "agent",
+      "base_path": "AlgoAgent/Backtest"
+    }
+  },
+  "items": [
+    {
+      "id": "task_data_001",
+      "title": "Data Loading Integration",
+      "description": "Implement fetch_and_prepare_data(symbol, start, end) returning OHLCV DataFrame with columns ['Date','Open','High','Low','Close','Volume']",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "expected_duration_seconds": 180,
+      "max_retries": 2,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_adapter.py::test_fetch -q --json-report",
+            "timeout_seconds": 30,
+            "fixture": "fixtures/sample_aapl.csv"
+          },
+          {
+            "cmd": "pytest tests/test_adapter.py::test_columns -q --json-report",
+            "timeout_seconds": 20
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/backtesting_adapter.py",
+          "fixtures/sample_aapl.csv"
+        ],
+        "metrics": {
+          "min_test_coverage": 80
+        }
+      },
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder"
+      },
+      "input_artifacts": [],
+      "output_artifacts": [
+        "Backtest/backtesting_adapter.py",
+        "fixtures/sample_aapl.csv",
+        "tests/test_adapter.py"
+      ],
+      "tags": ["data", "foundation"]
+    },
+    {
+      "id": "task_indicators_001",
+      "title": "Indicator & Candle Patterns Implementation",
+      "description": "Implement RSI indicator (14-period) with proper NaN handling at start. Implement engulfing pattern detector. Follow contract specifications.",
+      "agent_role": "coder",
+      "priority": 2,
+      "dependencies": ["task_data_001"],
+      "expected_duration_seconds": 240,
+      "max_retries": 2,
+      "timeout_seconds": 400,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py::test_rsi_values -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/rsi_expected.json"
+          },
+          {
+            "cmd": "pytest tests/test_patterns.py::test_engulfing_detection -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/pattern_cases.json"
+          }
+        ],
+        "expected_artifacts": [
+          "contracts/indicator_contract.json",
+          "indicators/rsi.py",
+          "indicators/patterns.py"
+        ],
+        "metrics": {
+          "min_test_coverage": 85,
+          "max_cyclomatic_complexity": 10
+        }
+      },
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "flaky_test": "tester"
+      },
+      "input_artifacts": [
+        "contracts/indicator_contract.json",
+        "Backtest/backtesting_adapter.py"
+      ],
+      "output_artifacts": [
+        "indicators/rsi.py",
+        "indicators/patterns.py",
+        "tests/test_indicators.py",
+        "tests/test_patterns.py",
+        "fixtures/rsi_expected.json",
+        "fixtures/pattern_cases.json"
+      ],
+      "tags": ["indicators", "rsi", "patterns"]
+    },
+    {
+      "id": "task_indicators_001_branch_01",
+      "parent_id": "task_indicators_001",
+      "title": "Debug RSI calculation mismatch",
+      "description": "RSI calculation returns incorrect values. Expected 28.5, got 32.1 for test case. Need to verify Wilder's smoothing formula and NaN handling.",
+      "agent_role": "debugger",
+      "priority": 2,
+      "dependencies": [],
+      "expected_duration_seconds": 120,
+      "max_retries": 1,
+      "timeout_seconds": 200,
+      "branch_reason": "test_failure",
+      "debug_instructions": "pytest failed: test_rsi_values\n\nAssertion Error:\n  Expected RSI: 28.5\n  Actual RSI: 32.1\n\nSample input: fixtures/rsi_expected.json\nTest data: 14 days of AAPL prices\n\nPossible causes:\n- Incorrect Wilder's smoothing formula\n- Wrong average gain/loss calculation\n- NaN handling issue at start\n- Off-by-one error in lookback period\n\nSuggestions:\n1. Check SMA vs EMA calculation\n2. Verify RS = avg_gain / avg_loss\n3. Confirm RSI = 100 - (100 / (1 + RS))\n4. Test with known RSI library (ta-lib) for comparison",
+      "is_temporary": true,
+      "max_debug_attempts": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py::test_rsi_values -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/rsi_expected.json"
+          }
+        ],
+        "expected_artifacts": [
+          "diagnostics/task_indicators_001_failure_report.json",
+          "indicators/rsi.py"
+        ]
+      },
+      "input_artifacts": [
+        "indicators/rsi.py",
+        "tests/test_indicators.py",
+        "fixtures/rsi_expected.json"
+      ],
+      "output_artifacts": [
+        "indicators/rsi.py",
+        "diagnostics/task_indicators_001_failure_report.json"
+      ],
+      "tags": ["debug", "branch", "rsi"]
+    },
+    {
+      "id": "task_entry_001",
+      "title": "Entry Conditions Implementation",
+      "description": "Implement should_enter(bar, indicators, position) logic. Buy when RSI < 30 and no existing position.",
+      "agent_role": "coder",
+      "priority": 3,
+      "dependencies": ["task_indicators_001"],
+      "expected_duration_seconds": 150,
+      "max_retries": 2,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_entry.py::test_entry_true_false -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/entry_scenarios.json"
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/codes/ai_strategy_entry.py"
+        ],
+        "metrics": {
+          "min_test_coverage": 90
+        }
+      },
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect"
+      },
+      "input_artifacts": [
+        "indicators/rsi.py",
+        "contracts/entry_contract.json"
+      ],
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_entry.py",
+        "tests/test_entry.py",
+        "fixtures/entry_scenarios.json"
+      ],
+      "tags": ["entry", "logic"]
+    },
+    {
+      "id": "task_exit_001",
+      "title": "Exit Conditions Implementation",
+      "description": "Implement should_exit(bar, indicators, position) with stop loss (1%) and take profit (3%) logic. Also exit when RSI > 70.",
+      "agent_role": "coder",
+      "priority": 4,
+      "dependencies": ["task_entry_001"],
+      "expected_duration_seconds": 150,
+      "max_retries": 2,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_exit.py::test_stop_loss -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/exit_scenarios.json"
+          },
+          {
+            "cmd": "pytest tests/test_exit.py::test_take_profit -q --json-report",
+            "timeout_seconds": 20,
+            "fixture": "fixtures/exit_scenarios.json"
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/codes/ai_strategy_exit.py"
+        ],
+        "metrics": {
+          "min_test_coverage": 90
+        }
+      },
+      "failure_routing": {
+        "implementation_bug": "coder"
+      },
+      "input_artifacts": [
+        "Backtest/codes/ai_strategy_entry.py",
+        "indicators/rsi.py"
+      ],
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_exit.py",
+        "tests/test_exit.py",
+        "fixtures/exit_scenarios.json"
+      ],
+      "tags": ["exit", "logic", "risk-management"]
+    }
+  ]
+}

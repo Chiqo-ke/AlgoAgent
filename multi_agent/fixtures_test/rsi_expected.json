@@ -1,0 +1,20 @@
+{
+  "indicator": "rsi",
+  "version": "1.0",
+  "test_cases": [
+    {
+      "name": "test_rsi",
+      "input": {
+        "prices": [
+          100,
+          102,
+          101
+        ],
+        "period": 14
+      },
+      "expected": {
+        "rsi": 50
+      }
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "name": "rsi_oversold_entry",
+      "description": "Should enter when RSI < 30",
+      "bar": {
+        "date": "2024-01-15",
+        "close": 95.0,
+        "high": 96.0,
+        "low": 94.0
+      },
+      "indicators": {
+        "rsi": 28
+      },
+      "position": null,
+      "expected_entry": true
+    },
+    {
+      "name": "rsi_normal_no_entry",
+      "description": "Should not enter when RSI is normal",
+      "bar": {
+        "date": "2024-01-16",
+        "close": 100.0,
+        "high": 101.0,
+        "low": 99.0
+      },
+      "indicators": {
+        "rsi": 50
+      },
+      "position": null,
+      "expected_entry": false
+    }
+  ]
+}

@@ -6,6 +6,7 @@ Provides pub/sub messaging for multi-agent communication with Redis backend.
 
 import json
 import logging
+import asyncio
 from typing import Dict, Any, Callable, List, Optional
 from abc import ABC, abstractmethod
 import redis
@@ -152,22 +153,35 @@ class InMemoryMessageBus(MessageBus):
         self.channels: Dict[str, List[Callable]] = {}
         logger.info("Initialized in-memory message bus")
     
-    def publish(self, channel: str, event: Event):
+    def publish(self, channel: str, event: Any):
         """
         Publish an event to a channel.
         
         Args:
             channel: Channel name
-            event: Event to publish
+            event: Event to publish (Event object or dict)
         """
         if channel in self.channels:
             for callback in self.channels[channel]:
                 try:
-                    callback(event)
+                    # Handle both sync and async callbacks
+                    result = callback(event)
+                    if asyncio.iscoroutine(result):
+                        # If callback is async, we need to schedule it
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(result)
+                            else:
+                                asyncio.run(result)
+                        except RuntimeError:
+                            # No event loop, try to run it
+                            asyncio.run(result)
                 except Exception as e:
                     logger.error(f"Error in callback: {e}", exc_info=True)
         
-        logger.debug(f"Published event {event.event_id} to {channel}")
+        event_id = event.event_id if hasattr(event, 'event_id') else event.get('event_id', 'unknown')
+        logger.debug(f"Published event {event_id} to {channel}")
     
     def subscribe(self, channel: str, callback: Callable[[Event], None]):
         """
@@ -203,6 +217,7 @@ class Channels:
     AGENT_RESULTS = "agent.results"
     WORKFLOW_EVENTS = "workflow.events"
     TASK_EVENTS = "task.events"
+    TEST_RESULTS = "test.results"
     AUDIT_LOGS = "audit.logs"
     APPROVALS = "approvals"
     ARTIFACTS = "artifacts"
