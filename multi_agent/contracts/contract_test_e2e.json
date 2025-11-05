@@ -1,0 +1,14 @@
+{
+  "contract_id": "contract_test_e2e",
+  "name": "RSI Strategy Contract",
+  "interfaces": {
+    "entry_fn": {
+      "name": "find_entries",
+      "signature": "def find_entries(df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]"
+    },
+    "exit_fn": {
+      "name": "find_exits",
+      "signature": "def find_exits(position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]"
+    }
+  }
+}

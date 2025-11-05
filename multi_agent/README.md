@@ -48,11 +48,13 @@ Artifact Store (git)
 - Defines function signatures and data models
 - Outputs: `contract.json`, test templates, architecture docs
 
-### 4. **Coder Agent** (`agents/coder_agent/`)
-- Implements code following contracts
-- Generates production-ready modules
-- Passes linting, type checking, and security scans
-- Outputs: source code, unit tests, build reports
+### 4. **Coder Agent** (`agents/coder_agent/`) ✅
+- Implements code following contracts from Architect
+- Generates production-ready modules using strategy template
+- Validates with static analysis (mypy, flake8)
+- Uses Gemini Thinking Mode (temperature=0.1 for deterministic code)
+- Outputs: source code (`Backtest/codes/`), validation reports
+- Status: Complete with 17 unit tests passing
 
 ### 5. **Tester Agent** (`agents/tester_agent/`)
 - Runs tests in isolated sandbox environment
@@ -248,7 +250,7 @@ python -m contracts.validate_contract path/to/test_report.json --type test_repor
 - [x] Implement Fixture Manager (deterministic test data)
 - [x] Add branch todo logic to Orchestrator (depth limiting, auto-fix mode)
 - [x] Integration tests for Phase 3 components (all passing)
-- [ ] Implement Coder agent (code generation) - **NEXT**
+- [x] Implement Coder agent (code generation with static analysis) - **COMPLETE**
 - [ ] Implement Tester agent (sandbox execution) - **NEXT**
 
 ### Phase 4: Integration

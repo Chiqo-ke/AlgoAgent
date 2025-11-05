@@ -1,0 +1,91 @@
+{
+  "contract_id": "contract_rsi_ai_generated",
+  "name": "RSI Momentum Strategy",
+  "description": "Trading strategy that enters on oversold RSI(<30) and exits on overbought RSI(>70)",
+  "interfaces": {
+    "fetch_data": {
+      "name": "fetch_data",
+      "signature": "def fetch_data(symbol: str, start: str, end: str) -> pd.DataFrame",
+      "description": "Fetch OHLCV data for backtesting"
+    },
+    "prepare_indicators": {
+      "name": "prepare_indicators",
+      "signature": "def prepare_indicators(df: pd.DataFrame) -> Dict[str, pd.Series]",
+      "description": "Calculate RSI(14) indicator",
+      "requirements": [
+        "Calculate 14-period RSI using standard formula",
+        "Return dict with key 'rsi' containing the RSI series"
+      ]
+    },
+    "find_entries": {
+      "name": "find_entries",
+      "signature": "def find_entries(df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]",
+      "description": "Find entry signals when RSI crosses below 30",
+      "logic": [
+        "Entry when RSI < 30 (oversold)",
+        "Return list of dicts with: timestamp, price, reason"
+      ]
+    },
+    "find_exits": {
+      "name": "find_exits",
+      "signature": "def find_exits(position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]",
+      "description": "Find exit signals when RSI crosses above 70",
+      "logic": [
+        "Exit when RSI > 70 (overbought)",
+        "Return list of dicts with: timestamp, price, reason"
+      ]
+    },
+    "run_smoke": {
+      "name": "run_smoke",
+      "signature": "def run_smoke(symbol: str = 'AAPL')",
+      "description": "Run smoke test and save entry artifacts"
+    }
+  },
+  "expected_columns": [
+    "Date",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume"
+  ],
+  "indicator_contracts": {
+    "rsi": {
+      "period": 14,
+      "overbought": 70,
+      "oversold": 30
+    }
+  },
+  "example_inputs": {
+    "close_prices": [
+      145.0,
+      148.0,
+      152.0,
+      149.0,
+      151.0,
+      147.0,
+      143.0,
+      140.0
+    ],
+    "expected_rsi_below_30_signal": true
+  },
+  "example_outputs": {
+    "entry_example": {
+      "timestamp": "2024-01-08",
+      "price": 140.0,
+      "reason": "RSI crossed below 30 (oversold)"
+    },
+    "exit_example": {
+      "timestamp": "2024-02-15",
+      "price": 155.0,
+      "reason": "RSI crossed above 70 (overbought)"
+    }
+  },
+  "test_skeletons": [
+    "Test that RSI is calculated correctly",
+    "Test that entries trigger when RSI < 30",
+    "Test that exits trigger when RSI > 70",
+    "Test that no entries when RSI >= 30",
+    "Test that no exits when RSI <= 70"
+  ]
+}
