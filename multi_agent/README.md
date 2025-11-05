@@ -70,6 +70,78 @@ Artifact Store (git)
 - Event correlation and tracing
 - Channels: `agent.requests`, `agent.results`, `workflow.events`, `audit.logs`
 
+### 8. **Debugger Agent** (`agents/debugger_agent/`)
+- Handles branch todos for automated debugging
+- Analyzes test failures and routes to appropriate agents
+- Collects diagnostics (tracebacks, logs, sample inputs)
+- Outputs: failure reports, fix suggestions, escalation notices
+
+## Planner Design: Predictable & Testable Workflows
+
+The Planner follows a **4-step template** for all strategy workflows, ensuring predictable, independently testable milestones:
+
+### The 4 Primary Steps
+
+1. **Data Loading Integration** (`coder`)
+   - Implement `fetch_and_prepare_data()` with OHLCV output
+   - Tests: DataFrame structure, column validation, fixture comparison
+   - Artifacts: `backtesting_adapter.py`, `fixtures/sample_*.csv`
+
+2. **Indicator & Candle Pattern Loading** (`architect` → `coder`)
+   - Define interfaces for indicators (RSI, MACD, etc.) and pattern detectors
+   - Tests: Deterministic value checks against known fixtures
+   - Artifacts: `indicator_contract.json`, `indicators/*.py`
+
+3. **Entry Conditions Setup** (`coder`)
+   - Implement `should_enter(bar, indicators, position)` logic
+   - Tests: Scenarios that should/shouldn't trigger entry
+   - Artifacts: `ai_strategy_entry.py`
+
+4. **Exit Conditions Setup** (`coder`)
+   - Implement `should_exit(bar, indicators, position)` with stop/target logic
+   - Tests: Stop loss, take profit, signal exit scenarios
+   - Artifacts: `ai_strategy_exit.py`
+
+### Branch Todos: Automated Debugging
+
+When a step **fails its acceptance tests**, the Orchestrator automatically creates a **branch todo**:
+
+```json
+{
+  "id": "t2_branch_01",
+  "parent_id": "t2_indicators",
+  "title": "Debug indicator failures (RSI mismatch)",
+  "agent_role": "debugger",
+  "branch_reason": "test_failure",
+  "debug_instructions": "RSI calculation incorrect. Expected 28.5, got 32.1.",
+  "is_temporary": true,
+  "max_debug_attempts": 3
+}
+```
+
+**Branch Lifecycle:**
+1. Primary todo fails → Orchestrator captures diagnostics
+2. Failure routed to appropriate agent (`coder`, `architect`, `tester`)
+3. Branch todo created and dispatched
+4. Branch resolves → Parent tests re-run
+5. If passes → workflow continues; if fails → escalate or retry
+
+**Failure Routing:**
+- `implementation_bug` → `coder` (logic errors, wrong calculations)
+- `spec_mismatch` → `architect` (interface violations)
+- `timeout` → `tester` (infinite loops, slow tests)
+- `flaky_test` → `tester` (non-deterministic tests need fixtures)
+
+### Key Benefits
+
+✅ **Predictability** - Every workflow follows the same 4-step pattern  
+✅ **Testability** - Each step has machine-executable acceptance tests  
+✅ **Debuggability** - Failures auto-create targeted debug branches  
+✅ **Reproducibility** - Deterministic fixtures eliminate flakiness  
+✅ **Traceability** - Branch todos create clear audit trail  
+
+See [PLANNER_DESIGN.md](PLANNER_DESIGN.md) for complete specification.
+
 ## Data Formats
 
 ### TodoList Schema (`contracts/todo_schema.json`)

@@ -134,6 +134,58 @@
           "items": {
             "type": "string"
           }
+        },
+        "parent_id": {
+          "type": "string",
+          "pattern": "^task_[a-zA-Z0-9_-]+$",
+          "description": "ID of parent task (for branch todos only)"
+        },
+        "branch_reason": {
+          "type": "string",
+          "enum": [
+            "test_failure",
+            "spec_mismatch",
+            "timeout",
+            "implementation_bug",
+            "missing_dependency",
+            "flaky_test"
+          ],
+          "description": "Reason for branch creation (for branch todos only)"
+        },
+        "debug_instructions": {
+          "type": "string",
+          "description": "Diagnostic summary, tracebacks, and debugging hints (for branch todos)"
+        },
+        "is_temporary": {
+          "type": "boolean",
+          "default": false,
+          "description": "True for branch todos, false for primary tasks"
+        },
+        "max_debug_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Maximum retry attempts for branch todos"
+        },
+        "failure_routing": {
+          "type": "object",
+          "description": "Map failure types to target agents for auto-debugging",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["architect", "coder", "tester", "debugger", "optimizer"]
+          },
+          "example": {
+            "implementation_bug": "coder",
+            "spec_mismatch": "architect",
+            "timeout": "tester",
+            "missing_dependency": "coder",
+            "flaky_test": "tester"
+          }
+        },
+        "fixture_path": {
+          "type": "string",
+          "description": "Path to deterministic test fixture for reproducible tests"
         }
       }
     },
@@ -220,6 +272,10 @@
         "env": {
           "type": "object",
           "description": "Environment variables"
+        },
+        "fixture": {
+          "type": "string",
+          "description": "Path to deterministic test fixture for reproducible results"
         }
       }
     }

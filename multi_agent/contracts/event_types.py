@@ -21,6 +21,7 @@ class EventType(Enum):
     WORKFLOW_RESUMED = "workflow.resumed"
     WORKFLOW_COMPLETED = "workflow.completed"
     WORKFLOW_FAILED = "workflow.failed"
+    WORKFLOW_BRANCH_CREATED = "workflow.branch.created"
     
     # Task events
     TASK_CREATED = "task.created"

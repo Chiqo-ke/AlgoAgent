@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "scenarios": [
+    {
+      "name": "stop_loss_exit",
+      "description": "Should exit when price drops 5%",
+      "bar": {
+        "date": "2024-01-20",
+        "close": 95.0,
+        "high": 96.0,
+        "low": 94.0
+      },
+      "indicators": {
+        "rsi": 45
+      },
+      "position": {
+        "entry_price": 100.0,
+        "shares": 10,
+        "entry_date": "2024-01-15"
+      },
+      "expected_exit": true,
+      "exit_reason": "stop_loss"
+    },
+    {
+      "name": "take_profit_exit",
+      "description": "Should exit when price gains 10%",
+      "bar": {
+        "date": "2024-01-25",
+        "close": 110.0,
+        "high": 111.0,
+        "low": 109.0
+      },
+      "indicators": {
+        "rsi": 75
+      },
+      "position": {
+        "entry_price": 100.0,
+        "shares": 10,
+        "entry_date": "2024-01-15"
+      },
+      "expected_exit": true,
+      "exit_reason": "take_profit"
+    },
+    {
+      "name": "no_exit_holding",
+      "description": "Should hold position when conditions not met",
+      "bar": {
+        "date": "2024-01-18",
+        "close": 102.0,
+        "high": 103.0,
+        "low": 101.0
+      },
+      "indicators": {
+        "rsi": 55
+      },
+      "position": {
+        "entry_price": 100.0,
+        "shares": 10,
+        "entry_date": "2024-01-15"
+      },
+      "expected_exit": false,
+      "exit_reason": null
+    }
+  ]
+}

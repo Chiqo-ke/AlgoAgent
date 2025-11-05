@@ -200,7 +200,26 @@ Per-task retry with exponential backoff:
 }
 ```
 
-### 5. Correlation Tracking
+### 5. Branch Todos (Automated Debugging)
+When a task fails, orchestrator automatically creates debug branches:
+```json
+{
+  "id": "t2_branch_01",
+  "parent_id": "t2_indicators",
+  "title": "Debug RSI calculation mismatch",
+  "agent_role": "debugger",
+  "branch_reason": "test_failure",
+  "is_temporary": true,
+  "max_debug_attempts": 3
+}
+```
+
+**Failure Routing:**
+- `implementation_bug` → `coder`
+- `spec_mismatch` → `architect`
+- `timeout` → `tester`
+
+### 6. Correlation Tracking
 Every request gets a correlation ID:
 ```
 Request → corr_abc123
@@ -210,6 +229,55 @@ Request → corr_abc123
 ```
 
 Trace entire workflow through logs/events.
+
+---
+
+## 🎯 The 4 Primary Steps (Planner Template)
+
+Every strategy workflow follows these atomic milestones:
+
+### 1. Data Loading Integration
+```python
+def fetch_and_prepare_data(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """Returns DataFrame with ['Date', 'Open', 'High', 'Low', 'Close', 'Volume']"""
+```
+**Tests:** `pytest tests/test_adapter.py::test_fetch`  
+**Artifacts:** `backtesting_adapter.py`, `fixtures/sample_*.csv`
+
+### 2. Indicator & Candle Patterns
+```python
+def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    """RSI calculation with NaN handling"""
+
+def is_engulfing(candle_window: pd.DataFrame) -> bool:
+    """Bullish engulfing pattern detector"""
+```
+**Tests:** `pytest tests/test_indicators.py::test_rsi_values`  
+**Artifacts:** `indicator_contract.json`, `indicators/rsi.py`
+
+### 3. Entry Conditions
+```python
+def should_enter(bar: pd.Series, indicators: dict, position: Optional[dict]) -> bool:
+    """Returns True if buy conditions met"""
+```
+**Tests:** `pytest tests/test_entry.py::test_entry_true_false`  
+**Artifacts:** `ai_strategy_entry.py`
+
+### 4. Exit Conditions
+```python
+def should_exit(bar: pd.Series, indicators: dict, position: dict) -> bool:
+    """Returns True if sell/stop/target conditions met"""
+```
+**Tests:** `pytest tests/test_exit.py::test_stop_loss`  
+**Artifacts:** `ai_strategy_exit.py`
+
+**Why 4 Steps?**
+- ✅ Atomic and independently testable
+- ✅ Clear failure boundaries
+- ✅ Deterministic with fixtures
+- ✅ Easy to debug and reason about
+
+See [PLANNER_DESIGN.md](PLANNER_DESIGN.md) for complete details.
 
 ---
 
@@ -321,6 +389,53 @@ class MyCustomAgent:
 # Usage:
 architect = MyCustomAgent(agent_role="architect")
 # Now listens for architect tasks and processes them
+```
+
+### Branch Todo Workflow Example
+
+```python
+# Orchestrator handles failures automatically
+class OrchestratorWithBranching:
+    def execute_task(self, task):
+        """Execute task with automatic branch creation on failure."""
+        result = self.run_acceptance_tests(task)
+        
+        if result.status == "failed":
+            # Create debug branch
+            branch = self.create_branch_todo(
+                parent_id=task.id,
+                failure_type=self.analyze_failure(result),
+                diagnostics=result.diagnostics
+            )
+            
+            # Block downstream tasks
+            self.block_dependent_tasks(task.id)
+            
+            # Dispatch branch
+            self.dispatch_task(branch)
+            
+            # Wait for branch resolution
+            branch_result = self.wait_for_branch(branch.id)
+            
+            if branch_result.status == "passed":
+                # Re-run parent tests
+                parent_result = self.run_acceptance_tests(task)
+                
+                if parent_result.status == "passed":
+                    self.mark_completed(task.id)
+                    self.unblock_dependent_tasks(task.id)
+
+# Example failure routing
+def analyze_failure(self, test_report):
+    """Route failure to appropriate agent."""
+    if "ImportError" in test_report.error:
+        return "coder", "missing_dependency"
+    elif "AssertionError: signature" in test_report.error:
+        return "architect", "spec_mismatch"
+    elif test_report.duration > test_report.timeout:
+        return "tester", "timeout"
+    else:
+        return "coder", "implementation_bug"
 ```
 
 ---

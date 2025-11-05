@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
 
-from contracts.event_types import Event, EventType, Channels
-from contracts.message_bus import get_message_bus
+from contracts.event_types import Event, EventType
+from contracts.message_bus import get_message_bus, Channels
 from contracts.validate_contract import SchemaValidator
 
 
@@ -67,6 +67,11 @@ class WorkflowState:
     completed_at: Optional[str] = None
     tasks: Dict[str, TaskState] = field(default_factory=dict)
     error: Optional[str] = None
+    branch_todos: List[Dict[str, Any]] = field(default_factory=list)  # Track branch todos
+    current_branch_depth: int = 0  # Track nesting level
+    auto_fix_mode: bool = True  # Auto-fix enabled by default
+    max_branch_depth: int = 2  # Max nesting depth
+    max_debug_attempts: int = 3  # Max attempts per branch
 
 
 class MinimalOrchestrator:
@@ -161,6 +166,12 @@ class MinimalOrchestrator:
                 status=TaskStatus.PENDING
             )
         
+        # Extract metadata settings
+        metadata = todo_list.get('metadata', {})
+        auto_fix_mode = metadata.get('auto_fix_mode', True)
+        max_branch_depth = metadata.get('max_branch_depth', 2)
+        max_debug_attempts = metadata.get('max_debug_attempts', 3)
+        
         # Create workflow state
         workflow = WorkflowState(
             workflow_id=workflow_id,
@@ -168,7 +179,10 @@ class MinimalOrchestrator:
             correlation_id=correlation_id,
             status=WorkflowStatus.CREATED,
             created_at=datetime.utcnow().isoformat(),
-            tasks=tasks
+            tasks=tasks,
+            auto_fix_mode=auto_fix_mode,
+            max_branch_depth=max_branch_depth,
+            max_debug_attempts=max_debug_attempts
         )
         
         self.workflows[workflow_id] = workflow
@@ -427,6 +441,196 @@ class MinimalOrchestrator:
             "tasks": task_summary,
             "error": workflow.error
         }
+    
+    def _handle_test_failure(
+        self,
+        workflow_id: str,
+        task_id: str,
+        task_item: Dict[str, Any],
+        test_result: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Handle test failure by creating branch todo if auto-fix is enabled.
+        
+        Args:
+            workflow_id: Workflow ID
+            task_id: Failed task ID
+            task_item: Task definition
+            test_result: Test result with failure info
+            
+        Returns:
+            Branch todo dict if created, None otherwise
+        """
+        workflow = self.workflows[workflow_id]
+        
+        # Check if auto-fix is enabled
+        if not workflow.auto_fix_mode:
+            logger.info(f"Auto-fix disabled for workflow {workflow_id}, skipping branch todo creation")
+            return None
+        
+        # Check branch depth limit
+        if workflow.current_branch_depth >= workflow.max_branch_depth:
+            logger.warning(f"Max branch depth {workflow.max_branch_depth} reached, cannot create branch todo")
+            return None
+        
+        # Check if we have failure_routing config
+        failure_routing = task_item.get('failure_routing')
+        if not failure_routing:
+            logger.warning(f"No failure_routing config for task {task_id}, cannot route failure")
+            return None
+        
+        # Classify failure (this is simplified - in production, debugger agent would do this)
+        failure_type = self._classify_failure(test_result)
+        target_agent = failure_routing.get(failure_type, "coder")  # Default to coder
+        
+        # Create branch todo
+        branch_id = f"{task_id}_branch_{len(workflow.branch_todos) + 1}"
+        
+        debug_instructions = f"""
+=== AUTOMATIC DEBUG BRANCH ===
+Parent Task: {task_id}
+Failure Type: {failure_type}
+Target Agent: {target_agent}
+
+=== TEST FAILURE ===
+{test_result.get('error_message', 'Unknown error')}
+
+=== TRACEBACK ===
+{test_result.get('traceback', 'No traceback available')}
+
+=== INSTRUCTIONS ===
+Fix the {failure_type} and ensure all tests pass.
+"""
+        
+        branch_todo = {
+            "id": branch_id,
+            "title": f"Fix {failure_type} in {task_id}",
+            "description": f"Automated debug branch for {failure_type}",
+            "agent_role": target_agent,
+            "priority": 1,
+            "dependencies": [],
+            "parent_id": task_id,
+            "branch_reason": failure_type,
+            "debug_instructions": debug_instructions.strip(),
+            "is_temporary": True,
+            "max_debug_attempts": workflow.max_debug_attempts,
+            "max_retries": workflow.max_debug_attempts,
+            "timeout_seconds": task_item.get('timeout_seconds', 600),
+            "acceptance_criteria": task_item.get('acceptance_criteria', {}),
+            "fixture_path": task_item.get('fixture_path'),
+            "failure_routing": failure_routing,
+            "output_artifacts": task_item.get('output_artifacts', [])
+        }
+        
+        # Add to workflow branch list
+        workflow.branch_todos.append(branch_todo)
+        workflow.current_branch_depth += 1
+        
+        # Add task state for branch
+        workflow.tasks[branch_id] = TaskState(
+            task_id=branch_id,
+            status=TaskStatus.PENDING
+        )
+        
+        logger.info(f"Created branch todo {branch_id} → {target_agent} (depth: {workflow.current_branch_depth})")
+        
+        # Publish event
+        if self.use_message_bus:
+            event = Event.create(
+                event_type=EventType.WORKFLOW_BRANCH_CREATED,
+                correlation_id=workflow.correlation_id,
+                workflow_id=workflow_id,
+                data={
+                    "branch_todo": branch_todo,
+                    "parent_task_id": task_id,
+                    "branch_reason": failure_type,
+                    "current_depth": workflow.current_branch_depth
+                },
+                source="orchestrator"
+            )
+            self.message_bus.publish(Channels.WORKFLOW_EVENTS, event)
+        
+        return branch_todo
+    
+    def _classify_failure(self, test_result: Dict[str, Any]) -> str:
+        """
+        Simple failure classification (in production, debugger agent does this).
+        
+        Returns:
+            Failure type from branch_reason enum
+        """
+        error_msg = test_result.get('error_message', '').lower()
+        traceback = test_result.get('traceback', '').lower()
+        
+        if test_result.get('timed_out') or 'timeout' in error_msg:
+            return 'timeout'
+        elif 'modulenotfounderror' in traceback or 'importerror' in traceback:
+            return 'missing_dependency'
+        elif 'assertionerror' in traceback or 'assert' in error_msg:
+            return 'spec_mismatch'
+        else:
+            return 'implementation_bug'
+    
+    def _execute_branch_todo(
+        self,
+        workflow_id: str,
+        branch_todo: Dict[str, Any]
+    ) -> bool:
+        """
+        Execute a branch todo (debug fix attempt).
+        
+        Args:
+            workflow_id: Workflow ID
+            branch_todo: Branch todo definition
+            
+        Returns:
+            True if fixed, False otherwise
+        """
+        branch_id = branch_todo['id']
+        logger.info(f"Executing branch todo: {branch_id}")
+        
+        workflow = self.workflows[workflow_id]
+        task_state = workflow.tasks[branch_id]
+        
+        # Execute with retries
+        max_attempts = branch_todo.get('max_debug_attempts', 3)
+        
+        for attempt in range(max_attempts):
+            task_state.retry_count = attempt + 1
+            task_state.status = TaskStatus.RUNNING
+            task_state.started_at = datetime.utcnow().isoformat()
+            
+            logger.info(f"Branch attempt {attempt + 1}/{max_attempts} for {branch_id}")
+            
+            # In production: dispatch to target agent via message bus
+            # For now: simulate
+            success = False  # Placeholder - would get from agent
+            
+            if success:
+                task_state.status = TaskStatus.COMPLETED
+                task_state.completed_at = datetime.utcnow().isoformat()
+                workflow.current_branch_depth -= 1
+                logger.info(f"Branch todo completed: {branch_id}")
+                return True
+        
+        # All attempts failed
+        task_state.status = TaskStatus.FAILED
+        task_state.error = f"Branch fix failed after {max_attempts} attempts"
+        workflow.current_branch_depth -= 1
+        logger.error(f"Branch todo failed: {branch_id}")
+        return False
+    
+    def _cleanup_branch_todos(self, workflow_id: str):
+        """Clean up temporary branch todos after workflow completion."""
+        workflow = self.workflows[workflow_id]
+        
+        completed_branches = [
+            branch for branch in workflow.branch_todos
+            if workflow.tasks[branch['id']].status == TaskStatus.COMPLETED
+        ]
+        
+        logger.info(f"Cleaning up {len(completed_branches)} completed branch todos")
+        # In production: move to archive, update artifacts
     
     def _handle_agent_result(self, event: Event):
         """Handle agent result events from message bus."""

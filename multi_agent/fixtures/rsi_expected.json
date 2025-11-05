@@ -1,0 +1,60 @@
+{
+  "indicator": "rsi",
+  "version": "1.0",
+  "test_cases": [
+    {
+      "name": "test_rsi_oversold",
+      "description": "RSI should calculate correctly for oversold condition",
+      "input": {
+        "prices": [
+          44,
+          44.34,
+          44.09,
+          43.61,
+          44.33,
+          44.83,
+          45.1,
+          45.42,
+          45.84,
+          46.08,
+          45.89,
+          46.03,
+          45.61,
+          46.28,
+          46.28
+        ],
+        "period": 14
+      },
+      "expected": {
+        "rsi": 70.46
+      }
+    },
+    {
+      "name": "test_rsi_overbought",
+      "description": "RSI should calculate correctly for overbought condition",
+      "input": {
+        "prices": [
+          46.28,
+          46.0,
+          46.03,
+          46.41,
+          46.22,
+          45.64,
+          46.21,
+          46.25,
+          45.71,
+          46.45,
+          45.78,
+          45.35,
+          44.03,
+          44.18,
+          44.22
+        ],
+        "period": 14
+      },
+      "expected": {
+        "rsi": 37.3
+      }
+    }
+  ]
+}
