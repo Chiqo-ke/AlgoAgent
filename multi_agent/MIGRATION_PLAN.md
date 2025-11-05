@@ -4,9 +4,10 @@
 
 This document outlines the step-by-step migration from the existing single-agent `AIDeveloperAgent` to the new multi-agent Planner→Orchestrator→Agents architecture with minimal disruption to current operations.
 
-**Timeline**: 6-8 weeks  
+**Timeline**: 6-8 weeks (Phase 1-3 complete: ~3 weeks)  
 **Risk Level**: Medium (phased rollout mitigates risk)  
-**Rollback Strategy**: Feature flag + dual operation mode
+**Rollback Strategy**: Feature flag + dual operation mode  
+**Status**: Phase 1-3 complete, Phase 4-5 in progress
 
 ---
 
@@ -69,9 +70,11 @@ Artifact Store (Git)
 
 ### Tasks
 - [x] Create `multi_agent/` directory structure
-- [x] Create schemas and validation tools
-- [x] Set up message bus (Redis)
-- [ ] Configure environment variables
+- [x] Create schemas and validation tools (with branch todo support)
+- [x] Set up message bus (Redis + InMemory with async callbacks)
+- [x] Configure .venv virtual environment
+- [x] Set up test fixtures and integration tests
+- [ ] Configure environment variables (GOOGLE_API_KEY)
 - [ ] Set up development database (PostgreSQL)
 - [ ] Configure Docker for sandbox
 - [ ] Set up Git repository for artifacts
@@ -105,26 +108,32 @@ docker ps
 
 **What's Done**:
 - ✅ Planner converts NL → TodoList JSON
-- ✅ Schema validation
-- ✅ Dependency checking
-- ✅ CLI tool
+- ✅ 4-step template validation (Data Loading → Indicators → Entry → Exit)
+- ✅ Schema validation with branch todo fields
+- ✅ Dependency checking and cycle detection
+- ✅ CLI tool with Gemini integration
+- ✅ Fixture hint generation
 
 **Validation**:
 ```powershell
-python -m planner_service.planner "Create momentum strategy" -o plans
-# ✅ Generates valid TodoList
+.\.venv\Scripts\python.exe -m planner_service.planner "Create momentum strategy" -o plans
+# ✅ Generates valid TodoList with 4-step template
 ```
 
 ### 1.2: Orchestrator Service ✅ COMPLETE
 
-**Status**: Minimal implementation complete
+**Status**: Core implementation complete with branch logic
 
 **What's Done**:
-- ✅ Workflow state management
+- ✅ Workflow state management (with branch tracking)
 - ✅ Task scheduling (topological sort)
-- ✅ Retry logic
+- ✅ Retry logic with exponential backoff
 - ✅ Dependency resolution
 - ✅ Message bus integration
+- ✅ Branch todo management (_handle_test_failure, _classify_failure, _execute_branch_todo)
+- ✅ Auto-fix mode configuration
+- ✅ Branch depth limiting (max 2 levels)
+- ✅ Failure routing to target agents
 
 **What's Missing** (for production):
 - [ ] Database persistence (currently in-memory)
@@ -153,11 +162,21 @@ def execute_task(workflow_id, task_id):
 
 ## Phase 2: Agent Implementation (Week 3-5)
 
-### 2.1: Architect Agent (Week 3)
+### 2.1: Architect Agent ✅ COMPLETE (Week 3)
 
 **Goal**: Generate contracts and test skeletons
 
-**Implementation Plan**:
+**Status**: Implemented and tested
+
+**What's Done**:
+- ✅ Created `agents/architect_agent/architect.py`
+- ✅ Contract generation using Gemini API
+- ✅ Fixture integration (generates OHLCV, indicator, scenario fixtures)
+- ✅ Test skeleton creation
+- ✅ Contract validation against schema
+- ✅ Message bus integration (subscribes to AGENT_REQUESTS, publishes to AGENT_RESULTS)
+
+**Implementation Overview**:
 ```python
 # agents/architect_agent/architect.py
 
@@ -297,11 +316,22 @@ class CoderAgent:
 }
 ```
 
-### 2.3: Debugger Agent (Week 4.5)
+### 2.3: Debugger Agent ✅ COMPLETE (Week 4.5)
 
 **Goal**: Handle branch todos for automated debugging and failure analysis
 
-**Implementation Plan**:
+**Status**: Implemented and tested
+
+**What's Done**:
+- ✅ Created `agents/debugger_agent/debugger.py`
+- ✅ Failure classification (5 types: implementation_bug, spec_mismatch, timeout, missing_dependency, flaky_test)
+- ✅ Branch todo creation with debug instructions
+- ✅ Failure routing logic to target agents
+- ✅ Message bus integration (subscribes to TEST_RESULTS channel)
+- ✅ Event publishing (WORKFLOW_BRANCH_CREATED)
+- ✅ Integration tests (all passing)
+
+**Implementation Overview**:
 ```python
 # agents/debugger_agent/debugger.py
 
@@ -406,7 +436,24 @@ pytest tests/integration/test_debugger_branch_handling.py
 
 ---
 
-### 2.4: Tester Agent (Week 5)
+### 2.4: Fixture Manager ✅ COMPLETE (Week 4.5)
+
+**Goal**: Generate deterministic test data
+
+**Status**: Implemented and tested
+
+**What's Done**:
+- ✅ Created `fixture_manager/fixture_manager.py`
+- ✅ OHLCV fixture generation (seeded CSV with numpy)
+- ✅ Indicator expected values (JSON test cases)
+- ✅ Entry/exit scenario fixtures
+- ✅ CLI tool with symbol and bar count options
+- ✅ Fixture loading and validation
+- ✅ Integration tests (all passing)
+
+---
+
+### 2.5: Tester Agent (Week 5) ⏳ TODO
 
 **Goal**: Run tests in isolated sandbox
 
@@ -512,11 +559,23 @@ class SandboxRunner:
 
 ---
 
-## Phase 2.5: Branch Todo Implementation (Week 5.5)
+## Phase 2.5: Branch Todo Implementation ✅ COMPLETE (Week 5.5)
 
-### 2.5.1: Orchestrator Branch Logic
+### 2.5.1: Orchestrator Branch Logic ✅ COMPLETE
 
-**Add branch todo creation and management**:
+**Status**: Implemented and tested
+
+**What's Done**:
+- ✅ WorkflowState extended with branch tracking fields
+- ✅ `_handle_test_failure()` method implemented
+- ✅ `_classify_failure()` method implemented
+- ✅ `_execute_branch_todo()` method implemented
+- ✅ Branch depth limiting (max 2 levels)
+- ✅ Auto-fix mode configuration from metadata
+- ✅ Failure routing from todo metadata
+- ✅ Integration tests (all passing)
+
+**Branch Management**:
 
 ```python
 # orchestrator_service/orchestrator.py
@@ -597,9 +656,21 @@ class BranchTodoManager:
             return "implementation_bug"
 ```
 
-### 2.5.2: Update Todo Schema
+### 2.5.2: Update Todo Schema ✅ COMPLETE
 
-**Add branch fields to `todo_schema.json`**:
+**Status**: Schema updated with branch fields
+
+**What's Done**:
+- ✅ Added 7 new fields to `todo_schema.json`:
+  - `parent_id`: Parent task ID for branch todos
+  - `branch_reason`: Enum (test_failure, spec_mismatch, timeout, implementation_bug, missing_dependency, flaky_test)
+  - `debug_instructions`: Diagnostic summary
+  - `is_temporary`: Boolean flag for branch todos
+  - `max_debug_attempts`: Retry limit (1-10, default 3)
+  - `failure_routing`: Map failure types → target agents
+  - `fixture_path`: Path to deterministic test fixtures
+
+**Updated Schema**:
 
 ```json
 {
@@ -646,9 +717,20 @@ class BranchTodoManager:
 }
 ```
 
-### 2.5.3: Testing Strategy
+### 2.5.3: Testing Strategy ✅ COMPLETE
 
-**Unit Tests**:
+**Status**: Integration tests complete
+
+**Test File**: `phase3_integration_test.py`
+
+**Test Coverage**:
+1. ✅ Fixture Manager - OHLCV generation, loading, validation
+2. ✅ Debugger Agent - Failure analysis, branch todo creation, event publishing
+3. ✅ Orchestrator Branch Logic - Branch depth tracking, auto-fix mode, failure routing
+
+**Results**: All 3 tests passing
+
+**Example Test**:
 ```python
 def test_branch_creation_on_failure():
     """Verify branch todo created when task fails."""
