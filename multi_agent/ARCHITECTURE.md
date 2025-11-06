@@ -509,26 +509,463 @@ The Coder Agent MUST:
 
 ## K — Tester Agent Requirements
 
+### K.1 — Responsibilities
+
 The Tester Agent MUST:
 
-1. **Build sandbox** - Ensure Docker image is ready
-2. **Run tests** - Execute pytest in isolated container
-3. **Static checks** - Run mypy, flake8, bandit
-4. **Determinism check** - Run backtest twice with same seed
-5. **Validate schema** - Ensure test_report.json matches schema
-6. **Collect artifacts** - Save all outputs to artifacts/
-7. **Publish events** - Send TEST_PASSED/TEST_FAILED to message bus
-8. **Create branch todos** - On failure, trigger Debugger agent
+1. **Listen for tasks** - Subscribe to `Channels.AGENT_REQUESTS` for `agent_role: tester`
+2. **Pull artifacts** - Retrieve generated strategy file + tests + fixtures from workspace
+3. **Build sandbox** - Ensure Docker image `algo-sandbox` is available
+4. **Run tests in isolation**:
+   - Unit tests (pytest)
+   - Integration backtest (SimBroker via adapter)
+   - Static checks: mypy --strict, flake8, bandit
+   - Determinism check (run backtest twice with same seed)
+   - Validate test_report.json against schema
+5. **Collect artifacts** - Save test_report.json, trades.csv, equity_curve.csv, events.log, summary.json
+6. **Publish events** - TEST_PASSED (with metrics) or TEST_FAILED (with failures)
+7. **Create branch todos** - On failure, publish to Debugger with minimal repro
+8. **Enforce security** - Network disabled, resource limits, timeouts
+9. **Report metrics** - Duration, trade count, win rate, drawdown to orchestrator
 
-**Test execution:**
+### K.2 — Message Bus Events
+
+**Incoming (AGENT_REQUESTS):**
+```json
+{
+  "event_type": "task.dispatched",
+  "correlation_id": "corr_abc123",
+  "workflow_id": "wf_456",
+  "task_id": "task_tester_001",
+  "task": {
+    "agent_role": "tester",
+    "artifact_path": "Backtest/codes/rsi_strategy.py",
+    "tests": ["tests/test_rsi_strategy.py"],
+    "fixtures": ["tests/fixtures/bar_simple_long.csv"],
+    "timeout_seconds": 300,
+    "rng_seed": 42
+  },
+  "source": "orchestrator"
+}
+```
+
+**Outgoing (TEST_RESULTS):**
+
+**TEST_STARTED:**
+```json
+{
+  "event_type": "test.started",
+  "correlation_id": "corr_abc123",
+  "task_id": "task_tester_001",
+  "source": "tester"
+}
+```
+
+**TEST_PASSED:**
+```json
+{
+  "event_type": "test.passed",
+  "correlation_id": "corr_abc123",
+  "workflow_id": "wf_456",
+  "task_id": "task_tester_001",
+  "metrics": {
+    "total_trades": 12,
+    "net_pnl": 120.5,
+    "win_rate": 0.58,
+    "max_drawdown": 45.2
+  },
+  "artifacts": {
+    "test_report": "artifacts/corr_abc123/task_tester_001/test_report.json",
+    "trades": "artifacts/corr_abc123/task_tester_001/trades.csv",
+    "equity_curve": "artifacts/corr_abc123/task_tester_001/equity_curve.csv",
+    "events_log": "artifacts/corr_abc123/task_tester_001/events.log"
+  },
+  "duration_seconds": 34.2,
+  "source": "tester"
+}
+```
+
+**TEST_FAILED:**
+```json
+{
+  "event_type": "test.failed",
+  "correlation_id": "corr_abc123",
+  "workflow_id": "wf_456",
+  "task_id": "task_tester_001",
+  "failures": [
+    {
+      "check": "pytest",
+      "test_name": "test_find_entries",
+      "message": "AssertionError: order_request was None",
+      "trace": "tests/test_rsi_strategy.py:42..."
+    },
+    {
+      "check": "determinism",
+      "message": "PnL mismatch: run1=120.5, run2=118.3"
+    }
+  ],
+  "artifacts": {
+    "logs": "artifacts/corr_abc123/task_tester_001/events.log",
+    "traceback": "artifacts/corr_abc123/task_tester_001/traceback.txt"
+  },
+  "source": "tester"
+}
+```
+
+**BRANCH_TODO_REQUEST (to DEBUGGER_REQUESTS):**
+```json
+{
+  "event_type": "workflow.branch_created",
+  "correlation_id": "corr_abc123",
+  "workflow_id": "wf_456",
+  "origin_task": "task_tester_001",
+  "branch_todo": {
+    "title": "Debug failing tests: test_rsi_strategy.py",
+    "description": "pytest failed on test_find_entries with fixture bar_simple_long.csv. RSI calculation may be incorrect.",
+    "attachments": [
+      "artifacts/traceback.txt",
+      "tests/fixtures/bar_simple_long.csv"
+    ],
+    "target_agent": "debugger",
+    "failure_classification": "test_failures",
+    "reproduce_command": "docker run --rm -v $(pwd):/app algo-sandbox pytest tests/test_rsi_strategy.py::test_find_entries"
+  },
+  "source": "tester"
+}
+```
+
+### K.3 — Module Layout
+
+```
+agents/tester_agent/
+├── tester.py              # Main agent daemon (subscribes to message bus)
+├── sandbox_client.py      # Docker wrapper to call run_in_sandbox.py
+├── test_runner.py         # Local logic: pytest/mypy/flake8/determinism
+├── validators.py          # test_report.json schema validator
+├── config.py              # Timeouts, resource limits, security settings
+└── __init__.py
+```
+
+**Shared infrastructure:**
+```
+sandbox_runner/
+├── Dockerfile.sandbox     # Python 3.11 + pytest/mypy/flake8/bandit
+├── run_in_sandbox.py      # Helper script for test execution
+└── requirements.txt       # Sandbox dependencies
+
+tools/
+├── validate_test_report.py   # JSON schema validation
+├── check_determinism.py      # Run backtest twice and compare
+└── secret_scanner.py         # Scan for hardcoded secrets (optional)
+```
+
+### K.4 — Runtime Algorithm
+
+**Core flow (pseudocode):**
+
+```python
+class TesterAgent:
+    def __init__(self):
+        self.bus = get_message_bus()
+        self.bus.subscribe(Channels.AGENT_REQUESTS, self.handle_task)
+    
+    def handle_task(self, event):
+        task = event.data.get('task', event.data)
+        if task.get('agent_role') != 'tester':
+            return
+        
+        corr_id = event.correlation_id
+        wf_id = event.workflow_id
+        task_id = event.task_id
+        
+        # 1. Publish TEST_STARTED
+        self.publish_test_started(corr_id, wf_id, task_id)
+        
+        # 2. Prepare workspace
+        workspace = Path('artifacts') / corr_id / task_id
+        workspace.mkdir(parents=True, exist_ok=True)
+        
+        # 3. Build sandbox parameters
+        sandbox_params = {
+            "strategy": task['task']['artifact_path'],
+            "tests": task['task'].get('tests', []),
+            "fixtures": task['task'].get('fixtures', []),
+            "out_dir": str(workspace),
+            "timeout": task['task'].get('timeout_seconds', 300),
+            "seed": task['task'].get('rng_seed', 42)
+        }
+        
+        # 4. Run tests in Docker sandbox
+        try:
+            result = run_tests_in_sandbox(sandbox_params)
+        except Exception as e:
+            self.publish_test_failed(corr_id, wf_id, task_id, 
+                [{"check": "sandbox", "message": str(e)}], workspace)
+            self.request_debug_branch(corr_id, wf_id, task_id, 
+                workspace, "sandbox_error", str(e))
+            return
+        
+        # 5. Check exit code
+        if result['exit_code'] != 0:
+            self.publish_test_failed(corr_id, wf_id, task_id, 
+                result.get('failures', []), workspace)
+            self.request_debug_branch(corr_id, wf_id, task_id, 
+                workspace, "test_failures", result['failures'])
+            return
+        
+        # 6. Validate test_report.json schema
+        report_path = Path(result['artifacts']['test_report'])
+        try:
+            validate_test_report_schema(report_path)
+        except Exception as e:
+            self.publish_test_failed(corr_id, wf_id, task_id,
+                [{"check": "report_schema", "message": str(e)}], workspace)
+            self.request_debug_branch(corr_id, wf_id, task_id,
+                workspace, "schema_invalid", str(e))
+            return
+        
+        # 7. Determinism check
+        det_ok, det_info = self.run_determinism_check(sandbox_params, workspace)
+        if not det_ok:
+            self.publish_test_failed(corr_id, wf_id, task_id,
+                [{"check": "determinism", "message": det_info}], workspace)
+            self.request_debug_branch(corr_id, wf_id, task_id,
+                workspace, "non_deterministic", det_info)
+            return
+        
+        # 8. Success: publish TEST_PASSED
+        metrics = self.extract_metrics(report_path)
+        self.publish_test_passed(corr_id, wf_id, task_id, 
+            metrics, result['artifacts'], result['duration_seconds'])
+    
+    def run_determinism_check(self, params, workspace):
+        """Run backtest twice with same seed and compare."""
+        # Implementation: run_tests_in_sandbox() twice, compare:
+        # - total_net_pnl (exact match or tolerance)
+        # - total_trades (exact match)
+        # - equity_curve hash or row-by-row comparison
+        pass
+    
+    def extract_metrics(self, report_path):
+        """Parse test_report.json and extract key metrics."""
+        with open(report_path) as f:
+            report = json.load(f)
+        return {
+            "total_trades": report.get('summary', {}).get('total_trades', 0),
+            "net_pnl": report.get('summary', {}).get('net_pnl', 0),
+            "win_rate": report.get('summary', {}).get('win_rate', 0),
+            "max_drawdown": report.get('summary', {}).get('max_drawdown', 0)
+        }
+```
+
+### K.5 — Sandbox Execution (run_tests_in_sandbox)
+
+**Contract for `sandbox_client.run_tests_in_sandbox(params)`:**
+
+**Input:**
+```python
+{
+    "strategy": "Backtest/codes/rsi_strategy.py",
+    "tests": ["tests/test_rsi_strategy.py"],
+    "fixtures": ["tests/fixtures/bar_simple_long.csv"],
+    "out_dir": "artifacts/corr_abc123/task_tester_001",
+    "timeout": 300,
+    "seed": 42
+}
+```
+
+**Actions:**
+1. Build or reuse `algo-sandbox` Docker image
+2. Run container with:
+   - `--network=none` (network isolation)
+   - `--memory=1g` (memory limit)
+   - `--cpus=0.5` (CPU limit)
+   - `-v $(pwd):/app` (mount workspace)
+   - Timeout enforcement (kill after `timeout` seconds)
+3. Execute inside container:
+   ```bash
+   # Unit tests
+   pytest {tests} --json-report --json-report-file={out_dir}/test_report.json
+   
+   # Static checks
+   mypy --strict {strategy}
+   flake8 {strategy}
+   bandit -r {strategy}
+   
+   # Determinism check
+   python tools/check_determinism.py --strategy {strategy} \
+     --data {fixtures[0]} --runs 2 --seed {seed}
+   ```
+
+**Output:**
+```python
+{
+    "exit_code": 0,
+    "duration_seconds": 34.2,
+    "artifacts": {
+        "test_report": "artifacts/.../test_report.json",
+        "trades": "artifacts/.../trades.csv",
+        "equity_curve": "artifacts/.../equity_curve.csv",
+        "events_log": "artifacts/.../events.log"
+    },
+    "failures": []  # List of failure dicts if exit_code != 0
+}
+```
+
+**Docker command example:**
 ```bash
-# Build
-docker build -t algo-sandbox -f sandbox_runner/Dockerfile.sandbox .
-
-# Test
 docker run --rm --network=none --memory=1g --cpus=0.5 \
   -v $(pwd):/app -w /app algo-sandbox \
-  bash -c "pytest tests/test_strategy.py --json-report --json-report-file=/app/artifacts/test_report.json && python -m tools.validate_test_report /app/artifacts/test_report.json"
+  bash -lc "pytest tests/test_rsi_strategy.py --json-report \
+    --json-report-file=/app/artifacts/test_report.json && \
+    mypy --strict Backtest/codes/rsi_strategy.py && \
+    flake8 Backtest/codes/rsi_strategy.py"
+```
+
+### K.6 — Determinism Check Implementation
+
+**Tool:** `tools/check_determinism.py`
+
+**Purpose:** Run backtest twice with same seed and verify identical results
+
+**Algorithm:**
+1. Load strategy and fixtures
+2. Run backtest #1 with seed=42 → save report1.json
+3. Run backtest #2 with seed=42 → save report2.json
+4. Compare critical metrics:
+   - `total_net_pnl` (tolerance: 0.01)
+   - `total_trades` (exact match)
+   - `equity_curve` (row-by-row comparison or hash)
+   - `trade_sequence` (order IDs, timestamps)
+5. Return success/failure + diff details
+
+**Usage:**
+```bash
+python tools/check_determinism.py \
+  --strategy Backtest/codes/rsi_strategy.py \
+  --data tests/fixtures/bar_simple_long.csv \
+  --runs 2 \
+  --seed 42 \
+  --out artifacts/det_check.json
+```
+
+**Output (det_check.json):**
+```json
+{
+  "deterministic": true,
+  "run1_pnl": 120.50,
+  "run2_pnl": 120.50,
+  "run1_trades": 12,
+  "run2_trades": 12,
+  "differences": []
+}
+```
+
+### K.7 — Failure Classification & Branch Todo Rules
+
+**Failure categories:**
+- `test_failures` - pytest failing tests (include trace)
+- `static_failures` - mypy/flake8 errors
+- `non_deterministic` - determinism mismatch
+- `sandbox_error` - Docker/build/runtime errors
+- `artifact_schema` - Invalid test_report.json
+
+**For each failure, Tester MUST:**
+1. Classify failure type
+2. Extract minimal repro (failing test + fixture)
+3. Publish `workflow.branch_created` to `DEBUGGER_REQUESTS` with:
+   - Failing test names + traceback
+   - Minimal fixture (e.g., bar_simple_long.csv)
+   - Exact reproduce command (Docker command)
+   - Correlation ID + task ID
+4. Include suggested fix (if obvious, e.g., "Check RSI calculation")
+
+### K.8 — Security & Resource Policies
+
+**Enforced by Tester:**
+- ✅ Network isolation: `--network=none` (no external API calls)
+- ✅ Memory limit: `--memory=1g`
+- ✅ CPU limit: `--cpus=0.5`
+- ✅ Timeout: Kill container after `timeout_seconds` (default 300s)
+- ✅ Non-root user: Container runs as `USER runner`
+- ✅ Ephemeral containers: `docker run --rm` (no state preserved)
+- ✅ Secret scanning: Check artifacts/events.log for API keys (regex patterns)
+- ✅ Pre-built image: No network install during test run (dependencies pre-installed)
+
+**Image build (one-time):**
+```bash
+docker build -t algo-sandbox -f sandbox_runner/Dockerfile.sandbox .
+```
+
+### K.9 — Success Criteria (TEST_PASSED)
+
+All conditions MUST be met:
+- ✅ pytest exit code = 0 (all tests pass)
+- ✅ test_report.json exists and validates against schema
+- ✅ mypy --strict exit code = 0 (type checking)
+- ✅ flake8 exit code = 0 (style)
+- ✅ bandit exit code = 0 (security, or warnings only)
+- ✅ Determinism check passes (PnL/trades match exactly or within tolerance)
+- ✅ Required artifacts present: trades.csv, equity_curve.csv, events.log, summary.json
+- ✅ Artifacts non-empty: trades.csv has expected columns (time, symbol, action, pnl)
+- ✅ No secrets detected in logs (API keys, tokens)
+- ✅ Correlation ID present in all log entries
+
+**If any check fails:** Publish TEST_FAILED with failure details
+
+### K.10 — Integration with Orchestrator/Debugger/Artifact Store
+
+**Orchestrator:**
+- Waits for `test.passed` on `Channels.TEST_RESULTS` before artifact commit
+- Validates correlation_id matches dispatched task
+- Proceeds to artifact store commit on success
+- Triggers rollback on `test.failed` if in production pipeline
+
+**Debugger:**
+- Subscribes to `Channels.DEBUGGER_REQUESTS`
+- Receives `workflow.branch_created` with failure details
+- Analyzes failure and creates branch todo for Coder/Architect
+- Routes based on `failure_classification`
+
+**Artifact Store:**
+- Receives artifact paths from `test.passed` event
+- Creates git branch: `ai/generated/<workflow_id>/<task_id>`
+- Commits: strategy.py, test_report.json, trades.csv, equity_curve.csv, events.log
+- Tags commit with `correlation_id`, `prompt_hash`, `agent_version`
+- Pushes to remote for review/deployment
+
+### K.11 — Example Commands (Manual Testing)
+
+**Build sandbox image:**
+```bash
+docker build -t algo-sandbox -f sandbox_runner/Dockerfile.sandbox .
+```
+
+**Run tests manually:**
+```bash
+docker run --rm --network=none --memory=1g --cpus=0.5 \
+  -v $(pwd):/app -w /app algo-sandbox \
+  bash -lc "pytest tests/test_rsi_strategy.py --json-report \
+    --json-report-file=artifacts/test_report.json"
+```
+
+**Run determinism check:**
+```bash
+python tools/check_determinism.py \
+  --strategy Backtest/codes/rsi_strategy.py \
+  --data tests/fixtures/bar_simple_long.csv \
+  --runs 2 --seed 42 --out artifacts/det_check.json
+```
+
+**Validate test report schema:**
+```bash
+python tools/validate_test_report.py artifacts/test_report.json
+```
+
+**Run Tester Agent locally:**
+```bash
+python -m agents.tester_agent.tester
+# (subscribes to message bus, processes tester tasks)
 ```
 
 ---
