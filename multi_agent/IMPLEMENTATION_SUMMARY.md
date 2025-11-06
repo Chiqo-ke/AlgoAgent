@@ -1,14 +1,95 @@
 # Multi-Agent System Implementation Summary
 
-## 🎯 Status: Phase 1-3 Complete
+## 🎯 Status: Phase 1-4 In Progress
 
-**Date**: November 5, 2025  
+**Date**: November 7, 2025  
 **System**: Multi-Agent AI Developer Architecture  
-**Current Phase**: Core agents and automated debugging implemented, ready for Coder/Tester agents
+**Current Phase**: Adapter-driven architecture implemented, Tester agent next
 
 ---
 
 ## ✅ Completed Components
+
+### 0. Adapter-Driven Architecture (Phase 3.5) ✅ **NEW**
+
+**Status**: PRODUCTION READY - Core infrastructure complete
+
+#### Overview
+Complete adapter-driven, single-file strategy architecture enabling seamless transition between backtesting and live trading with Docker sandbox isolation.
+
+#### Created Files:
+- ✅ `adapters/base_adapter.py` - Universal broker interface protocol (~200 lines)
+- ✅ `adapters/simbroker_adapter.py` - SimBroker → BaseAdapter wrapper (~200 lines)
+- ✅ `adapters/live_adapter.py` - Live trading adapter with safety measures (~150 lines)
+- ✅ `Backtest/codes/strategy_template_adapter_driven.py` - Single-file template (~350 lines, 12KB)
+- ✅ `sandbox_runner/Dockerfile.sandbox` - Docker sandbox image
+- ✅ `sandbox_runner/run_in_sandbox.py` - Test execution helper (~300 lines)
+- ✅ `tools/validate_test_report.py` - Test report validator (~150 lines)
+- ✅ `tools/check_determinism.py` - Determinism checker (~200 lines)
+- ✅ `ARCHITECTURE.md` - Complete specification (~800 lines, 14KB)
+
+#### Key Features:
+**Adapter Pattern:**
+- Universal `BaseAdapter` protocol with 8 core methods
+- Strategy code never imports broker APIs directly
+- Swap adapters to switch between backtest and live
+- Event logging built-in for debugging
+
+**Single-File Strategies:**
+- Same .py file works for backtest AND live trading
+- `run_backtest(adapter, df, cfg)` - Adapter-driven backtest loop
+- `run_live(adapter, cfg)` - Live trading (requires manual approval)
+- CLI with `--mode backtest|live`
+- No environment-specific code paths
+
+**Docker Sandbox:**
+- Network isolation (`--network=none`)
+- Resource limits (1GB memory, 0.5 CPU)
+- Non-root user for security
+- Timeout enforcement (300s default)
+- pytest/mypy/flake8/bandit installed
+
+**Validation Tools:**
+- Schema validation for test_report.json
+- Determinism checks (same seed → same results)
+- Metric assertions with tolerance
+- Artifact validation
+
+**Security Measures:**
+- Manual approval tokens required for live trading
+- Dry-run mode for testing live logic
+- Credentials from secrets manager only
+- No CI/CD execution of live trades
+- Audit trail for all actions
+
+#### Integration Status:
+- ✅ Coder Agent updated to use adapter-driven template
+- ✅ Strategy template enforces BaseAdapter usage
+- ⏳ Tester Agent integration pending (Phase 4)
+
+**Usage Example:**
+```python
+from adapters.simbroker_adapter import SimBrokerAdapter
+from Backtest.simbroker import SimBroker, SimConfig
+
+# Create adapter
+config = SimConfig(starting_balance=10000.0, leverage=100.0)
+broker = SimBroker(config)
+adapter = SimBrokerAdapter(broker)
+
+# Strategy uses only adapter interface
+adapter.place_order({'action': 'BUY', 'symbol': 'EURUSD', 'volume': 1.0})
+events = adapter.step_bar(bar_data)
+report = adapter.generate_report()
+```
+
+**Testing Results:**
+- ✅ BaseAdapter interface validation passed
+- ✅ Strategy template validation passed (12KB, all components present)
+- ✅ Coder Agent integration verified
+- ✅ No direct broker imports in business logic
+
+---
 
 ### 1. Contracts & Schemas (Phase 1) ✅
 
@@ -191,14 +272,107 @@ AlgoAgent/multi_agent/
 │   ├── coder_agent/                ✅ Code implementation
 │   └── tester_agent/               ⏳ Test execution (Phase 4)
 │
+├── simulator/                       ✅ SimBroker backtesting module
+│   ├── __init__.py                 ✅ Package exports
+│   ├── simbroker.py                ✅ Core implementation (1,300+ lines)
+│   ├── configs.yaml                ✅ 10 configuration presets
+│   ├── README.md                   ✅ Complete API documentation
+│   ├── INTEGRATION_GUIDE.md        ✅ Agent integration handbook
+│   ├── IMPLEMENTATION_CHECKLIST.md ✅ Coder workflow guide
+│   ├── DELIVERY_SUMMARY.md         ✅ Project overview
+│   ├── INDEX.md                    ✅ Documentation navigation
+│   ├── STRUCTURE.md                ✅ Directory tree
+│   └── TEST_REPORT.md              ✅ Comprehensive test results
+│
 ├── fixture_manager/                 ✅ Deterministic test data
 ├── sandbox_runner/                  ⏳ Docker isolation (Phase 4)
 ├── artifacts/                       ⏳ Git storage (Phase 4)
 └── tests/                           ✅ Unit & integration tests
     ├── unit/                       ✅ test_coder_agent.py (17 tests)
     ├── integration/                ✅ phase3_integration_test.py (3 tests)
+    ├── test_simbroker.py           ✅ 30 SimBroker tests (100% pass rate)
+    ├── fixtures/                   ✅ 4 CSV test fixtures
+    │   ├── bar_simple_long.csv     ✅ 4-bar basic test
+    │   ├── bar_extended.csv        ✅ 10-bar integration test
+    │   ├── bar_intrabar_both_hits.csv ✅ SL/TP resolution test
+    │   └── tick_simple.csv         ✅ Tick data (future use)
     └── e2e/                        ⏳ End-to-end workflow tests
 ```
+
+---
+
+## 🎯 SimBroker Module (November 2025) ✅
+
+**Status:** PRODUCTION READY - 100% Test Pass Rate (30/30 tests)
+
+### Overview
+SimBroker is a portable, testable trading simulator providing MT5-compatible order execution for backtesting strategies. It offers deterministic execution with configurable slippage, commission, and intrabar SL/TP resolution.
+
+### Key Features
+- ✅ **MT5-Compatible Interface:** Drop-in replacement for live trading simulation
+- ✅ **Deterministic Intrabar Logic:** Reproducible SL/TP resolution (Long: O→H→L→C, Short: O→L→H→C)
+- ✅ **Flexible Cost Models:** Fixed/random/percent slippage, per-lot/percent/flat commission
+- ✅ **Margin Management:** Leverage calculation, margin calls, stop-out levels
+- ✅ **Event System:** Complete order lifecycle tracking
+- ✅ **Reporting:** CSV trades, equity curve, JSON metrics
+
+### Architecture
+```
+Strategy → Order Request (MT5 format) → SimBroker
+         → Order Engine → Risk & Accounting → Events/Logs
+         → Position Manager → SL/TP Resolution → Fills
+         → Reporter → Trades CSV + Equity Curve + Metrics
+```
+
+### Integration with Multi-Agent System
+- **Coder Agent:** Uses SimBroker as backtesting tool for generated strategies
+- **Tester Agent:** Validates strategy performance using SimBroker reports
+- **Debugger Agent:** Analyzes SimBroker event logs for debugging failures
+
+### Test Results
+- **30 Unit Tests:** 100% pass rate
+- **4 Test Fixtures:** All valid and deterministic
+- **Real-World Example:** RSI strategy runs successfully
+- **Performance:** ~0.33s per test, scales to 1000+ bars
+
+### Documentation
+- `simulator/README.md` - Complete API reference (1,200+ lines)
+- `simulator/INTEGRATION_GUIDE.md` - Agent patterns (600+ lines)
+- `simulator/IMPLEMENTATION_CHECKLIST.md` - Workflow guide (400+ lines)
+- `simulator/TEST_REPORT.md` - Comprehensive test results
+- `simulator/INDEX.md` - Documentation navigation
+
+### Example Usage
+```python
+from multi_agent.simulator import SimBroker, SimConfig
+
+# Initialize broker
+config = SimConfig(starting_balance=10000.0, leverage=100.0)
+broker = SimBroker(config)
+
+# Place order (MT5 format)
+response = broker.place_order({
+    'symbol': 'EURUSD',
+    'volume': 0.1,
+    'type': 'ORDER_TYPE_BUY',
+    'sl': 1.0950,
+    'tp': 1.1050
+})
+
+# Process market data
+for _, bar in df.iterrows():
+    events = broker.step_bar(bar)
+
+# Generate report
+report = broker.generate_report()
+paths = broker.save_report(Path('backtest_results/'))
+```
+
+### Next Steps for Integration
+1. ✅ Add SimBroker import to Coder Agent templates
+2. ✅ Update strategy generation prompts to include SimBroker usage
+3. ⏳ Add SimBroker report parsing to Tester Agent
+4. ⏳ Integrate event logs with Debugger Agent
 
 ---
 

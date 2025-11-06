@@ -318,57 +318,62 @@ Output only Python code, no explanations."""
         return prompt
     
     def _get_strategy_template(self) -> str:
-        """Get standard strategy template."""
-        return '''
-```python
-from typing import Dict, List
+        """
+        Get adapter-driven strategy template.
+        
+        Returns template that works for BOTH backtest and live trading.
+        Uses BaseAdapter interface - never imports SimBroker directly.
+        """
+        # Load template from file
+        template_path = self.workspace_root / 'Backtest' / 'codes' / 'strategy_template_adapter_driven.py'
+        
+        if template_path.exists():
+            with open(template_path) as f:
+                return f.read()
+        
+        # Fallback: inline template
+        return '''from typing import Dict, List, Optional
 import pandas as pd
+from adapters.base_adapter import BaseAdapter
 
-def fetch_data(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """Fetch OHLCV data using Data module."""
-    from Data.data_fetcher import DataFetcher
-    df = DataFetcher().fetch_historical_data(symbol, start, end)
-    return df
-
-def prepare_indicators(df: pd.DataFrame) -> Dict[str, pd.Series]:
-    """Compute indicators as specified in contract."""
-    indicators = {}
-    # Implementation here
-    return indicators
-
-def find_entries(df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]:
-    """
-    Find entry signals.
+class Strategy:
+    """Adapter-driven strategy - works for backtest AND live."""
     
-    Returns list of entries: [{"timestamp": t, "price": p, "reason": "..."}]
-    """
-    entries = []
-    for i in range(len(df)):
+    def __init__(self, cfg: Dict):
+        self.cfg = cfg
+    
+    def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """Compute indicators (vectorized)."""
+        indicators = {}
         # Implementation here
-        pass
-    return entries
-
-def find_exits(position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series]) -> List[Dict]:
-    """
-    Find exit signals for open position.
+        return indicators
     
-    Returns list of exits: [{"timestamp": t, "price": p, "reason": "..."}]
-    """
-    exits = []
-    # Implementation here
-    return exits
+    def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+        """Return order_request dict or None."""
+        # Implementation here
+        return None
+    
+    def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+        """Return close_request dict or None."""
+        return None
 
-def run_smoke(symbol="AAPL"):
-    """Run smoke test and save artifacts."""
-    df = fetch_data(symbol, "2020-01-01", "2020-06-01")
-    indicators = prepare_indicators(df)
-    entries = find_entries(df, indicators)
-    print(f"entries found: {len(entries)}")
-    pd.DataFrame(entries).to_csv("artifacts/entries.csv", index=False)
-
-if __name__ == "__main__":
-    run_smoke()
-```
+def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
+    """Run backtest using adapter."""
+    strategy = Strategy(cfg)
+    indicators = strategy.prepare_indicators(df)
+    
+    for idx in range(len(df)):
+        bar = df.iloc[idx]
+        order_request = strategy.find_entries(df, indicators, idx)
+        if order_request:
+            adapter.place_order(order_request)
+        adapter.step_bar(bar)
+        for position in adapter.get_positions():
+            exit_request = strategy.find_exits(position, df, indicators, idx)
+            if exit_request:
+                adapter.close_position(exit_request['position_id'])
+    
+    return adapter.generate_report()
 '''
     
     def _generate_with_gemini(self, prompt: str) -> str:

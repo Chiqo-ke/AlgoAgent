@@ -1,0 +1,48 @@
+# Dockerfile for isolated strategy testing sandbox
+# 
+# Security features:
+# - Non-root user
+# - Network isolation (--network=none)
+# - Resource limits (set via docker run)
+# - Minimal dependencies
+
+FROM python:3.11-slim
+
+LABEL description="AlgoAgent strategy testing sandbox"
+LABEL security="network-isolated, non-root user, resource-limited"
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Add testing dependencies
+RUN pip install --no-cache-dir \
+    pytest==7.4.3 \
+    pytest-json-report==1.5.0 \
+    pytest-timeout==2.2.0 \
+    mypy==1.7.1 \
+    flake8==6.1.0 \
+    bandit==1.7.5
+
+# Create non-root user for security
+RUN useradd -m -u 1000 runner && \
+    chown -R runner:runner /app
+
+# Switch to non-root user
+USER runner
+
+# Set Python to unbuffered mode for real-time logs
+ENV PYTHONUNBUFFERED=1
+
+# Default entrypoint
+ENTRYPOINT ["python", "-u"]

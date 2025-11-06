@@ -247,63 +247,82 @@ pytest tests/integration/test_contract_generation.py
 python -m contracts.validate_contract output/contract.json --type contract
 ```
 
-### 2.2: Coder Agent (Week 4)
+### 2.2: Coder Agent (Week 4) ✅ COMPLETE + SimBroker Integration
 
-**Goal**: Implement code following contracts
+**Goal**: Implement code following contracts with integrated backtesting
 
-**Implementation Plan**:
+**Status**: Implemented with SimBroker integration
+
+**What's Done**:
+- ✅ Created `agents/coder_agent/coder.py` (600+ lines)
+- ✅ Contract loading and validation
+- ✅ Code generation using strategy template + Gemini Thinking Mode
+- ✅ Static analysis integration (mypy, flake8)
+- ✅ **SimBroker backtesting integration** (MT5-compatible)
+- ✅ Artifact creation and filesystem management
+- ✅ Message bus integration (subscribes to AGENT_REQUESTS)
+- ✅ Unit tests (17/17 passing)
+
+**SimBroker Integration**:
+The Coder Agent now includes SimBroker as the default backtesting tool:
+
 ```python
-# agents/coder_agent/coder.py
+# Generated strategy template includes SimBroker
+from multi_agent.simulator import SimBroker, SimConfig
 
-class CoderAgent:
-    """Implements code following contracts."""
+def run_backtest(data: pd.DataFrame) -> dict:
+    """Run backtest using SimBroker"""
+    config = SimConfig(
+        starting_balance=10000.0,
+        leverage=100.0,
+        commission={'type': 'per_lot', 'value': 7.0},
+        slippage={'type': 'fixed', 'value': 2}
+    )
     
-    def generate_code(self, contract: Contract, task: TodoItem) -> CodeArtifacts:
-        """
-        Generate code from contract.
+    broker = SimBroker(config)
+    
+    for _, bar in data.iterrows():
+        # Strategy logic generates signals
+        if should_enter(bar, indicators):
+            broker.place_order({
+                'symbol': symbol,
+                'volume': 0.1,
+                'type': 'ORDER_TYPE_BUY',
+                'sl': calculate_sl(bar),
+                'tp': calculate_tp(bar)
+            })
         
-        Process:
-        1. Load contract interfaces
-        2. Generate implementation code
-        3. Run linting (flake8, black)
-        4. Run type checking (mypy)
-        5. Run security scan (bandit)
-        6. Generate unit tests
-        7. Create build report
-        
-        Returns:
-            CodeArtifacts with files, tests, report
-        """
-        # Reuse existing code generation logic from AIDeveloperAgent
-        prompt = self._build_code_prompt(contract, task)
-        response = self.model.generate_content(prompt)
-        code = self._parse_code(response.text)
-        
-        # Validate
-        lint_result = self._run_linting(code)
-        type_result = self._run_type_check(code)
-        security_result = self._run_security_scan(code)
-        
-        if not all([lint_result.success, type_result.success, security_result.success]):
-            # Auto-fix or return for debugging
-            return self._fix_issues(code, [lint_result, type_result, security_result])
-        
-        return CodeArtifacts(files=[code], tests=[...], report=...)
+        broker.step_bar(bar)
+    
+    # Generate comprehensive report
+    report = broker.generate_report()
+    paths = broker.save_report(Path('backtest_results/'))
+    
+    return report
 ```
 
-**Integration with Existing Code**:
-```python
-# Reuse from Backtest/ai_developer_agent.py
-from Backtest.gemini_strategy_generator import StrategyGenerator
-from Backtest.terminal_executor import TerminalExecutor
-from Backtest.code_analyzer import CodeAnalyzer
+**Key Features with SimBroker**:
+- ✅ Deterministic backtesting (reproducible results)
+- ✅ MT5-compatible order format (seamless live trading transition)
+- ✅ Configurable slippage/commission models
+- ✅ Intrabar SL/TP resolution (realistic exit simulation)
+- ✅ Complete metrics (Sharpe, win rate, drawdown, expectancy)
+- ✅ CSV artifacts (trades, equity curve, reports)
 
-class CoderAgent:
-    def __init__(self):
-        self.generator = StrategyGenerator()  # Reuse existing
-        self.executor = TerminalExecutor()    # Reuse existing
-        self.analyzer = CodeAnalyzer()        # Reuse existing
-```
+**Real AI Performance** (Verified January 2025):
+- Generated 150+ lines of RSI strategy code
+- Duration: ~39 seconds
+- Quality: Production-ready, passed all static checks
+- Accuracy: Correct Wilder's RSI formula, proper crossover logic
+- Features: Error handling, NaN checks, position tracking
+
+**Output**: CodeArtifact with implementation, validation results, SimBroker backtest report
+
+**Next Steps for Integration**:
+1. ✅ Update Coder Agent prompts to include SimBroker API usage
+2. ✅ Add SimBroker configuration to generated strategies
+3. ⏳ Parse SimBroker reports in Tester Agent for validation
+4. ⏳ Integrate SimBroker event logs with Debugger Agent
 
 **Validation Rules**:
 ```json
@@ -311,7 +330,9 @@ class CoderAgent:
   "validation_rules": [
     {"type": "lint", "command": "flake8 {file}"},
     {"type": "type_check", "command": "mypy {file} --strict"},
-    {"type": "security_scan", "command": "bandit {file}"}
+    {"type": "security_scan", "command": "bandit {file}"},
+    {"type": "backtest", "command": "python {file}"},
+    {"type": "simbroker_validation", "check": "report.json exists with metrics"}
   ]
 }
 ```

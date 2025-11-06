@@ -1,0 +1,133 @@
+{
+  "metrics": {
+    "total_trades": 0,
+    "win_rate": 0.0,
+    "avg_profit": 0.0,
+    "avg_loss": 0.0,
+    "expectancy": 0.0,
+    "total_net_pnl": 0.0,
+    "total_gross_pnl": 0.0,
+    "total_commissions": 0.0,
+    "return_pct": 0.0,
+    "max_drawdown": 0.0,
+    "sharpe_ratio": 0.0
+  },
+  "trades": [],
+  "equity_curve": [
+    {
+      "time": "2024-01-01 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-02 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-03 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-04 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-05 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-06 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-07 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-08 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-09 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    },
+    {
+      "time": "2024-01-10 00:00:00",
+      "balance": 10000.0,
+      "equity": 10000.0,
+      "floating_pnl": 0,
+      "used_margin": 0,
+      "free_margin": 10000.0,
+      "margin_level": Infinity
+    }
+  ],
+  "config": {
+    "starting_balance": 10000.0,
+    "leverage": 100.0,
+    "lot_size": 100000.0,
+    "point": 0.0001,
+    "slippage": {
+      "type": "fixed",
+      "value": 2
+    },
+    "commission": {
+      "type": "per_lot",
+      "value": 1.5
+    },
+    "margin_call_level": 50.0,
+    "stop_out_level": 20.0,
+    "allow_hedging": false,
+    "rng_seed": 12345,
+    "debug": true
+  },
+  "summary": {
+    "starting_balance": 10000.0,
+    "ending_balance": 10000.0,
+    "total_return": 0.0,
+    "return_pct": 0.0
+  }
+}
