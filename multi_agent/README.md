@@ -29,6 +29,14 @@ Artifact Store (git)
 
 ## Components
 
+### 0. **Adapter Layer** (`adapters/`) ✅ **NEW**
+- Universal broker interface for backtest and live trading
+- `BaseAdapter` protocol with 8 core methods (place_order, step_bar, get_positions, etc.)
+- `SimBrokerAdapter` - Wraps SimBroker for backtesting
+- `LiveAdapter` - Live trading with manual approval gates
+- Security: No direct broker imports in strategy code
+- Benefits: Same code for backtest and live, easy to test and swap brokers
+
 ### 1. **Planner Service** (`planner_service/`)
 - Converts natural language to structured `TodoList` JSON
 - Decomposes requests into independent milestones
@@ -50,17 +58,20 @@ Artifact Store (git)
 
 ### 4. **Coder Agent** (`agents/coder_agent/`) ✅
 - Implements code following contracts from Architect
-- Generates production-ready modules using strategy template
+- **Generates adapter-driven strategies** (single-file, works for backtest + live)
+- Uses strategy_template_adapter_driven.py template
 - Validates with static analysis (mypy, flake8)
 - Uses Gemini Thinking Mode (temperature=0.1 for deterministic code)
 - Outputs: source code (`Backtest/codes/`), validation reports
-- Status: Complete with 17 unit tests passing
+- Status: Complete with 17 unit tests passing + adapter integration
 
-### 5. **Tester Agent** (`agents/tester_agent/`)
-- Runs tests in isolated sandbox environment
-- Executes acceptance criteria commands
-- Produces structured test reports
-- Outputs: `test_report.json`, coverage, logs
+### 5. **Tester Agent** (`agents/tester_agent/`) ⏳
+- Runs tests in Docker sandbox (network isolated)
+- Executes pytest, mypy, flake8, bandit
+- Validates test_report.json against schema
+- Checks determinism (same seed → same results)
+- Outputs: `test_report.json`, coverage, artifacts
+- Status: Infrastructure ready, implementation pending
 
 ### 6. **Artifact Store** (`artifacts/`)
 - Git-based versioning for code artifacts
@@ -84,6 +95,21 @@ Artifact Store (git)
 - OHLCV fixtures (seeded CSV), indicator expected values (JSON)
 - Entry/exit scenario fixtures
 - CLI tool: `python fixture_manager.py --symbol AAPL --bars 30`
+
+### 10. **Docker Sandbox** (`sandbox_runner/`) ✅ **NEW**
+- Isolated test execution environment
+- `Dockerfile.sandbox` - Python 3.11-slim with testing tools
+- `run_in_sandbox.py` - SandboxRunner class
+- Network isolation (`--network=none`)
+- Resource limits (1GB memory, 0.5 CPU)
+- Timeout enforcement (300s default)
+- Returns: test_report, artifacts, logs
+
+### 11. **Validation Tools** (`tools/`) ✅ **NEW**
+- `validate_test_report.py` - Schema validation for test reports
+- `check_determinism.py` - Verifies reproducible backtests
+- CLI tools with exit codes for CI/CD integration
+- JSON schema validation, metric comparisons with tolerance
 
 ## Planner Design: Predictable & Testable Workflows
 
