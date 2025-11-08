@@ -250,7 +250,12 @@ class CoderAgent:
         
         # Generate code
         if self.model:
-            code = self._generate_with_gemini(prompt)
+            try:
+                code = self._generate_with_gemini(prompt)
+            except Exception as e:
+                print(f"[CoderAgent] Gemini failed: {e}")
+                print(f"[CoderAgent] ⚠️  Falling back to template mode...")
+                code = self._generate_from_template(task, contract)
         else:
             # Fallback: use template only
             code = self._generate_from_template(task, contract)
@@ -328,7 +333,7 @@ Output only Python code, no explanations."""
         template_path = self.workspace_root / 'Backtest' / 'codes' / 'strategy_template_adapter_driven.py'
         
         if template_path.exists():
-            with open(template_path) as f:
+            with open(template_path, encoding='utf-8') as f:
                 return f.read()
         
         # Fallback: inline template
@@ -406,8 +411,12 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
         # Use basic template substitution
         template = self._get_strategy_template()
         
-        # Extract code from template
-        code = template.split('```python')[1].split('```')[0].strip()
+        # Extract code from template if it's in markdown format
+        if '```python' in template:
+            code = template.split('```python')[1].split('```')[0].strip()
+        else:
+            # Template is plain Python code
+            code = template
         
         # Add contract reference
         contract_id = contract['contract_id']
@@ -439,7 +448,7 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
                 continue
             
             # Write to temp file for validation
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
                 f.write(artifact.content)
                 temp_path = f.name
             
@@ -495,7 +504,7 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Write content
-            with open(file_path, 'w') as f:
+            with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(artifact.content)
             
             print(f"[CoderAgent] Saved artifact: {artifact.file_path}")
