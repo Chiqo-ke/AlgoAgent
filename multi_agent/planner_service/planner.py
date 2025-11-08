@@ -315,18 +315,20 @@ class PlannerService:
         workflow_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Create a todo list from a user request.
+        Generate a validated TodoList workflow dictionary from a natural-language request.
         
-        Args:
-            user_request: Natural language description of the work
-            repo_context: Repository metadata
-            workflow_name: Optional workflow name
-            
+        Builds a prompt (using optional repository context and an auto-generated name if none provided), asks the configured model to produce a TodoList JSON, and iteratively refines the model output up to three attempts by appending structured, actionable feedback when validations fail. Validation steps include schema validation, dependency existence/pattern checks, and compliance with the required 4-step workflow template; on success the function returns the parsed TodoList dictionary.
+        
+        Parameters:
+            user_request (str): Natural language description of the desired workflow.
+            repo_context (Optional[Dict[str, Any]]): Optional repository metadata included in the prompt to provide context.
+            workflow_name (Optional[str]): Optional explicit workflow name; if omitted a name will be generated from the request.
+        
         Returns:
-            TodoList dictionary
-            
+            Dict[str, Any]: Parsed TodoList dictionary conforming to the service schema and 4-step template.
+        
         Raises:
-            ValueError: If generated plan is invalid
+            ValueError: If the model's output cannot be parsed or the plan remains invalid after retries (schema, dependency, or template validation failures).
         """
         logger.info(f"Creating plan for request: {user_request[:100]}...")
         
@@ -439,7 +441,15 @@ Output valid JSON only:"""
         return prompt
     
     def _generate_fixture_hints(self, user_request: str) -> str:
-        """Generate fixture hints based on strategy description."""
+        """
+        Produce a compact list of suggested test fixture hints derived from a natural-language strategy request.
+        
+        Parameters:
+            user_request (str): Natural-language description of the trading strategy and requirements.
+        
+        Returns:
+            str: A newline-separated list of bullet-prefixed fixture hints (e.g., indicators to implement, fixture filenames, entry/exit scenarios, stop-loss/take-profit guidance). If no specific hints are found, returns "- Standard fixtures for all 4 steps".
+        """
         hints = []
         
         # Extract mentioned indicators
@@ -483,7 +493,17 @@ Output valid JSON only:"""
         return "\n".join(f"- {hint}" for hint in hints) if hints else "- Standard fixtures for all 4 steps"
     
     def _format_schema_errors(self, errors: List[str]) -> str:
-        """Format schema validation errors with helpful guidance."""
+        """
+        Format a list of JSON schema validation error messages into concise, actionable guidance.
+        
+        This helper converts raw schema error strings into a human-friendly block that highlights up to the first 10 issues and, where recognized, appends concrete "FIX" suggestions for common problems (missing required fields, invalid task IDs, malformed acceptance_criteria/tests objects, and wrong scalar types). If the input list is empty, returns a short fallback message.
+        
+        Parameters:
+            errors (List[str]): Raw schema validation error messages to format.
+        
+        Returns:
+            formatted (str): A newline-separated string containing one bullet per reported error (with additional fix hints when applicable). If more than 10 errors are provided, a trailing line indicates how many were omitted. If `errors` is empty, returns "Unknown schema error".
+        """
         if not errors:
             return "Unknown schema error"
         
@@ -514,7 +534,15 @@ Output valid JSON only:"""
         return "\n".join(formatted)
     
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
-        """Parse LLM response and extract JSON."""
+        """
+        Extract a JSON object from LLM output, removing surrounding Markdown code fences if present.
+        
+        Parameters:
+            response_text (str): LLM response text that may contain JSON, optionally wrapped in Markdown code fences (e.g., ```json ... ```).
+        
+        Returns:
+            parsed (Dict[str, Any]): The JSON object parsed from the response text.
+        """
         # Clean response (remove markdown code blocks if present)
         text = response_text.strip()
         

@@ -227,20 +227,16 @@ class CoderAgent:
     
     def _generate_code(self, task: Dict[str, Any], contract: Dict[str, Any]) -> List[CodeArtifact]:
         """
-        Generate code from contract using strategy template.
+        Generate implementation artifacts for a contract using the strategy template and a model fallback.
         
-        Strategy:
-        1. Use template skeleton
-        2. Fill in function signatures from contract
-        3. Use Gemini to generate function bodies
-        4. Keep low temperature for deterministic output
+        Attempts to build a prompt from the task and contract and use the configured model (Gemini) to generate Python code; if model generation fails or the model is unavailable, falls back to a local strategy template. Produces a single implementation CodeArtifact whose file_path is placed under Backtest/codes/ and whose filename is derived from the task id.
         
-        Args:
-            task: Task dictionary
-            contract: Contract dictionary
+        Parameters:
+            task (dict): Task payload; may include an 'id' used to derive the output filename.
+            contract (dict): Contract specification; expected to contain at least 'contract_id' and 'interfaces'.
         
         Returns:
-            List of CodeArtifact objects
+            List[CodeArtifact]: A list containing one implementation artifact with the generated Python code and the contract_id.
         """
         contract_id = contract['contract_id']
         interfaces = contract['interfaces']
@@ -324,10 +320,12 @@ Output only Python code, no explanations."""
     
     def _get_strategy_template(self) -> str:
         """
-        Get adapter-driven strategy template.
+        Provide the adapter-driven strategy template used for both backtesting and live trading.
         
-        Returns template that works for BOTH backtest and live trading.
-        Uses BaseAdapter interface - never imports SimBroker directly.
+        Attempts to read a strategy template file at Backtest/codes/strategy_template_adapter_driven.py under the agent workspace and returns its contents if present; otherwise returns a built-in inline Python template that implements a Strategy class and a run_backtest function compatible with a BaseAdapter.
+        
+        Returns:
+            str: Python source code for the strategy template.
         """
         # Load template from file
         template_path = self.workspace_root / 'Backtest' / 'codes' / 'strategy_template_adapter_driven.py'
@@ -407,7 +405,18 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
             raise
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
-        """Generate code from template (fallback without Gemini)."""
+        """
+        Generate a Python implementation string from the local strategy template as a fallback when Gemini is not used.
+        
+        If the template contains a fenced Python code block (```python ... ```), the enclosed code is extracted; otherwise the whole template is used. The returned code is prefixed with a comment referencing the contract's `contract_id`.
+        
+        Parameters:
+            task (Dict[str, Any]): Task metadata (not modified; used for context only).
+            contract (Dict[str, Any]): Loaded contract object; must contain the `contract_id` key.
+        
+        Returns:
+            str: The generated Python source code with a leading `# Contract: <contract_id>` comment.
+        """
         # Use basic template substitution
         template = self._get_strategy_template()
         
@@ -426,17 +435,15 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
     
     def _validate_code(self, artifacts: List[CodeArtifact]) -> ValidationResult:
         """
-        Run static analysis on generated code.
+        Run static analysis (mypy and flake8) on implementation artifacts and collect results.
         
-        Tools:
-        - mypy: Type checking
-        - flake8: Style and error checking
+        Only artifacts with artifact_type equal to 'implementation' are validated. Each implementation artifact is written to a temporary Python file for analysis; mypy is run with --ignore-missing-imports and flake8 with a 120-character max line length. Collected outputs, errors, and warnings are returned in a ValidationResult.
         
-        Args:
-            artifacts: List of code artifacts
+        Parameters:
+            artifacts (List[CodeArtifact]): List of artifacts to validate. Only artifacts with artifact_type == 'implementation' are analyzed.
         
         Returns:
-            ValidationResult with mypy and flake8 output
+            ValidationResult: Contains a success flag, raw mypy and flake8 outputs, and lists of error and warning messages.
         """
         errors = []
         warnings = []
@@ -496,7 +503,14 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
         )
     
     def _save_artifacts(self, artifacts: List[CodeArtifact]):
-        """Save artifacts to filesystem."""
+        """
+        Write each CodeArtifact's content to the agent workspace, creating parent directories as needed.
+        
+        Each artifact's file_path is interpreted relative to the agent's workspace_root; parent directories are created and files are written using UTF-8 encoding. Artifacts are persisted in place and a short log message is emitted for each saved file.
+        
+        Parameters:
+            artifacts (List[CodeArtifact]): Artifacts to persist; each artifact's `file_path` is joined with `workspace_root` and its `content` is written to disk.
+        """
         for artifact in artifacts:
             file_path = self.workspace_root / artifact.file_path
             

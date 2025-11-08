@@ -42,6 +42,21 @@ class MultiAgentCLI:
     
     def __init__(self):
         # Lazy imports to speed up CLI startup
+        """
+        Initialize the CLI instance, configure core services, and prepare workspace/output directories.
+        
+        Sets up these instance attributes:
+        - workspace_root: repository root Path for the project.
+        - output_dir: Path for saved workflows (created if missing).
+        - message_bus: in-memory message bus instance.
+        - planner: PlannerService instance when a Google API key is present, otherwise None.
+        - ai_mode: True when planner is enabled, False when running in template mode.
+        - api_key: the Google API key string when available, otherwise None.
+        - orchestrator: MinimalOrchestrator instance.
+        - coder_agent, architect_agent: placeholders for lazily initialized agent instances.
+        
+        Also prints brief status lines indicating workspace/output paths and whether AI or template mode is active.
+        """
         from planner_service.planner import PlannerService
         from orchestrator_service.orchestrator import MinimalOrchestrator
         from contracts.message_bus import InMemoryMessageBus
@@ -80,13 +95,18 @@ class MultiAgentCLI:
     
     def submit_request(self, user_request: str) -> Dict[str, Any]:
         """
-        Submit a new strategy request.
+        Submit a new strategy request, generate and persist a TodoList, and load it into the orchestrator to create a workflow.
         
-        Args:
-            user_request: Natural language strategy description
-            
+        Parameters:
+            user_request (str): Natural-language description of the requested strategy or task.
+        
         Returns:
-            Dictionary with workflow_id and status
+            dict: Workflow summary containing:
+                - workflow_id (str): Identifier of the created workflow (or the TodoList id on failure).
+                - status (str): 'queued' when loaded successfully, 'failed' on error.
+                - tasks (int): Number of tasks queued (present on success).
+                - todolist_path (str): Filesystem path to the saved TodoList JSON.
+                - error (str, optional): Error message when status is 'failed'.
         """
         print(f"📝 Request: {user_request}")
         print()
@@ -168,14 +188,20 @@ class MultiAgentCLI:
     
     def execute_workflow(self, workflow_id: str, auto_execute: bool = True) -> Dict[str, Any]:
         """
-        Execute a workflow by processing its tasks.
+        Process and (optionally) execute all pending tasks for a workflow.
         
-        Args:
-            workflow_id: Workflow identifier
-            auto_execute: If True, automatically execute coder tasks
-            
+        Retrieves the workflow state and its associated todo list, iterates task entries, skips tasks that are not in 'pending' or 'ready' status, and for tasks with agent_role 'architect' or 'coder' will invoke the corresponding executor when auto_execute is True. Missing workflows or todo lists produce an error result entry; task-level execution results are collected per task id.
+        
+        Parameters:
+            workflow_id (str): Identifier of the workflow to execute.
+            auto_execute (bool): If True, automatically run architect and coder tasks; otherwise tasks remain pending.
+        
         Returns:
-            Dictionary with execution results
+            dict: {
+                'workflow_id': str,
+                'status': 'completed' | 'error',
+                'results': Dict[str, Any]  # mapping of task_id to execution result dict
+            }
         """
         print(f"\n🔄 Executing workflow: {workflow_id}")
         print()
@@ -244,13 +270,20 @@ class MultiAgentCLI:
     
     def _execute_coder_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a coder agent task.
+        Execute a coder task using the configured CoderAgent and return execution details.
         
-        Args:
-            task: Task dictionary from TodoList
-            
+        Attempts to initialize a CoderAgent (lazy), ensure a contract exists for the task, invoke the agent to implement the task, and collect resulting artifacts and status.
+        
+        Parameters:
+            task (Dict[str, Any]): TodoList task entry. Expected keys include `id`, `title`, `description`, and optionally `contract_path`; the task dictionary may contain other task-specific fields required by the CoderAgent.
+        
         Returns:
-            Execution result
+            Dict[str, Any]: Execution summary with keys:
+                - `status` (str): One of `'skipped'` (no API key), `'ready'` (successful), `'failed'` (agent-reported failure), or `'error'` (exception during execution).
+                - `duration` (float, optional): Time taken in seconds for agent execution (present when execution was attempted).
+                - `artifacts` (List[str], optional): List of artifact file paths produced by the agent (present when available).
+                - `error` (str|null, optional): Agent error message if present.
+                - `message` (str, optional): Human-readable message for skipped or error outcomes.
         """
         print(f"   ⏳ Executing Coder Agent...")
         
@@ -325,13 +358,25 @@ class MultiAgentCLI:
     
     def _execute_architect_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute an architect agent task.
+        Execute an architect-role task to produce and persist a contract specification.
         
-        Args:
-            task: Task dictionary from TodoList
-            
+        Parameters:
+            task (Dict[str, Any]): Task entry from a TodoList containing keys such as
+                'id', 'title', 'description', and other requirement details used to
+                drive contract design.
+        
         Returns:
-            Execution result
+            Dict[str, Any]: On success, a dictionary with:
+                - 'status' (str): 'ready'
+                - 'duration' (float): execution time in seconds
+                - 'contract' (dict): serialized contract fields including
+                  'contract_id', 'name', 'description', 'interfaces', 'data_models',
+                  'examples', 'test_skeleton', 'fixtures', and 'created_at'
+                - 'fixtures' (List[str]): names of any generated fixtures
+                - 'contract_path' (str): filesystem path to the saved contract JSON
+              On failure, a dictionary with:
+                - 'status' (str): 'error'
+                - 'message' (str): error message describing the failure
         """
         print(f"   ⏳ Executing Architect Agent...")
         
@@ -351,6 +396,12 @@ class MultiAgentCLI:
             
             # Run async design_contract in sync context
             async def run_design():
+                """
+                Request the architect agent to produce a contract specification for the current task.
+                
+                Returns:
+                    contract_data (dict): The contract/design produced by the architect agent, containing contract metadata, interfaces, examples, and any auxiliary fixtures or artifacts.
+                """
                 return await self.architect_agent._design_contract(
                     task_id=task.get('id', 'unknown'),
                     title=task.get('title', ''),
@@ -415,7 +466,26 @@ class MultiAgentCLI:
             }
     
     def _create_template_todolist(self, user_request: str) -> Dict[str, Any]:
-        """Create a template TodoList for fallback."""
+        """
+        Create a fallback TodoList and a minimal contract derived from a free-form user request.
+        
+        Generates a timestamped workflow id, writes a simple contract JSON to the CLI output directory, and returns a TodoList structure containing metadata and a single coder task prepared for execution. The returned task includes a `contract_path`, acceptance criteria, artifact expectations, timeouts, retry policy, and failure routing.
+        
+        Parameters:
+            user_request (str): Natural-language description of the desired strategy or task.
+        
+        Returns:
+            dict: A TodoList dictionary with the following top-level keys:
+                - todo_list_id: Generated workflow identifier.
+                - workflow_name: Short display name derived from the request.
+                - created_at: ISO8601 timestamp of creation.
+                - created_by: Source identifier ("cli").
+                - metadata: Additional metadata including the original user_request and mode.
+                - items: List of task dictionaries (in this template a single coder task) containing fields such as
+                    `id`, `title`, `description`, `agent_role`, `priority`, `dependencies`,
+                    `expected_duration_seconds`, `max_retries`, `timeout_seconds`, `contract_path`,
+                    `acceptance_criteria`, `input_artifacts`, `output_artifacts`, `tags`, and `failure_routing`.
+        """
         workflow_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Create a simple contract for the task
@@ -489,13 +559,20 @@ class MultiAgentCLI:
     
     def get_status(self, workflow_id: str) -> Dict[str, Any]:
         """
-        Get workflow status.
+        Show and return a status snapshot for the given workflow.
         
-        Args:
-            workflow_id: Workflow identifier
-            
+        If the workflow is not present in the orchestrator this will search saved TodoList files and return
+        'not_loaded' when a matching TodoList exists or 'not_found' otherwise.
+        
+        Parameters:
+            workflow_id (str): Identifier of the workflow to inspect.
+        
         Returns:
-            Dictionary with workflow status and task details
+            dict: A snapshot containing:
+                - 'workflow_id' (str): The provided workflow identifier.
+                - 'status' (str): One of 'not_found', 'not_loaded', or the workflow's current status string.
+                - 'todolist_exists' (bool, optional): Present when status is 'not_loaded' to indicate a local TodoList was found.
+                - 'tasks' (dict, optional): Mapping of task_id to task status strings when the workflow is loaded.
         """
         print(f"🔍 Checking status: {workflow_id}")
         print()
@@ -574,7 +651,11 @@ class MultiAgentCLI:
         }
     
     def list_workflows(self) -> None:
-        """List all workflows."""
+        """
+        Print a concise summary of workflows stored in the CLI output directory.
+        
+        Searches for files matching "*_todolist.json" in the configured output directory and prints each workflow's id, name, creation timestamp, and number of tasks. If no workflows are present or a todo list file cannot be read, prints an informational or error message.
+        """
         print("📂 Available Workflows:")
         print()
         
@@ -704,7 +785,11 @@ class MultiAgentCLI:
 
 
 def main():
-    """Main CLI entry point."""
+    """
+    Parse command-line arguments and dispatch CLI commands for the Multi-Agent System.
+    
+    Supports submitting a strategy request (--request), executing a workflow (--execute), auto-running after submit (--run), checking workflow status (--status), listing saved workflows (--list), or entering interactive mode when no arguments are provided.
+    """
     parser = argparse.ArgumentParser(
         description="Multi-Agent System CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
