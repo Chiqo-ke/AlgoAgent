@@ -1,0 +1,17 @@
+{
+  "contract_id": "contract_task_entry",
+  "description": "Implement should_enter for MACD line crossing signal line",
+  "interfaces": {
+    "run_backtest": {
+      "description": "Execute backtesting strategy",
+      "inputs": [
+        "adapter",
+        "df with OHLCV",
+        "config"
+      ],
+      "outputs": [
+        "Backtest results with metrics"
+      ]
+    }
+  }
+}

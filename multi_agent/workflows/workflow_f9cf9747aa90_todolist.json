@@ -1,0 +1,134 @@
+{
+  "todo_list_id": "workflow_f9cf9747aa90",
+  "workflow_name": "CLI Request 20251108_144347",
+  "created_at": "2025-11-08T11:43:47.881757Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "Create MACD strategy with standard 12,26,9 parameters",
+    "planner_version": "1.0.0",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3
+  },
+  "items": [
+    {
+      "id": "task_data_loading",
+      "title": "Data Loading Integration",
+      "description": "Implement fetch_and_prepare_data to load OHLCV data",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_adapter.py",
+            "fixture": "fixtures/sample_aapl.csv"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "backtesting_adapter.py",
+        "fixtures/sample_aapl.csv"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_indicators",
+      "title": "Indicator Loading - MACD",
+      "description": "Implement compute_macd function with periods 12, 26, 9",
+      "agent_role": "architect",
+      "priority": 2,
+      "dependencies": [
+        "task_data_loading"
+      ],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py",
+            "fixture": "fixtures/macd_expected.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "indicators/macd.py",
+        "fixtures/macd_expected.json",
+        "contracts/indicator_contract.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_entry",
+      "title": "Entry Conditions - MACD Cross",
+      "description": "Implement should_enter for MACD line crossing signal line",
+      "agent_role": "coder",
+      "priority": 3,
+      "dependencies": [
+        "task_indicators"
+      ],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_entry.py",
+            "fixture": "fixtures/entry_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_entry.py",
+        "fixtures/entry_scenarios.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_exit",
+      "title": "Exit Conditions - MACD Cross + SL/TP",
+      "description": "Implement should_exit for MACD line crossing signal line in opposite direction and stop loss/take profit",
+      "agent_role": "coder",
+      "priority": 4,
+      "dependencies": [
+        "task_entry"
+      ],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_exit.py",
+            "fixture": "fixtures/exit_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_exit.py",
+        "fixtures/exit_scenarios.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    }
+  ]
+}

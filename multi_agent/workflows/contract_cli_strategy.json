@@ -1,0 +1,17 @@
+{
+  "contract_id": "contract_cli_strategy",
+  "description": "Create an ema strategy with buy when 30 EMA crosses above 50 EMA. The stoploss should be set 10 pips below entry and take profit should be 40 pips above entry.",
+  "interfaces": {
+    "run_backtest": {
+      "description": "Execute backtesting strategy",
+      "inputs": [
+        "adapter",
+        "df with OHLCV",
+        "config"
+      ],
+      "outputs": [
+        "Backtest results with metrics"
+      ]
+    }
+  }
+}

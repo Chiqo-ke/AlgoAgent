@@ -117,7 +117,176 @@ Each task must include:
 - Expected fixture artifacts in output_artifacts
 - Clear acceptance criteria with pytest commands
 
-Be thorough. Output only valid JSON.
+📋 CRITICAL JSON SCHEMA REQUIREMENTS:
+
+Root TodoList Object:
+- todo_list_id: string (pattern: ^[a-zA-Z0-9_-]+$)
+- workflow_name: string
+- created_at: string (ISO 8601 format)
+- created_by: string (optional, use "planner_service")
+- metadata: object (optional, include user_request, planner_version)
+- items: array of TodoItem (minimum 1 item)
+
+TodoItem Object (ALL fields required unless marked optional):
+- id: string (pattern: ^task_[a-zA-Z0-9_-]+$) ⚠️ MUST start with "task_"
+- title: string (5-200 characters)
+- description: string (minimum 10 characters)
+- agent_role: string (one of: "architect", "coder", "tester", "debugger", "optimizer")
+- priority: integer (1-10, where 1 is highest)
+- dependencies: array of strings (optional, each matching ^task_[a-zA-Z0-9_-]+$)
+- max_retries: integer (0-10, default 3)
+- timeout_seconds: integer (optional, default 300)
+- acceptance_criteria: AcceptanceCriteria object (required)
+- input_artifacts: array of strings (optional)
+- output_artifacts: array of strings (optional)
+- failure_routing: object (optional but recommended, maps failure types to agent roles)
+- fixture_path: string (optional)
+
+AcceptanceCriteria Object:
+- tests: array of TestCommand objects (minimum 1 test required) ⚠️ CRITICAL
+- expected_artifacts: array of strings (optional)
+- metrics: object (optional)
+- validation_rules: array of objects (optional)
+
+TestCommand Object:
+- cmd: string (required, the shell command to execute)
+- timeout_seconds: integer (optional, default 60)
+- expected_exit_code: integer (optional, default 0)
+- fixture: string (optional but recommended for deterministic tests)
+
+⚠️ COMMON MISTAKES TO AVOID:
+1. ❌ Task IDs like "step_1" or "1" → ✅ Use "task_data_loading" or "task_001"
+2. ❌ acceptance_criteria as string → ✅ Must be object with "tests" array
+3. ❌ tests array with strings → ✅ Each test must be object with "cmd" field
+4. ❌ id as integer → ✅ id must be string
+5. ❌ Missing priority field → ✅ Always include priority (1-10)
+6. ❌ Missing max_retries → ✅ Always include max_retries (typically 3)
+7. ❌ agent_role = "coder_agent" → ✅ Use "coder" (no suffix)
+
+EXAMPLE VALID TASK:
+{
+  "id": "task_data_loading",
+  "title": "Implement Data Loading",
+  "description": "Create fetch_and_prepare_data function...",
+  "agent_role": "coder",
+  "priority": 1,
+  "dependencies": [],
+  "max_retries": 3,
+  "timeout_seconds": 300,
+  "acceptance_criteria": {
+    "tests": [
+      {
+        "cmd": "pytest tests/test_adapter.py::test_data_loading",
+        "timeout_seconds": 60,
+        "fixture": "fixtures/sample_aapl.csv"
+      }
+    ]
+  },
+  "output_artifacts": [
+    "backtesting_adapter.py",
+    "fixtures/sample_aapl.csv"
+  ],
+  "failure_routing": {
+    "implementation_bug": "coder",
+    "spec_mismatch": "architect"
+  }
+}
+
+📚 COMPLETE EXAMPLE - RSI Strategy (ALL 4 TASKS):
+```json
+{
+  "todo_list_id": "workflow_example_123",
+  "workflow_name": "RSI Strategy Implementation",
+  "created_at": "2025-11-08T10:00:00Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "Create RSI strategy",
+    "planner_version": "1.0.0"
+  },
+  "items": [
+    {
+      "id": "task_data_loading",
+      "title": "Data Loading Integration",
+      "description": "Implement fetch_and_prepare_data to load OHLCV data",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_adapter.py",
+            "fixture": "fixtures/sample_aapl.csv"
+          }
+        ]
+      },
+      "output_artifacts": ["backtesting_adapter.py", "fixtures/sample_aapl.csv"],
+      "failure_routing": {"implementation_bug": "coder"}
+    },
+    {
+      "id": "task_indicators",
+      "title": "Indicator Loading - RSI",
+      "description": "Implement compute_rsi function",
+      "agent_role": "architect",
+      "priority": 2,
+      "dependencies": ["task_data_loading"],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py",
+            "fixture": "fixtures/rsi_expected.json"
+          }
+        ]
+      },
+      "output_artifacts": ["indicators/rsi.py", "fixtures/rsi_expected.json"],
+      "failure_routing": {"implementation_bug": "coder"}
+    },
+    {
+      "id": "task_entry",
+      "title": "Entry Conditions - RSI < 30",
+      "description": "Implement should_enter for RSI oversold signal",
+      "agent_role": "coder",
+      "priority": 3,
+      "dependencies": ["task_indicators"],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_entry.py",
+            "fixture": "fixtures/entry_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": ["Backtest/codes/ai_strategy_entry.py"],
+      "failure_routing": {"implementation_bug": "coder"}
+    },
+    {
+      "id": "task_exit",
+      "title": "Exit Conditions - RSI > 70 + SL/TP",
+      "description": "Implement should_exit for RSI overbought and stop loss/take profit",
+      "agent_role": "coder",
+      "priority": 4,
+      "dependencies": ["task_entry"],
+      "max_retries": 3,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_exit.py",
+            "fixture": "fixtures/exit_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": ["Backtest/codes/ai_strategy_exit.py"],
+      "failure_routing": {"implementation_bug": "coder"}
+    }
+  ]
+}
+```
+
+⚠️ CRITICAL: Follow this EXACT structure. Copy the pattern above and adapt for the user's strategy.
+
+Be thorough. Output only valid JSON matching the schema above EXACTLY.
 """
 
 
@@ -180,7 +349,9 @@ class PlannerService:
                 if not is_valid:
                     logger.warning(f"Attempt {attempt + 1}: Invalid schema - {errors}")
                     if attempt < max_attempts - 1:
-                        prompt += f"\n\nPrevious attempt had errors: {errors}\nPlease fix and try again."
+                        # Provide detailed feedback with examples
+                        error_feedback = self._format_schema_errors(errors)
+                        prompt += f"\n\n❌ SCHEMA VALIDATION FAILED:\n{error_feedback}\n\n✅ FIX INSTRUCTIONS:\nReview the JSON SCHEMA REQUIREMENTS section above and ensure:\n1. All task IDs start with 'task_' (not 'step_' or numbers)\n2. acceptance_criteria is an OBJECT with 'tests' array, not a string\n3. Each test in 'tests' array is an OBJECT with 'cmd' field, not a string\n4. Include 'priority' and 'max_retries' fields in every task\n5. 'id' field must be string, not integer\n\nGenerate corrected JSON:"
                         continue
                     raise ValueError(f"Generated invalid todo list: {errors}")
                 
@@ -189,7 +360,7 @@ class PlannerService:
                 if not is_valid:
                     logger.warning(f"Attempt {attempt + 1}: Invalid dependencies - {dep_errors}")
                     if attempt < max_attempts - 1:
-                        prompt += f"\n\nDependency errors: {dep_errors}\nPlease fix and try again."
+                        prompt += f"\n\n❌ DEPENDENCY VALIDATION FAILED:\n{dep_errors}\n\nEnsure all dependency task IDs exist and match the '^task_[a-zA-Z0-9_-]+$' pattern.\nGenerate corrected JSON:"
                         continue
                     raise ValueError(f"Invalid dependencies: {dep_errors}")
                 
@@ -198,7 +369,7 @@ class PlannerService:
                 if not is_valid:
                     logger.warning(f"Attempt {attempt + 1}: Template violations - {template_errors}")
                     if attempt < max_attempts - 1:
-                        prompt += f"\n\n4-STEP TEMPLATE ERRORS: {template_errors}\nYou MUST follow the 4-step template exactly. Please fix and try again."
+                        prompt += f"\n\n❌ 4-STEP TEMPLATE VALIDATION FAILED:\n{template_errors}\n\n✅ REMINDER: You MUST create exactly 4 tasks in this order:\n1. task_data_loading (coder) - Data Loading Integration\n2. task_indicators (architect → coder) - Indicator Loading\n3. task_entry (coder) - Entry Conditions\n4. task_exit (coder) - Exit Conditions\n\nGenerate corrected JSON with exactly 4 tasks:"
                         continue
                     raise ValueError(f"Template validation failed: {template_errors}")
                 
@@ -310,6 +481,37 @@ Output valid JSON only:"""
         hints.append("Data fixture: fixtures/sample_aapl.csv (30+ rows of OHLCV data)")
         
         return "\n".join(f"- {hint}" for hint in hints) if hints else "- Standard fixtures for all 4 steps"
+    
+    def _format_schema_errors(self, errors: List[str]) -> str:
+        """Format schema validation errors with helpful guidance."""
+        if not errors:
+            return "Unknown schema error"
+        
+        formatted = []
+        for error in errors[:10]:  # Show first 10 errors
+            # Parse error message
+            if "is a required property" in error:
+                field = error.split("'")[1] if "'" in error else "unknown"
+                formatted.append(f"  • Missing required field: '{field}'")
+            elif "does not match" in error and "task_" in error:
+                formatted.append(f"  • {error}")
+                formatted.append(f"    → FIX: Task IDs must start with 'task_' (e.g., 'task_data_loading')")
+            elif "is not of type 'object'" in error and "acceptance_criteria" in error:
+                formatted.append(f"  • {error}")
+                formatted.append(f"    → FIX: acceptance_criteria must be object like: {{'tests': [...]}} not a string")
+            elif "is not of type 'object'" in error and "tests" in error:
+                formatted.append(f"  • {error}")
+                formatted.append(f"    → FIX: Each test must be object like: {{'cmd': '...', 'fixture': '...'}} not a string")
+            elif "is not of type 'string'" in error:
+                formatted.append(f"  • {error}")
+                formatted.append(f"    → FIX: Field must be string (in quotes), not number or other type")
+            else:
+                formatted.append(f"  • {error}")
+        
+        if len(errors) > 10:
+            formatted.append(f"  • ...and {len(errors) - 10} more errors")
+        
+        return "\n".join(formatted)
     
     def _parse_response(self, response_text: str) -> Dict[str, Any]:
         """Parse LLM response and extract JSON."""
