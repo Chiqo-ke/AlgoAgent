@@ -1,0 +1,58 @@
+{
+  "todo_list_id": "workflow_20251108_115235",
+  "workflow_name": "CLI: Create an ema strategy with buy when 30 EMA crosse",
+  "created_at": "2025-11-08T11:52:35.363381Z",
+  "created_by": "cli",
+  "metadata": {
+    "user_request": "Create an ema strategy with buy when 30 EMA crosses above 50 EMA. The stoploss should be set 10 pips below entry and take profit should be 40 pips above entry.",
+    "mode": "template",
+    "planner_version": "template-1.0.0"
+  },
+  "items": [
+    {
+      "id": "task_coder_001",
+      "title": "Implement Strategy Code",
+      "description": "Create an ema strategy with buy when 30 EMA crosses above 50 EMA. The stoploss should be set 10 pips below entry and take profit should be 40 pips above entry.",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "expected_duration_seconds": 300,
+      "max_retries": 3,
+      "timeout_seconds": 600,
+      "contract_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\workflows\\contract_cli_strategy.json",
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "python -m pytest tests/test_strategy.py",
+            "timeout_seconds": 60
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/codes/strategy.py"
+        ],
+        "validation_rules": [
+          {
+            "type": "lint",
+            "command": "python -m py_compile Backtest/codes/strategy.py",
+            "expected_exit_code": 0
+          }
+        ]
+      },
+      "input_artifacts": [],
+      "output_artifacts": [
+        "Backtest/codes/strategy.py"
+      ],
+      "tags": [
+        "strategy",
+        "cli"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    }
+  ]
+}

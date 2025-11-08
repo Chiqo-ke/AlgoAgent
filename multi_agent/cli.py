@@ -72,6 +72,7 @@ class MultiAgentCLI:
         
         # Agent instances (lazy loaded)
         self.coder_agent = None
+        self.architect_agent = None
         
         print(f"📁 Workspace: {self.workspace_root}")
         print(f"📂 Workflows: {self.output_dir}")
@@ -223,7 +224,10 @@ class MultiAgentCLI:
                 continue
             
             # Execute based on agent role
-            if agent_role == 'coder' and auto_execute:
+            if agent_role == 'architect' and auto_execute:
+                result = self._execute_architect_task(task_details)
+                results[task_id] = result
+            elif agent_role == 'coder' and auto_execute:
                 result = self._execute_coder_task(task_details)
                 results[task_id] = result
             else:
@@ -269,6 +273,25 @@ class MultiAgentCLI:
                 )
                 print(f"   ✓ Coder Agent initialized")
             
+            # Create contract if missing
+            if 'contract_path' not in task or not task['contract_path']:
+                contract_id = f"contract_{task['id']}"
+                contract = {
+                    "contract_id": contract_id,
+                    "description": task.get('description', 'Strategy implementation contract'),
+                    "interfaces": {
+                        "run_backtest": {
+                            "description": "Execute backtesting strategy",
+                            "inputs": ["adapter", "df with OHLCV", "config"],
+                            "outputs": ["Backtest results with metrics"]
+                        }
+                    }
+                }
+                contract_path = self.output_dir / f"{contract_id}.json"
+                contract_path.write_text(json.dumps(contract, indent=2))
+                task['contract_path'] = str(contract_path)
+                print(f"   ✓ Created contract: {contract_path.name}")
+            
             # Execute the task
             start_time = time.time()
             result = self.coder_agent.implement_task(task)
@@ -289,6 +312,97 @@ class MultiAgentCLI:
                 'duration': duration,
                 'artifacts': [a.file_path for a in result.artifacts] if result.artifacts else [],
                 'error': result.error_message if result.error_message else None
+            }
+            
+        except Exception as e:
+            print(f"   ❌ Execution failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+    
+    def _execute_architect_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute an architect agent task.
+        
+        Args:
+            task: Task dictionary from TodoList
+            
+        Returns:
+            Execution result
+        """
+        print(f"   ⏳ Executing Architect Agent...")
+        
+        try:
+            # Lazy load Architect Agent
+            if not self.architect_agent:
+                from agents.architect_agent.architect import ArchitectAgent
+                self.architect_agent = ArchitectAgent(
+                    message_bus=self.message_bus,
+                    api_key=self.api_key
+                )
+                print(f"   ✓ Architect Agent initialized")
+            
+            # Execute the task (async wrapped)
+            start_time = time.time()
+            import asyncio
+            
+            # Run async design_contract in sync context
+            async def run_design():
+                return await self.architect_agent._design_contract(
+                    task_id=task.get('id', 'unknown'),
+                    title=task.get('title', ''),
+                    description=task.get('description', ''),
+                    requirements=task
+                )
+            
+            # Get or create event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            contract = loop.run_until_complete(run_design())
+            duration = time.time() - start_time
+            
+            print(f"   ✓ Execution completed in {duration:.2f}s")
+            print(f"   ✓ Contract: {contract.contract_id}")
+            print(f"   ✓ Interfaces: {len(contract.interfaces)}")
+            print(f"   ✓ Examples: {len(contract.examples)}")
+            
+            # Save contract to file
+            contract_path = self.output_dir / f"{contract.contract_id}.json"
+            contract_data = {
+                "contract_id": contract.contract_id,
+                "name": contract.name,
+                "description": contract.description,
+                "interfaces": contract.interfaces,
+                "data_models": contract.data_models,
+                "examples": contract.examples,
+                "test_skeleton": contract.test_skeleton,
+                "fixtures": contract.fixtures,
+                "created_at": contract.created_at
+            }
+            contract_path.write_text(json.dumps(contract_data, indent=2))
+            print(f"   ✓ Saved contract: {contract_path.name}")
+            
+            # Generate fixtures if any
+            fixtures = []
+            if contract.fixtures:
+                print(f"   ✓ Generated {len(contract.fixtures)} fixture(s):")
+                for fixture_name in contract.fixtures:
+                    print(f"      - {fixture_name}")
+                    fixtures.append(fixture_name)
+            
+            return {
+                'status': 'ready',
+                'duration': duration,
+                'contract': contract_data,
+                'fixtures': fixtures,
+                'contract_path': str(contract_path)
             }
             
         except Exception as e:
