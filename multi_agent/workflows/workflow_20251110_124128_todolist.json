@@ -1,0 +1,58 @@
+{
+  "todo_list_id": "workflow_20251110_124128",
+  "workflow_name": "CLI: Create RSI strategy: buy when RSI < 30, sell when ",
+  "created_at": "2025-11-10T12:41:28.297956Z",
+  "created_by": "cli",
+  "metadata": {
+    "user_request": "Create RSI strategy: buy when RSI < 30, sell when RSI > 70. The stop loss should be 10 pips below/above entry and take profit 40 pips above/below entry",
+    "mode": "template",
+    "planner_version": "template-1.0.0"
+  },
+  "items": [
+    {
+      "id": "task_coder_001",
+      "title": "Implement Strategy Code",
+      "description": "Create RSI strategy: buy when RSI < 30, sell when RSI > 70. The stop loss should be 10 pips below/above entry and take profit 40 pips above/below entry",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "expected_duration_seconds": 300,
+      "max_retries": 3,
+      "timeout_seconds": 600,
+      "contract_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\workflows\\contract_cli_strategy.json",
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "python -m pytest tests/test_strategy.py",
+            "timeout_seconds": 60
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/codes/strategy.py"
+        ],
+        "validation_rules": [
+          {
+            "type": "lint",
+            "command": "python -m py_compile Backtest/codes/strategy.py",
+            "expected_exit_code": 0
+          }
+        ]
+      },
+      "input_artifacts": [],
+      "output_artifacts": [
+        "Backtest/codes/strategy.py"
+      ],
+      "tags": [
+        "strategy",
+        "cli"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    }
+  ]
+}
