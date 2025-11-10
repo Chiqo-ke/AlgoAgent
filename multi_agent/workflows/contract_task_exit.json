@@ -1,6 +1,6 @@
 {
   "contract_id": "contract_task_exit",
-  "description": "Implement should_exit for MACD line crossing signal line in opposite direction and stop loss/take profit",
+  "description": "Implement should_exit for RSI overbought (RSI > 70) and stop loss/take profit",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",
