@@ -109,9 +109,15 @@ class CoderAgent:
             # Fallback mode
             try:
                 import google.generativeai as genai
-                if gemini_api_key:
-                    genai.configure(api_key=gemini_api_key)
-                self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+                
+                # Get API key from parameter or environment
+                api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                if not api_key:
+                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found for fallback mode")
+                    self.fallback_model = None
+                else:
+                    genai.configure(api_key=api_key)
+                    self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
             except ImportError:
                 print(f"[CoderAgent {self.agent_id}] WARNING: No Gemini available")
                 self.fallback_model = None
@@ -259,7 +265,7 @@ class CoderAgent:
         prompt = self._build_coder_prompt(task, contract)
         
         # Generate code
-        if self.model:
+        if self.use_router or self.fallback_model:
             try:
                 code = self._generate_with_gemini(prompt)
             except Exception as e:

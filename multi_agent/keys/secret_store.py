@@ -54,13 +54,20 @@ def _fetch_from_env(key_id: str) -> str:
     Fetch secret from environment variable.
     
     Development/testing only - not for production use.
-    Environment variable format: API_KEY_{key_id} (exact match)
+    Environment variable format: API_KEY_{key_id}
+    Note: Converts hyphens to underscores since env vars can't contain hyphens
     """
-    env_var = f"API_KEY_{key_id}"
-    secret = os.environ.get(env_var)
+    # Try with underscores first (standard env var format)
+    env_var_underscore = f"API_KEY_{key_id.replace('-', '_')}"
+    secret = os.environ.get(env_var_underscore)
     
     if not secret:
-        raise SecretStoreError(f"Environment variable {env_var} not set")
+        # Fallback: try with hyphens (non-standard but may be set)
+        env_var_hyphen = f"API_KEY_{key_id}"
+        secret = os.environ.get(env_var_hyphen)
+    
+    if not secret:
+        raise SecretStoreError(f"Environment variable {env_var_underscore} not set")
     
     logger.debug(f"Fetched secret for {key_id} from environment")
     return secret

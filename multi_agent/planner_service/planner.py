@@ -317,9 +317,15 @@ class PlannerService:
             logger.warning("RequestRouter disabled - falling back to direct API calls")
             # Fallback: initialize direct API
             import google.generativeai as genai
-            if api_key:
+            
+            # Get API key from parameter or environment
+            api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+            if not api_key:
+                logger.error("No API key found for fallback mode")
+                self.fallback_model = None
+            else:
                 genai.configure(api_key=api_key)
-            self.fallback_model = genai.GenerativeModel(model_name)
+                self.fallback_model = genai.GenerativeModel(model_name)
     
     def create_plan(
         self,

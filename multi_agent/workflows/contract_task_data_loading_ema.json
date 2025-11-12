@@ -1,6 +1,6 @@
 {
-  "contract_id": "contract_cli_strategy",
-  "description": "Create EMA strategy. I want to buy when 30 ema crosses above 50 ema. The stop loss should be 15 pips below entry and take profit should be 40 pips above entry",
+  "contract_id": "contract_task_data_loading_ema",
+  "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data for EMA calculation.",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",
