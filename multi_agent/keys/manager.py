@@ -347,9 +347,14 @@ def get_key_manager(
     Args:
         redis_limiter: Redis limiter (used only on first call)
         key_store_path: Path to key store JSON (used only on first call)
+                        Defaults to keys.json in current directory
     """
     global _key_manager
     if _key_manager is None:
+        # Default to keys.json in current directory if not specified
+        if key_store_path is None:
+            key_store_path = Path('keys.json')
+        
         _key_manager = KeyManager(
             redis_limiter=redis_limiter,
             key_store_path=key_store_path

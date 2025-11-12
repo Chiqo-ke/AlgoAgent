@@ -11,9 +11,11 @@ This agent:
 Contract-driven implementation following PLANNER_DESIGN.md
 """
 
+import os
 import json
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,12 +23,7 @@ from typing import Any, Dict, List, Optional
 import shutil
 import re
 
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-
+from llm.router import get_request_router
 from contracts import Event, EventType
 from contracts.message_bus import MessageBus, Channels
 
@@ -80,7 +77,8 @@ class CoderAgent:
         message_bus: MessageBus,
         gemini_api_key: Optional[str] = None,
         workspace_root: Path = None,
-        temperature: float = 0.1
+        temperature: float = 0.1,
+        model_name: str = "gemini-2.5-flash"
     ):
         """
         Initialize Coder Agent.
@@ -88,23 +86,35 @@ class CoderAgent:
         Args:
             agent_id: Unique agent identifier
             message_bus: Message bus for pub/sub
-            gemini_api_key: Google Gemini API key
+            gemini_api_key: Deprecated - kept for backward compatibility
             workspace_root: Root directory for code generation
             temperature: LLM temperature (low for deterministic code)
+            model_name: Model preference for router
         """
         self.agent_id = agent_id
         self.message_bus = message_bus
         self.workspace_root = workspace_root or Path.cwd()
         self.temperature = temperature
+        self.model_name = model_name
+        self.conversation_id = f"coder_{agent_id}_{uuid.uuid4().hex[:8]}"
         
-        # Initialize Gemini
-        if HAS_GEMINI and gemini_api_key:
-            genai.configure(api_key=gemini_api_key)
-            self.model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+        # Use RequestRouter for multi-key management
+        self.router = get_request_router()
+        self.use_router = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
+        if self.use_router:
+            print(f"[CoderAgent {self.agent_id}] Initialized with RequestRouter (model: {model_name})")
         else:
-            self.model = None
-        
-        print(f"[CoderAgent {self.agent_id}] Initialized (Gemini: {HAS_GEMINI and gemini_api_key is not None})")
+            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback")
+            # Fallback mode
+            try:
+                import google.generativeai as genai
+                if gemini_api_key:
+                    genai.configure(api_key=gemini_api_key)
+                self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+            except ImportError:
+                print(f"[CoderAgent {self.agent_id}] WARNING: No Gemini available")
+                self.fallback_model = None
     
     def start(self):
         """Start listening for coder tasks."""
@@ -514,17 +524,37 @@ if __name__ == '__main__':
 '''
     
     def _generate_with_gemini(self, prompt: str) -> str:
-        """Generate code using Gemini API."""
+        """Generate code using RequestRouter or Gemini API."""
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=self.temperature,
-                    max_output_tokens=8192
+            if self.use_router:
+                # Use RequestRouter with conversation mode for context
+                response_data = self.router.send_chat(
+                    conv_id=self.conversation_id,
+                    prompt=prompt,
+                    model_preference=self.model_name,
+                    expected_completion_tokens=4096,
+                    max_output_tokens=8192,
+                    temperature=self.temperature
                 )
-            )
-            
-            code = response.text
+                
+                if not response_data.get('success'):
+                    raise ValueError(f"Router error: {response_data.get('error', 'Unknown error')}")
+                
+                code = response_data['content']
+            else:
+                # Fallback to direct Gemini
+                if not hasattr(self, 'fallback_model') or self.fallback_model is None:
+                    raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
+                
+                import google.generativeai as genai
+                response = self.fallback_model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=self.temperature,
+                        max_output_tokens=8192
+                    )
+                )
+                code = response.text
             
             # Extract code from markdown if present
             if '```python' in code:
@@ -535,7 +565,7 @@ if __name__ == '__main__':
             return code
             
         except Exception as e:
-            print(f"[CoderAgent] Gemini error: {e}")
+            print(f"[CoderAgent] LLM error: {e}")
             raise
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
