@@ -1,6 +1,6 @@
 {
-  "contract_id": "contract_task_exit",
-  "description": "Implement should_exit for RSI overbought (RSI > 70) and stop loss/take profit",
+  "contract_id": "contract_task_data_loading_ema",
+  "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data for EMA calculation.",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",

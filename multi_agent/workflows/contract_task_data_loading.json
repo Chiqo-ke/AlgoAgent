@@ -1,6 +1,6 @@
 {
   "contract_id": "contract_task_data_loading",
-  "description": "Implement fetch_and_prepare_data to load OHLCV data",
+  "description": "Implement fetch_and_prepare_data to load OHLCV data for RSI strategy",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",

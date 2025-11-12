@@ -11,9 +11,11 @@ This agent:
 Contract-driven implementation following PLANNER_DESIGN.md
 """
 
+import os
 import json
 import subprocess
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,12 +23,7 @@ from typing import Any, Dict, List, Optional
 import shutil
 import re
 
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-
+from llm.router import get_request_router
 from contracts import Event, EventType
 from contracts.message_bus import MessageBus, Channels
 
@@ -80,7 +77,8 @@ class CoderAgent:
         message_bus: MessageBus,
         gemini_api_key: Optional[str] = None,
         workspace_root: Path = None,
-        temperature: float = 0.1
+        temperature: float = 0.1,
+        model_name: str = "gemini-2.5-flash"
     ):
         """
         Initialize Coder Agent.
@@ -88,23 +86,41 @@ class CoderAgent:
         Args:
             agent_id: Unique agent identifier
             message_bus: Message bus for pub/sub
-            gemini_api_key: Google Gemini API key
+            gemini_api_key: Deprecated - kept for backward compatibility
             workspace_root: Root directory for code generation
             temperature: LLM temperature (low for deterministic code)
+            model_name: Model preference for router
         """
         self.agent_id = agent_id
         self.message_bus = message_bus
         self.workspace_root = workspace_root or Path.cwd()
         self.temperature = temperature
+        self.model_name = model_name
+        self.conversation_id = f"coder_{agent_id}_{uuid.uuid4().hex[:8]}"
         
-        # Initialize Gemini
-        if HAS_GEMINI and gemini_api_key:
-            genai.configure(api_key=gemini_api_key)
-            self.model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+        # Use RequestRouter for multi-key management
+        self.router = get_request_router()
+        self.use_router = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
+        if self.use_router:
+            print(f"[CoderAgent {self.agent_id}] Initialized with RequestRouter (model: {model_name})")
         else:
-            self.model = None
-        
-        print(f"[CoderAgent {self.agent_id}] Initialized (Gemini: {HAS_GEMINI and gemini_api_key is not None})")
+            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback")
+            # Fallback mode
+            try:
+                import google.generativeai as genai
+                
+                # Get API key from parameter or environment
+                api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                if not api_key:
+                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found for fallback mode")
+                    self.fallback_model = None
+                else:
+                    genai.configure(api_key=api_key)
+                    self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
+            except ImportError:
+                print(f"[CoderAgent {self.agent_id}] WARNING: No Gemini available")
+                self.fallback_model = None
     
     def start(self):
         """Start listening for coder tasks."""
@@ -249,7 +265,7 @@ class CoderAgent:
         prompt = self._build_coder_prompt(task, contract)
         
         # Generate code
-        if self.model:
+        if self.use_router or self.fallback_model:
             try:
                 code = self._generate_with_gemini(prompt)
             except Exception as e:
@@ -271,7 +287,10 @@ class CoderAgent:
             contract_id=contract_id
         )
         
-        return [artifact]
+        # Generate test file
+        test_artifact = self._generate_test_file(task, contract, filename)
+        
+        return [artifact, test_artifact]
     
     def _build_coder_prompt(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
         """
@@ -327,7 +346,7 @@ Output only Python code, no explanations."""
         Get adapter-driven strategy template.
         
         Returns template that works for BOTH backtest and live trading.
-        Uses BaseAdapter interface - never imports SimBroker directly.
+        Uses BaseAdapter interface with SimBrokerAdapter for backtesting.
         """
         # Load template from file
         template_path = self.workspace_root / 'Backtest' / 'codes' / 'strategy_template_adapter_driven.py'
@@ -336,63 +355,212 @@ Output only Python code, no explanations."""
             with open(template_path, encoding='utf-8') as f:
                 return f.read()
         
-        # Fallback: inline template
+        # Fallback: inline template with SimBroker integration
         return '''from typing import Dict, List, Optional
 import pandas as pd
+from pathlib import Path
 from adapters.base_adapter import BaseAdapter
+from adapters.simbroker_adapter import SimBrokerAdapter
+from simulator.simbroker import SimBroker, SimConfig
 
 class Strategy:
     """Adapter-driven strategy - works for backtest AND live."""
     
     def __init__(self, cfg: Dict):
         self.cfg = cfg
+        self.symbol = cfg.get('symbol', 'EURUSD')
+        self.volume = cfg.get('volume', 1.0)
     
     def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
         """Compute indicators (vectorized)."""
         indicators = {}
-        # Implementation here
+        # TODO: Implement indicator calculations
+        # Example: indicators['rsi'] = compute_rsi(df['Close'], period=14)
         return indicators
     
     def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
-        """Return order_request dict or None."""
-        # Implementation here
+        """
+        Check entry conditions and return order request.
+        
+        Args:
+            df: Full OHLCV DataFrame
+            indicators: Pre-computed indicators
+            idx: Current bar index
+            
+        Returns:
+            Order request dict or None
+        """
+        # TODO: Implement entry logic
+        # Example:
+        # if indicators['rsi'].iloc[idx] < 30:
+        #     return {
+        #         'action': 'BUY',
+        #         'symbol': self.symbol,
+        #         'volume': self.volume,
+        #         'type': 'MARKET',
+        #         'sl': df['Close'].iloc[idx] * 0.98,
+        #         'tp': df['Close'].iloc[idx] * 1.02
+        #     }
         return None
     
     def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
-        """Return close_request dict or None."""
+        """
+        Check exit conditions for open position.
+        
+        Args:
+            position: Position dict from adapter.get_positions()
+            df: Full OHLCV DataFrame
+            indicators: Pre-computed indicators
+            idx: Current bar index
+            
+        Returns:
+            Exit request dict or None
+        """
+        # TODO: Implement exit logic
+        # Example:
+        # if indicators['rsi'].iloc[idx] > 70:
+        #     return {'position_id': position['id']}
         return None
 
 def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
-    """Run backtest using adapter."""
+    """
+    Run backtest using adapter interface.
+    
+    Args:
+        adapter: Broker adapter (SimBrokerAdapter for backtest)
+        df: OHLCV DataFrame with columns ['Open', 'High', 'Low', 'Close', 'Volume']
+        cfg: Strategy configuration dict
+        
+    Returns:
+        Backtest report dict from adapter.generate_report()
+    """
     strategy = Strategy(cfg)
     indicators = strategy.prepare_indicators(df)
     
+    # Main backtest loop
     for idx in range(len(df)):
         bar = df.iloc[idx]
+        
+        # Check entry signals
         order_request = strategy.find_entries(df, indicators, idx)
         if order_request:
-            adapter.place_order(order_request)
-        adapter.step_bar(bar)
+            result = adapter.place_order(order_request)
+            if not result.get('success'):
+                print(f"Order failed: {result.get('error')}")
+        
+        # Process bar (check SL/TP, update positions)
+        events = adapter.step_bar(bar)
+        
+        # Check exit signals for open positions
         for position in adapter.get_positions():
             exit_request = strategy.find_exits(position, df, indicators, idx)
             if exit_request:
                 adapter.close_position(exit_request['position_id'])
     
+    # Generate final report
     return adapter.generate_report()
+
+def main():
+    """
+    Main entry point for backtesting with SimBroker.
+    
+    This function:
+    1. Loads data from CSV
+    2. Creates SimBroker and adapter
+    3. Runs backtest
+    4. Saves results (trades.csv, equity_curve.csv, report.json)
+    """
+    import sys
+    
+    # Configuration
+    cfg = {
+        'symbol': 'EURUSD',
+        'volume': 1.0,
+        'starting_balance': 10000.0,
+        'leverage': 100.0
+    }
+    
+    # Load data
+    data_file = 'fixtures/sample_data.csv'
+    if len(sys.argv) > 1:
+        data_file = sys.argv[1]
+    
+    print(f"Loading data from {data_file}...")
+    df = pd.read_csv(data_file)
+    
+    # Ensure required columns
+    required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+    if not all(col in df.columns for col in required_cols):
+        raise ValueError(f"CSV must have columns: {required_cols}")
+    
+    # Create SimBroker with configuration
+    sim_config = SimConfig(
+        starting_balance=cfg['starting_balance'],
+        leverage=cfg['leverage'],
+        commission={'type': 'per_lot', 'value': 7.0},
+        slippage={'type': 'fixed', 'value': 2}
+    )
+    broker = SimBroker(sim_config)
+    
+    # Wrap in adapter
+    adapter = SimBrokerAdapter(broker)
+    
+    # Run backtest
+    print("Running backtest...")
+    report = run_backtest(adapter, df, cfg)
+    
+    # Display results
+    print("\\n=== Backtest Results ===")
+    print(f"Total Trades: {report.get('summary', {}).get('total_trades', 0)}")
+    print(f"Win Rate: {report.get('summary', {}).get('win_rate', 0):.2%}")
+    print(f"Final Balance: ${report.get('summary', {}).get('final_balance', 0):.2f}")
+    print(f"Max Drawdown: {report.get('summary', {}).get('max_drawdown', 0):.2%}")
+    
+    # Save artifacts
+    output_dir = Path('backtest_results')
+    output_dir.mkdir(exist_ok=True)
+    
+    paths = adapter.save_report(str(output_dir))
+    print(f"\\nResults saved to:")
+    for name, path in paths.items():
+        print(f"  {name}: {path}")
+
+if __name__ == '__main__':
+    main()
 '''
     
     def _generate_with_gemini(self, prompt: str) -> str:
-        """Generate code using Gemini API."""
+        """Generate code using RequestRouter or Gemini API."""
         try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    temperature=self.temperature,
-                    max_output_tokens=8192
+            if self.use_router:
+                # Use RequestRouter with conversation mode for context
+                response_data = self.router.send_chat(
+                    conv_id=self.conversation_id,
+                    prompt=prompt,
+                    model_preference=self.model_name,
+                    expected_completion_tokens=4096,
+                    max_output_tokens=8192,
+                    temperature=self.temperature
                 )
-            )
-            
-            code = response.text
+                
+                if not response_data.get('success'):
+                    raise ValueError(f"Router error: {response_data.get('error', 'Unknown error')}")
+                
+                code = response_data['content']
+            else:
+                # Fallback to direct Gemini
+                if not hasattr(self, 'fallback_model') or self.fallback_model is None:
+                    raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
+                
+                import google.generativeai as genai
+                response = self.fallback_model.generate_content(
+                    prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=self.temperature,
+                        max_output_tokens=8192
+                    )
+                )
+                code = response.text
             
             # Extract code from markdown if present
             if '```python' in code:
@@ -403,7 +571,7 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
             return code
             
         except Exception as e:
-            print(f"[CoderAgent] Gemini error: {e}")
+            print(f"[CoderAgent] LLM error: {e}")
             raise
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
@@ -423,6 +591,173 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
         code = f'# Contract: {contract_id}\n' + code
         
         return code
+    
+    def _generate_test_file(self, task: Dict[str, Any], contract: Dict[str, Any], strategy_filename: str) -> CodeArtifact:
+        """
+        Generate test file for strategy that validates SimBroker backtest results.
+        
+        Args:
+            task: Task dictionary
+            contract: Contract dictionary
+            strategy_filename: Name of generated strategy file
+            
+        Returns:
+            CodeArtifact with test code
+        """
+        strategy_id = task.get('id', 'unknown').replace('task_', '')
+        module_name = strategy_filename.replace('.py', '')
+        
+        test_content = f'''"""
+Test file for {strategy_filename}
+
+Tests:
+1. test_backtest_runs - Verifies strategy executes without errors
+2. test_report_structure - Validates SimBroker report format
+3. test_trades_generated - Checks if strategy produces trades
+4. test_metrics_present - Ensures key metrics are calculated
+"""
+
+import pytest
+import pandas as pd
+from pathlib import Path
+import sys
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from Backtest.codes.{module_name} import Strategy, run_backtest, main
+from adapters.simbroker_adapter import SimBrokerAdapter
+from simulator.simbroker import SimBroker, SimConfig
+
+
+@pytest.fixture
+def sample_data():
+    """Load sample OHLCV data for testing."""
+    # Try to load from fixtures
+    fixture_path = Path('fixtures/sample_data.csv')
+    if fixture_path.exists():
+        return pd.read_csv(fixture_path)
+    
+    # Generate synthetic data if fixture doesn't exist
+    dates = pd.date_range('2024-01-01', periods=100, freq='1H')
+    df = pd.DataFrame({{
+        'timestamp': dates,
+        'Open': 1.10 + pd.Series(range(100)) * 0.0001,
+        'High': 1.102 + pd.Series(range(100)) * 0.0001,
+        'Low': 1.098 + pd.Series(range(100)) * 0.0001,
+        'Close': 1.101 + pd.Series(range(100)) * 0.0001,
+        'Volume': 1000
+    }})
+    return df
+
+
+@pytest.fixture
+def simbroker_adapter():
+    """Create SimBroker adapter for testing."""
+    config = SimConfig(
+        starting_balance=10000.0,
+        leverage=100.0,
+        commission={{'type': 'per_lot', 'value': 7.0}},
+        slippage={{'type': 'fixed', 'value': 2}}
+    )
+    broker = SimBroker(config)
+    return SimBrokerAdapter(broker)
+
+
+def test_backtest_runs(sample_data, simbroker_adapter):
+    """Test that backtest executes without errors."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    
+    # Should not raise exception
+    report = run_backtest(simbroker_adapter, sample_data, cfg)
+    
+    assert report is not None
+    assert isinstance(report, dict)
+
+
+def test_report_structure(sample_data, simbroker_adapter):
+    """Test that SimBroker report has expected structure."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    report = run_backtest(simbroker_adapter, sample_data, cfg)
+    
+    # Check summary section exists
+    assert 'summary' in report
+    summary = report['summary']
+    
+    # Validate key fields
+    assert 'starting_balance' in summary
+    assert 'final_balance' in summary
+    assert 'total_trades' in summary
+    assert isinstance(summary['total_trades'], (int, float))
+
+
+def test_trades_generated(sample_data, simbroker_adapter):
+    """Test that strategy attempts to generate trades."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    report = run_backtest(simbroker_adapter, sample_data, cfg)
+    
+    # Strategy should at least attempt trades (could be 0 if no signals)
+    assert 'total_trades' in report['summary']
+    trades_count = report['summary']['total_trades']
+    
+    # Log for debugging
+    print(f"Total trades generated: {{trades_count}}")
+    
+    # Just verify the field exists and is a number
+    assert isinstance(trades_count, (int, float))
+
+
+def test_metrics_present(sample_data, simbroker_adapter):
+    """Test that key performance metrics are present."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    report = run_backtest(simbroker_adapter, sample_data, cfg)
+    
+    summary = report['summary']
+    
+    # Check for common metrics (SimBroker should provide these)
+    expected_metrics = [
+        'starting_balance',
+        'final_balance',
+        'total_trades',
+        'win_rate',
+        'profit_factor',
+        'max_drawdown'
+    ]
+    
+    for metric in expected_metrics:
+        assert metric in summary, f"Missing metric: {{metric}}"
+
+
+def test_strategy_initialization():
+    """Test that Strategy class initializes correctly."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    strategy = Strategy(cfg)
+    
+    assert strategy.cfg == cfg
+    assert strategy.symbol == 'EURUSD'
+    assert strategy.volume == 1.0
+
+
+def test_indicators_computation(sample_data):
+    """Test that prepare_indicators returns valid data."""
+    cfg = {{'symbol': 'EURUSD', 'volume': 1.0}}
+    strategy = Strategy(cfg)
+    
+    indicators = strategy.prepare_indicators(sample_data)
+    
+    assert isinstance(indicators, dict)
+    # Indicators dict might be empty if strategy doesn't use any
+    # But it should be a dict
+'''
+        
+        test_artifact = CodeArtifact(
+            file_path=f"tests/test_{module_name}.py",
+            content=test_content,
+            artifact_type='test',
+            contract_id=contract['contract_id']
+        )
+        
+        return test_artifact
     
     def _validate_code(self, artifacts: List[CodeArtifact]) -> ValidationResult:
         """

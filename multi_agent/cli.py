@@ -230,6 +230,9 @@ class MultiAgentCLI:
             elif agent_role == 'coder' and auto_execute:
                 result = self._execute_coder_task(task_details)
                 results[task_id] = result
+            elif agent_role == 'tester' and auto_execute:
+                result = self._execute_tester_task(task_details)
+                results[task_id] = result
             else:
                 print(f"   ⏸️  Manual execution required or not implemented")
                 results[task_id] = {'status': 'pending', 'message': 'Not executed'}
@@ -405,6 +408,112 @@ class MultiAgentCLI:
                 'contract_path': str(contract_path)
             }
             
+        except Exception as e:
+            print(f"   ❌ Execution failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+    
+    def _execute_tester_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a tester agent task.
+        
+        Runs tests in Docker sandbox, validates SimBroker results.
+        
+        Args:
+            task: Task dictionary from TodoList
+            
+        Returns:
+            Execution result with test metrics
+        """
+        print(f"   ⏳ Executing Tester Agent...")
+        
+        try:
+            # Lazy load Tester Agent
+            from agents.tester_agent.tester import TesterAgent
+            
+            tester = TesterAgent(use_redis=False)
+            print(f"   ✓ Tester Agent initialized")
+            
+            # Get acceptance criteria (test commands to run)
+            acceptance = task.get('acceptance_criteria', {})
+            tests = acceptance.get('tests', [])
+            
+            if not tests:
+                print(f"   ⚠️  No tests defined in acceptance criteria")
+                return {
+                    'status': 'skipped',
+                    'message': 'No tests to execute'
+                }
+            
+            print(f"   ⏳ Running {len(tests)} test(s) in Docker sandbox...")
+            start_time = time.time()
+            
+            # Create test event (simulating orchestrator dispatch)
+            from contracts import Event, EventType
+            
+            event = Event.create(
+                event_type=EventType.TASK_DISPATCHED,
+                correlation_id=f"cli_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                workflow_id=task.get('workflow_id', 'cli_workflow'),
+                task_id=task.get('id', 'test_task'),
+                data={'task': task},
+                source='cli'
+            )
+            
+            # Handle task (runs tests in sandbox)
+            tester.handle_task(event)
+            
+            duration = time.time() - start_time
+            
+            print(f"   ✓ Tests completed in {duration:.2f}s")
+            
+            # Check for test results
+            workspace = Path('artifacts') / event.correlation_id / event.task_id
+            report_path = workspace / 'test_report.json'
+            
+            if report_path.exists():
+                with open(report_path) as f:
+                    report = json.load(f)
+                
+                summary = report.get('summary', {})
+                
+                print(f"   ✓ Test Report:")
+                print(f"      Total Trades: {summary.get('total_trades', 0)}")
+                print(f"      Win Rate: {summary.get('win_rate', 0):.2%}")
+                print(f"      Net PnL: ${summary.get('net_pnl', 0):.2f}")
+                print(f"      Max Drawdown: {summary.get('max_drawdown', 0):.2%}")
+                
+                # Check for artifacts
+                trades_csv = workspace / 'trades.csv'
+                equity_csv = workspace / 'equity_curve.csv'
+                
+                if trades_csv.exists():
+                    print(f"   ✓ Trades saved: {trades_csv}")
+                if equity_csv.exists():
+                    print(f"   ✓ Equity curve saved: {equity_csv}")
+                
+                return {
+                    'status': 'ready',
+                    'duration': duration,
+                    'metrics': summary,
+                    'artifacts': {
+                        'report': str(report_path),
+                        'trades': str(trades_csv) if trades_csv.exists() else None,
+                        'equity': str(equity_csv) if equity_csv.exists() else None
+                    }
+                }
+            else:
+                print(f"   ⚠️  No test report generated")
+                return {
+                    'status': 'completed',
+                    'duration': duration,
+                    'message': 'Tests completed but no report found'
+                }
+        
         except Exception as e:
             print(f"   ❌ Execution failed: {e}")
             import traceback

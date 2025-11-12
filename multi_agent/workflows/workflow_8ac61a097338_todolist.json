@@ -1,0 +1,142 @@
+{
+  "todo_list_id": "workflow_8ac61a097338",
+  "workflow_name": "CLI Request 20251112_194559",
+  "created_at": "2025-11-12T16:45:59.432929Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "Create simple EMA crossover strategy",
+    "planner_version": "1.0.0",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3
+  },
+  "items": [
+    {
+      "id": "task_data_loading_ema",
+      "title": "Data Loading Integration for EMA Strategy",
+      "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data for EMA calculation.",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_adapter.py::test_data_loading --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/sample_aapl.csv"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "backtesting_adapter.py",
+        "fixtures/sample_aapl.csv"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_indicators_ema",
+      "title": "EMA Indicator Loading (12 & 26-day)",
+      "description": "Implement compute_ema(series, period) for 12-day and 26-day Exponential Moving Averages.",
+      "agent_role": "architect",
+      "priority": 2,
+      "dependencies": [
+        "task_data_loading_ema"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators_ema.py --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/ema_expected.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "contracts/indicator_contract.json",
+        "indicators/ema.py",
+        "fixtures/ema_expected.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_entry_ema_crossover",
+      "title": "Entry Conditions Setup - EMA Crossover",
+      "description": "Implement should_enter(bar, indicators, position) to trigger a buy signal when 12-day EMA crosses above 26-day EMA.",
+      "agent_role": "coder",
+      "priority": 3,
+      "dependencies": [
+        "task_indicators_ema"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_entry_ema.py --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/entry_scenarios_ema.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_entry.py",
+        "fixtures/entry_scenarios_ema.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_exit_ema_crossover",
+      "title": "Exit Conditions Setup - EMA Crossover + SL/TP",
+      "description": "Implement should_exit(bar, indicators, position) to trigger a sell signal when 12-day EMA crosses below 26-day EMA, including stop loss and take profit logic.",
+      "agent_role": "coder",
+      "priority": 4,
+      "dependencies": [
+        "task_entry_ema_crossover"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_exit_ema.py --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/exit_scenarios_ema.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_exit.py",
+        "fixtures/exit_scenarios_ema.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    }
+  ]
+}

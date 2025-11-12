@@ -4,6 +4,7 @@ Planner Service
 Converts natural language requests into structured TodoList JSON.
 """
 
+import os
 import json
 import logging
 import uuid
@@ -11,8 +12,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-import google.generativeai as genai
-
+from llm.router import get_request_router
 from contracts.validate_contract import SchemaValidator
 
 
@@ -293,20 +293,39 @@ Be thorough. Output only valid JSON matching the schema above EXACTLY.
 class PlannerService:
     """Planner service that creates todo lists from natural language."""
     
-    def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash-exp"):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
         """
         Initialize planner service.
         
         Args:
-            api_key: Google API key
-            model_name: Gemini model name
+            api_key: Deprecated - kept for backward compatibility (ignored)
+            model_name: Model name preference for router
         """
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model_name)
+        # Use RequestRouter for multi-key management
+        self.router = get_request_router()
+        self.model_name = model_name
         self.validator = SchemaValidator()
         self.version = "1.0.0"
+        self.conversation_id = f"planner_{uuid.uuid4().hex[:8]}"
         
-        logger.info(f"Initialized PlannerService with model {model_name}")
+        # Check if router is enabled
+        self.use_router = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
+        if self.use_router:
+            logger.info(f"Initialized PlannerService with RequestRouter (model: {model_name})")
+        else:
+            logger.warning("RequestRouter disabled - falling back to direct API calls")
+            # Fallback: initialize direct API
+            import google.generativeai as genai
+            
+            # Get API key from parameter or environment
+            api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+            if not api_key:
+                logger.error("No API key found for fallback mode")
+                self.fallback_model = None
+            else:
+                genai.configure(api_key=api_key)
+                self.fallback_model = genai.GenerativeModel(model_name)
     
     def create_plan(
         self,
@@ -341,8 +360,28 @@ class PlannerService:
         max_attempts = 3
         for attempt in range(max_attempts):
             try:
-                response = self.model.generate_content(prompt)
-                todo_list = self._parse_response(response.text)
+                # Use RequestRouter or fallback
+                if self.use_router:
+                    response_data = self.router.send_chat(
+                        conv_id=self.conversation_id,
+                        prompt=prompt,
+                        model_preference=self.model_name,
+                        expected_completion_tokens=2048,
+                        max_output_tokens=4096,
+                        temperature=0.3,
+                        system_prompt=PLANNER_SYSTEM_PROMPT
+                    )
+                    
+                    if not response_data.get('success'):
+                        raise ValueError(f"Router error: {response_data.get('error', 'Unknown error')}")
+                    
+                    response_text = response_data['content']
+                else:
+                    # Fallback to direct API
+                    response = self.fallback_model.generate_content(prompt)
+                    response_text = response.text
+                
+                todo_list = self._parse_response(response_text)
                 
                 # Validate against schema
                 is_valid, errors = self.validator.validate_todo_list(todo_list)

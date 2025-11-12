@@ -1,0 +1,62 @@
+# Example API Key Configuration
+# Save as: keys.json
+# Store actual secrets in Vault/AWS Secrets Manager
+
+{
+  "keys": [
+    {
+      "key_id": "gemini-flash-01",
+      "model_name": "gemini-2.5-flash",
+      "provider": "gemini",
+      "rpm": 10,
+      "tpm": 250000,
+      "rpd": 1500,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "flash",
+        "priority": "high"
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    },
+    {
+      "key_id": "gemini-flash-02",
+      "model_name": "gemini-2.5-flash",
+      "provider": "gemini",
+      "rpm": 10,
+      "tpm": 250000,
+      "rpd": 1500,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "flash",
+        "priority": "medium"
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    },
+    {
+      "key_id": "gemini-pro-01",
+      "model_name": "gemini-2.5-pro",
+      "provider": "gemini",
+      "rpm": 5,
+      "tpm": 100000,
+      "rpd": 50,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "priority": "high"
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    }
+  ],
+  "config": {
+    "max_retries": 2,
+    "base_backoff_ms": 500,
+    "enable_fallback": true,
+    "conversation_ttl_seconds": 86400
+  }
+}

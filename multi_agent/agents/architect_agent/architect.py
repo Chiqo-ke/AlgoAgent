@@ -8,13 +8,16 @@ Responsibilities:
 - Publishes contracts for Coder agent
 """
 
+import os
 import json
 import asyncio
+import uuid
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from llm.router import get_request_router
 from contracts.event_types import EventType, Event
 from contracts.message_bus import MessageBus, Channels
 from fixture_manager import FixtureManager
@@ -46,23 +49,35 @@ class ArchitectAgent:
     5. Publishes contract for Coder agent
     """
     
-    def __init__(self, message_bus: MessageBus, api_key: str):
+    def __init__(self, message_bus: MessageBus, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
         """
         Initialize architect agent.
         
         Args:
             message_bus: Message bus for communication
-            api_key: Google API key for Gemini
+            api_key: Deprecated - kept for backward compatibility
+            model_name: Model preference for router
         """
         self.message_bus = message_bus
         self.agent_id = "architect-001"
         self.running = False
         self.fixture_manager = FixtureManager()
+        self.model_name = model_name
+        self.conversation_id = f"architect_{uuid.uuid4().hex[:8]}"
         
-        # Initialize Gemini for contract generation
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        # Use RequestRouter for multi-key management
+        self.router = get_request_router()
+        self.use_router = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
+        if self.use_router:
+            print(f"[Architect] Initialized with RequestRouter (model: {model_name})")
+        else:
+            print(f"[Architect] RequestRouter disabled - using fallback")
+            # Fallback mode
+            import google.generativeai as genai
+            if api_key:
+                genai.configure(api_key=api_key)
+            self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-exp")
         
     async def start(self):
         """Start listening for design tasks"""
@@ -172,8 +187,27 @@ Output valid JSON only with structure:
 }}
 """
         
-        response = self.model.generate_content(prompt)
-        contract_data = self._parse_json_response(response.text)
+        # Use RequestRouter or fallback
+        if self.use_router:
+            response_data = self.router.send_chat(
+                conv_id=self.conversation_id,
+                prompt=prompt,
+                model_preference=self.model_name,
+                expected_completion_tokens=2048,
+                max_output_tokens=4096,
+                temperature=0.3
+            )
+            
+            if not response_data.get('success'):
+                raise ValueError(f"Router error: {response_data.get('error', 'Unknown error')}")
+            
+            response_text = response_data['content']
+        else:
+            # Fallback to direct Gemini
+            response = self.fallback_model.generate_content(prompt)
+            response_text = response.text
+        
+        contract_data = self._parse_json_response(response_text)
         
         contract = Contract(
             contract_id=f"contract_{task_id}",

@@ -1,6 +1,6 @@
 {
   "contract_id": "contract_task_entry",
-  "description": "Implement should_enter for MACD line crossing signal line",
+  "description": "Implement should_enter for RSI oversold signal (RSI < 30)",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",
