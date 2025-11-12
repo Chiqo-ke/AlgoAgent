@@ -1,0 +1,28 @@
+# LLM Router Requirements
+# Install: pip install -r requirements_llm.txt
+
+# Core dependencies
+redis>=5.0.0
+google-generativeai>=0.3.0
+
+# Optional providers (install as needed)
+# openai>=1.0.0
+# anthropic>=0.7.0
+
+# Secret managers (install based on your choice)
+# hvac>=1.2.0  # HashiCorp Vault
+# boto3>=1.28.0  # AWS Secrets Manager
+# azure-keyvault-secrets>=4.7.0  # Azure Key Vault
+# azure-identity>=1.14.0
+
+# Token counting (optional, for accurate estimation)
+# tiktoken>=0.5.0  # OpenAI tokenizer
+
+# Monitoring (optional)
+# prometheus-client>=0.18.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
