@@ -48,8 +48,8 @@ class RequestRouter:
         self,
         key_manager: Optional[KeyManager] = None,
         conv_store: Optional[ConversationStore] = None,
-        max_retries: int = 2,
-        base_backoff_ms: int = 500
+        max_retries: Optional[int] = None,
+        base_backoff_ms: Optional[int] = None
     ):
         """
         Initialize request router.
@@ -57,15 +57,18 @@ class RequestRouter:
         Args:
             key_manager: KeyManager instance
             conv_store: ConversationStore instance
-            max_retries: Maximum retry attempts on rate limit
-            base_backoff_ms: Base backoff duration in milliseconds
+            max_retries: Maximum retry attempts (default: 3, or from env LLM_MAX_RETRIES)
+            base_backoff_ms: Base backoff duration in milliseconds (default: 500)
         """
         self.key_manager = key_manager or get_key_manager()
         self.conv_store = conv_store or get_conversation_store()
-        self.max_retries = max_retries
-        self.base_backoff_ms = base_backoff_ms
         
-        logger.info("Request router initialized")
+        # Get max retries from env or use provided/default
+        import os
+        self.max_retries = max_retries if max_retries is not None else int(os.getenv('LLM_MAX_RETRIES', '3'))
+        self.base_backoff_ms = base_backoff_ms if base_backoff_ms is not None else int(os.getenv('LLM_BASE_BACKOFF_MS', '500'))
+        
+        logger.info(f"Request router initialized (max_retries={self.max_retries}, base_backoff_ms={self.base_backoff_ms})")
     
     def send_chat(
         self,
@@ -213,18 +216,45 @@ class RequestRouter:
                         )
                 
                 except ProviderError as e:
-                    # Other provider errors
-                    logger.error(f"Provider error: {e}")
+                    # Check if this is a retryable error
+                    error_str = str(e).lower()
+                    is_retryable = any(keyword in error_str for keyword in [
+                        '504', 'deadline exceeded', 'timeout', 
+                        '503', 'service unavailable', 'temporarily unavailable',
+                        '502', 'bad gateway', 'connection'
+                    ])
                     
-                    # Set short cooldown
-                    if key_meta:
-                        self.key_manager.mark_key_unhealthy(
-                            key_meta['key_id'],
-                            cooldown_seconds=30,
-                            reason=f"Provider error: {str(e)}"
+                    if is_retryable and attempt < self.max_retries:
+                        logger.warning(
+                            f"Retryable provider error on attempt {attempt + 1}/{self.max_retries + 1}: {e}"
                         )
-                    
-                    raise RouterError(f"Provider error: {str(e)}")
+                        
+                        # Set short cooldown for this key
+                        if key_meta:
+                            self.key_manager.mark_key_unhealthy(
+                                key_meta['key_id'],
+                                cooldown_seconds=30,
+                                reason=f"Retryable error: {str(e)}"
+                            )
+                            excluded_keys.append(key_meta['key_id'])
+                        
+                        # Exponential backoff before retry
+                        backoff_ms = self._calculate_backoff(attempt)
+                        logger.info(f"Retrying after {backoff_ms}ms backoff (different key)")
+                        time.sleep(backoff_ms / 1000)
+                        continue  # Retry with different key
+                    else:
+                        # Non-retryable error or max retries exceeded
+                        logger.error(f"Non-retryable provider error: {e}")
+                        
+                        if key_meta:
+                            self.key_manager.mark_key_unhealthy(
+                                key_meta['key_id'],
+                                cooldown_seconds=30,
+                                reason=f"Provider error: {str(e)}"
+                            )
+                        
+                        raise RouterError(f"Provider error: {str(e)}")
             
             # Should not reach here
             raise AllKeysExhaustedError("Max retries exceeded")
