@@ -1,0 +1,168 @@
+{
+  "contract_id": "contract_task_indicators_ema",
+  "name": "Indicator Loading - 20 & 50 EMA",
+  "description": "Contract definition for a function to compute Exponential Moving Averages (EMA) for a given series and period. This function will be used to calculate 20-period and 50-period EMAs within the backtesting simulation software.",
+  "interfaces": [
+    {
+      "name": "compute_ema",
+      "params": [
+        {
+          "name": "series",
+          "type": "List[float]"
+        },
+        {
+          "name": "period",
+          "type": "int"
+        }
+      ],
+      "returns": "List[Optional[float]]",
+      "docstring": "Computes the Exponential Moving Average (EMA) for a given series of prices.\n\n    The EMA is calculated using the formula: EMA = (Price - Previous EMA) * Alpha + Previous EMA,\n    where Alpha = 2 / (period + 1).\n    The first EMA value (at index `period - 1`) is typically initialized as the Simple Moving Average (SMA)\n    of the first `period` values in the series.\n    Values for indices less than `period - 1` will be `None` as EMA cannot be computed.\n\n    Args:\n        series (List[float]): A list of numeric values (e.g., closing prices).\n        period (int): The number of periods to use for the EMA calculation.\n\n    Returns:\n        List[Optional[float]]: A list of EMA values, with `None` for the initial uncomputable values.\n                               The length of the returned list will be the same as the input series.\n\n    Raises:\n        ValueError: If 'period' is less than 1.\n        TypeError: If 'series' contains non-numeric values.\n    "
+    }
+  ],
+  "data_models": [
+    {
+      "name": "NoCustomDataModels",
+      "description": "No custom data models are required for this task. Inputs and outputs are handled by standard Python types (List[float], int, Optional[float])."
+    }
+  ],
+  "examples": [
+    {
+      "name": "test_ema_normal_case",
+      "description": "Tests EMA calculation with a typical series and period.",
+      "input": {
+        "series": [
+          10.0,
+          11.0,
+          12.0,
+          13.0,
+          14.0,
+          15.0
+        ],
+        "period": 3
+      },
+      "expected": {
+        "ema_values": [
+          null,
+          null,
+          11.0,
+          12.0,
+          13.0,
+          14.0
+        ],
+        "precision_tolerance": 1e-09
+      }
+    },
+    {
+      "name": "test_ema_short_series",
+      "description": "Tests EMA calculation when the series is shorter than the period.",
+      "input": {
+        "series": [
+          10.0,
+          11.0
+        ],
+        "period": 3
+      },
+      "expected": {
+        "ema_values": [
+          null,
+          null
+        ]
+      }
+    },
+    {
+      "name": "test_ema_period_one",
+      "description": "Tests EMA calculation with a period of 1 (EMA should be identical to the series).",
+      "input": {
+        "series": [
+          10.0,
+          11.0,
+          12.0
+        ],
+        "period": 1
+      },
+      "expected": {
+        "ema_values": [
+          10.0,
+          11.0,
+          12.0
+        ],
+        "precision_tolerance": 1e-09
+      }
+    },
+    {
+      "name": "test_ema_invalid_period_zero",
+      "description": "Tests error handling for a period of zero.",
+      "input": {
+        "series": [
+          10.0,
+          11.0,
+          12.0
+        ],
+        "period": 0
+      },
+      "expected": {
+        "error_type": "ValueError",
+        "error_message_contains": "Period must be at least 1"
+      }
+    },
+    {
+      "name": "test_ema_invalid_period_negative",
+      "description": "Tests error handling for a negative period.",
+      "input": {
+        "series": [
+          10.0,
+          11.0,
+          12.0
+        ],
+        "period": -5
+      },
+      "expected": {
+        "error_type": "ValueError",
+        "error_message_contains": "Period must be at least 1"
+      }
+    },
+    {
+      "name": "test_ema_non_numeric_series",
+      "description": "Tests error handling for a series containing non-numeric values.",
+      "input": {
+        "series": [
+          10.0,
+          "invalid",
+          12.0
+        ],
+        "period": 2
+      },
+      "expected": {
+        "error_type": "TypeError",
+        "error_message_contains": "Series must contain only numeric values"
+      }
+    }
+  ],
+  "test_skeleton": {
+    "file_name": "test_indicators.py",
+    "imports": [
+      "pytest",
+      "math",
+      "typing.List",
+      "typing.Optional"
+    ],
+    "required_fixtures": [],
+    "test_functions": [
+      "def test_compute_ema_normal_case():",
+      "def test_compute_ema_short_series():",
+      "def test_compute_ema_period_one():",
+      "def test_compute_ema_invalid_period_zero():",
+      "def test_compute_ema_invalid_period_negative():",
+      "def test_compute_ema_non_numeric_series():"
+    ],
+    "pytest_commands": [
+      "pytest test_indicators.py",
+      "pytest -v test_indicators.py"
+    ],
+    "notes": "When comparing float lists, use `pytest.approx` for numerical stability. For `None` values, direct comparison is fine."
+  },
+  "fixtures": [
+    "No external fixture files are required for these basic test cases, as inputs and expected outputs are simple enough to be defined inline within the test functions."
+  ],
+  "created_at": "2025-11-20T18:41:55.341715"
+}

@@ -1,0 +1,17 @@
+{
+  "contract_id": "contract_task_data_loading_sma",
+  "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data for the SMA crossover strategy. Ensure the output DataFrame has 'Date', 'Open', 'High', 'Low', 'Close', 'Volume' columns.",
+  "interfaces": {
+    "run_backtest": {
+      "description": "Execute backtesting strategy",
+      "inputs": [
+        "adapter",
+        "df with OHLCV",
+        "config"
+      ],
+      "outputs": [
+        "Backtest results with metrics"
+      ]
+    }
+  }
+}

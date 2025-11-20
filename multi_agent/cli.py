@@ -453,9 +453,9 @@ class MultiAgentCLI:
             start_time = time.time()
             
             # Create test event (simulating orchestrator dispatch)
-            from contracts import Event, EventType
+            from contracts import TaskEvent, EventType
             
-            event = Event.create(
+            event = TaskEvent.create(
                 event_type=EventType.TASK_DISPATCHED,
                 correlation_id=f"cli_{datetime.now().strftime('%Y%m%d%H%M%S')}",
                 workflow_id=task.get('workflow_id', 'cli_workflow'),
@@ -715,6 +715,235 @@ class MultiAgentCLI:
                 print(f"   ❌ Error reading {todo_file.name}: {e}")
                 print()
     
+    def test_workflow(self, workflow_id: str) -> Dict[str, Any]:
+        """
+        Test all generated artifacts from a workflow.
+        
+        Args:
+            workflow_id: Workflow identifier
+            
+        Returns:
+            Dictionary with test results
+        """
+        print(f"\n🧪 Testing workflow: {workflow_id}")
+        print()
+        
+        # Find generated strategy files
+        artifacts_dir = self.workspace_root / "multi_agent" / "Backtest" / "codes"
+        test_dir = self.workspace_root / "multi_agent" / "tests"
+        
+        if not artifacts_dir.exists():
+            print(f"   ❌ Artifacts directory not found: {artifacts_dir}")
+            return {'status': 'error', 'message': 'Artifacts directory not found'}
+        
+        # Get workflow creation time to filter only new files
+        workflow_time = None
+        todolist_file = self.output_dir / f"{workflow_id}_todolist.json"
+        if todolist_file.exists():
+            workflow_time = todolist_file.stat().st_mtime
+            print(f"📅 Workflow created: {datetime.fromtimestamp(workflow_time).strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Find strategy files created AFTER workflow started
+        all_strategy_files = list(artifacts_dir.glob("ai_strategy_*.py"))
+        
+        if workflow_time:
+            strategy_files = [sf for sf in all_strategy_files if sf.stat().st_mtime >= workflow_time]
+            if len(strategy_files) < len(all_strategy_files):
+                print(f"📂 Filtered: {len(strategy_files)} new files (out of {len(all_strategy_files)} total)")
+        else:
+            strategy_files = all_strategy_files
+            print(f"⚠️  No workflow timestamp found, testing all {len(strategy_files)} files")
+        
+        if not strategy_files:
+            print(f"   ⚠️  No generated strategy files found")
+            print(f"   Looking for: ai_strategy_*.py in {artifacts_dir}")
+            return {'status': 'skipped', 'message': 'No strategy files to test'}
+        
+        print(f"📁 Found {len(strategy_files)} strategy file(s):")
+        for sf in strategy_files:
+            print(f"   - {sf.name}")
+        print()
+        
+        # Run tests for each strategy
+        results = []
+        passed = 0
+        failed = 0
+        
+        for strategy_file in strategy_files:
+            strategy_name = strategy_file.stem
+            test_file = test_dir / f"test_{strategy_name}.py"
+            
+            print(f"🧪 Testing: {strategy_name}")
+            print(f"   Strategy: {strategy_file.name}")
+            print(f"   Test: {test_file.name if test_file.exists() else 'NOT FOUND'}")
+            
+            if not test_file.exists():
+                print(f"   ⚠️  Test file not found, skipping...")
+                print()
+                results.append({
+                    'strategy': strategy_name,
+                    'status': 'skipped',
+                    'message': 'Test file not found'
+                })
+                continue
+            
+            # Create test task for Tester Agent
+            task = {
+                "id": f"test_{strategy_name}",
+                "title": f"Test {strategy_name}",
+                "description": f"Validate {strategy_file.name} implementation",
+                "agent_role": "tester",
+                "dependencies": [],
+                "metadata": {
+                    "strategy_file": str(strategy_file),
+                    "test_file": str(test_file),
+                    "workflow_id": workflow_id
+                },
+                "acceptance_criteria": {
+                    "tests": [
+                        {
+                            "cmd": f"python -m pytest {test_file} -v",
+                            "timeout_seconds": 60
+                        }
+                    ]
+                }
+            }
+            
+            try:
+                print(f"   ⏳ Running tests...")
+                start_time = time.time()
+                
+                # Run pytest with JSON report for detailed error extraction
+                import subprocess
+                import sys
+                json_report = test_dir / f".pytest_{strategy_name}.json"
+                
+                # Use the same Python executable that's running this script
+                result = subprocess.run(
+                    [
+                        sys.executable, "-m", "pytest",
+                        str(test_file),
+                        "-v",
+                        "--tb=short",
+                        "--json-report",
+                        f"--json-report-file={json_report}",
+                        "--json-report-indent=2"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    cwd=str(self.workspace_root / "multi_agent")
+                )
+                
+                duration = time.time() - start_time
+                
+                # Parse JSON report for detailed errors
+                test_errors = []
+                if json_report.exists():
+                    try:
+                        with open(json_report, 'r') as f:
+                            report = json.load(f)
+                        
+                        # Extract failed test details
+                        for test in report.get("tests", []):
+                            if test.get("outcome") in ["failed", "error"]:
+                                call_info = test.get("call", {})
+                                longrepr = call_info.get("longrepr", "")
+                                
+                                # Extract error type and message
+                                error_lines = longrepr.split('\n') if longrepr else []
+                                error_msg = error_lines[-1] if error_lines else "Unknown error"
+                                
+                                test_errors.append({
+                                    "test_name": test.get("nodeid", ""),
+                                    "message": error_msg,
+                                    "full_traceback": longrepr
+                                })
+                    except Exception as e:
+                        print(f"      ⚠️  Could not parse JSON report: {e}")
+                
+                if result.returncode == 0:
+                    print(f"   ✅ PASSED ({duration:.2f}s)")
+                    passed += 1
+                    
+                    # Try to extract metrics from output
+                    if "passed" in result.stdout:
+                        import re
+                        match = re.search(r'(\d+) passed', result.stdout)
+                        if match:
+                            print(f"      Tests: {match.group(1)} passed")
+                else:
+                    print(f"   ❌ FAILED ({duration:.2f}s)")
+                    failed += 1
+                    
+                    # Show first error message
+                    if test_errors:
+                        print(f"      Error: {test_errors[0]['message'][:100]}")
+                    elif result.stdout:
+                        lines = result.stdout.split('\n')[:3]
+                        for line in lines:
+                            if line.strip() and not line.startswith('='):
+                                print(f"      {line[:100]}")
+                
+                results.append({
+                    'strategy': strategy_name,
+                    'status': 'ready' if result.returncode == 0 else 'error',
+                    'duration': duration,
+                    'exit_code': result.returncode,
+                    'output': result.stdout[:1000] if result.stdout else None,
+                    'errors': test_errors,
+                    'error': test_errors[0]['message'] if test_errors else (result.stdout[:200] if result.stdout else 'Unknown error')
+                })
+                
+            except subprocess.TimeoutExpired:
+                print(f"   ❌ TIMEOUT (>30s)")
+                failed += 1
+                results.append({
+                    'strategy': strategy_name,
+                    'status': 'timeout',
+                    'error': 'Test execution timed out after 30 seconds'
+                })
+            except Exception as e:
+                print(f"   ❌ EXCEPTION: {e}")
+                failed += 1
+                results.append({
+                    'strategy': strategy_name,
+                    'status': 'error',
+                    'error': str(e)
+                })
+            
+            print()
+        
+        # Summary
+        total = len(results)
+        print("="*70)
+        print(f"📊 TEST SUMMARY")
+        print("="*70)
+        print(f"   Total: {total}")
+        print(f"   Passed: {passed} ✅")
+        print(f"   Failed: {failed} ❌")
+        print(f"   Success Rate: {passed/total*100:.0f}%" if total > 0 else "   No tests run")
+        print()
+        
+        # Save detailed report
+        report_file = self.output_dir / f"test_report_{workflow_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        report_data = {
+            "workflow_id": workflow_id,
+            "timestamp": datetime.now().isoformat(),
+            "summary": {
+                "total": total,
+                "passed": passed,
+                "failed": failed,
+                "success_rate": passed/total if total > 0 else 0
+            },
+            "results": results
+        }
+        report_file.write_text(json.dumps(report_data, indent=2))
+        print(f"💾 Detailed report saved: {report_file.name}")
+        print()
+        
+        return report_data
+    
     def interactive_mode(self):
         """Run interactive CLI session."""
         print("="*70)
@@ -724,6 +953,8 @@ class MultiAgentCLI:
         print("Commands:")
         print("  submit <request>  - Submit new strategy request")
         print("  execute <id>      - Execute workflow tasks")
+        print("  test <id>         - Test generated strategy artifacts")
+        print("  iterate <id>      - Run iterative loop until tests pass")
         print("  status <id>       - Check workflow status")
         print("  list              - List all workflows")
         print("  help              - Show this help")
@@ -751,6 +982,8 @@ class MultiAgentCLI:
                     print("Commands:")
                     print("  submit <request>  - Submit new strategy request")
                     print("  execute <id>      - Execute workflow tasks")
+                    print("  test <id>         - Test generated strategy artifacts")
+                    print("  iterate <id>      - Run iterative loop until tests pass")
                     print("  status <id>       - Check workflow status")
                     print("  list              - List all workflows")
                     print("  help              - Show this help")
@@ -782,6 +1015,48 @@ class MultiAgentCLI:
                                 print(f"   {task_id}: {task_result['status']}")
                     else:
                         print(f"❌ Execution failed: {result.get('message', 'Unknown error')}")
+                    print()
+                
+                elif command == "test":
+                    if not args:
+                        print("❌ Usage: test <workflow_id>")
+                        print()
+                        continue
+                    
+                    result = self.test_workflow(args)
+                    if result.get('status') != 'error':
+                        summary = result.get('summary', {})
+                        print(f"✅ Testing complete: {summary.get('passed', 0)}/{summary.get('total', 0)} passed")
+                    else:
+                        print(f"❌ Testing failed: {result.get('message', 'Unknown error')}")
+                    print()
+                
+                elif command == "iterate":
+                    if not args:
+                        print("❌ Usage: iterate <workflow_id> [max_iterations]")
+                        print()
+                        continue
+                    
+                    # Parse args
+                    parts = args.split()
+                    workflow_id = parts[0]
+                    max_iterations = int(parts[1]) if len(parts) > 1 else 5
+                    
+                    # Run iterative loop
+                    from iterative_loop import IterativeLoop
+                    
+                    loop = IterativeLoop(
+                        cli=self,
+                        max_iterations=max_iterations,
+                        auto_fix=True
+                    )
+                    
+                    result = loop.run_until_success(workflow_id, verbose=True)
+                    
+                    if result.get('success'):
+                        print(f"✅ Strategy perfected in {result.get('total_iterations')} iterations!")
+                    else:
+                        print(f"⚠️  Max iterations ({max_iterations}) reached without full success")
                     print()
                 
                 elif command == "status":
@@ -849,6 +1124,25 @@ Examples:
     )
     
     parser.add_argument(
+        '--test', '-t',
+        type=str,
+        help='Test generated strategy artifacts'
+    )
+    
+    parser.add_argument(
+        '--iterate', '-i',
+        type=str,
+        help='Run iterative loop until tests pass (workflow_id)'
+    )
+    
+    parser.add_argument(
+        '--max-iterations',
+        type=int,
+        default=5,
+        help='Maximum iterations for iterative loop (default: 5)'
+    )
+    
+    parser.add_argument(
         '--run',
         action='store_true',
         help='Execute workflow immediately after submit (use with --request)'
@@ -899,6 +1193,36 @@ Examples:
         else:
             print(f"❌ Execution failed: {result.get('message', 'Unknown error')}")
         sys.exit(0)
+    
+    elif args.test:
+        result = cli.test_workflow(args.test)
+        if result.get('status') != 'error':
+            summary = result.get('summary', {})
+            passed = summary.get('passed', 0)
+            total = summary.get('total', 0)
+            print(f"✅ Testing complete: {passed}/{total} passed")
+            sys.exit(0 if passed == total else 1)
+        else:
+            print(f"❌ Testing failed: {result.get('message', 'Unknown error')}")
+            sys.exit(1)
+    
+    elif args.iterate:
+        from iterative_loop import IterativeLoop
+        
+        loop = IterativeLoop(
+            cli=cli,
+            max_iterations=args.max_iterations,
+            auto_fix=True
+        )
+        
+        result = loop.run_until_success(args.iterate, verbose=True)
+        
+        if result.get('success'):
+            print(f"✅ Strategy perfected in {result.get('total_iterations')} iterations!")
+            sys.exit(0)
+        else:
+            print(f"⚠️  Max iterations ({args.max_iterations}) reached without full success")
+            sys.exit(1)
     
     elif args.status:
         cli.get_status(args.status)

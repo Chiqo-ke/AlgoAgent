@@ -1,0 +1,142 @@
+{
+  "todo_list_id": "workflow_21795804f135",
+  "workflow_name": "CLI Request 20251120_161941",
+  "created_at": "2025-11-20T13:19:41.052868Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "buy when 20 EMA crosses above 50 EMA. The stop loss should be 10 pips below entry and take profit 40 pips above entry.",
+    "planner_version": "1.0.0",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3
+  },
+  "items": [
+    {
+      "id": "task_data_loading",
+      "title": "Data Loading Integration for OHLCV",
+      "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data into a DataFrame. Ensure the DataFrame has 'Date', 'Open', 'High', 'Low', 'Close', 'Volume' columns.",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_backtesting_adapter.py::test_fetch_and_prepare_data --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/sample_aapl.csv"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "backtesting_adapter.py",
+        "fixtures/sample_aapl.csv"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_indicator_ema",
+      "title": "Indicator Loading - 20 EMA and 50 EMA",
+      "description": "Implement compute_ema(series, period) for both 20-period and 50-period Exponential Moving Averages. Ensure correct calculation against known values.",
+      "agent_role": "architect",
+      "priority": 2,
+      "dependencies": [
+        "task_data_loading"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_indicators.py::test_compute_ema --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/ema_expected.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "contracts/indicator_contract.json",
+        "indicators/ema.py",
+        "fixtures/ema_expected.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_entry_ema_cross",
+      "title": "Entry Conditions Setup - 20 EMA Crosses Above 50 EMA",
+      "description": "Implement should_enter(bar, indicators, position) to trigger a buy signal when the 20-period EMA crosses above the 50-period EMA. This implies the 20 EMA was below or equal to 50 EMA in the previous bar and is now above.",
+      "agent_role": "coder",
+      "priority": 3,
+      "dependencies": [
+        "task_indicator_ema"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_ai_strategy_entry.py::test_ema_cross_entry --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/entry_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_entry.py",
+        "fixtures/entry_scenarios.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    },
+    {
+      "id": "task_exit_sl_tp",
+      "title": "Exit Conditions Setup - Stop Loss and Take Profit",
+      "description": "Implement should_exit(bar, indicators, position) to define exit conditions. Set a stop loss at 10 pips below the entry price and a take profit at 40 pips above the entry price. Ensure these are calculated correctly based on the position's entry price.",
+      "agent_role": "coder",
+      "priority": 4,
+      "dependencies": [
+        "task_entry_ema_cross"
+      ],
+      "max_retries": 3,
+      "timeout_seconds": 300,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_ai_strategy_exit.py::test_sl_tp_exit --json-report",
+            "timeout_seconds": 60,
+            "fixture": "fixtures/exit_scenarios.json"
+          }
+        ]
+      },
+      "output_artifacts": [
+        "Backtest/codes/ai_strategy_exit.py",
+        "fixtures/exit_scenarios.json"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect",
+        "timeout": "tester",
+        "missing_dependency": "coder",
+        "flaky_test": "tester"
+      }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
-  "contract_id": "contract_task_data_loading",
-  "description": "Implement fetch_and_prepare_data(symbol, start, end) to load OHLCV data, ensuring the output DataFrame has 'Date', 'Open', 'High', 'Low', 'Close', 'Volume' columns.",
+  "contract_id": "contract_task_entry_ema_cross",
+  "description": "Implement should_enter(bar, indicators, position) to trigger a buy signal when the 20-period EMA crosses above the 50-period EMA.",
   "interfaces": {
     "run_backtest": {
       "description": "Execute backtesting strategy",

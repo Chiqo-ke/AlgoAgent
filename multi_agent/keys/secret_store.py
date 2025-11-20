@@ -192,3 +192,14 @@ def test_secret_access(key_id: str) -> bool:
         return bool(secret)
     except SecretStoreError:
         return False
+
+
+def get_api_key(key_id: str) -> str:
+    """Get API key from environment variable."""
+    env_var_name = f"API_KEY_{key_id.replace('-', '_')}"
+    api_key = os.getenv(env_var_name)
+    
+    if not api_key:
+        raise ValueError(f"API key not found: {env_var_name}")
+    
+    return api_key
