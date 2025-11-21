@@ -1,0 +1,333 @@
+{
+  "created": 1763662434.5677123,
+  "duration": 19.57869815826416,
+  "exitcode": 1,
+  "root": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent",
+  "environment": {},
+  "summary": {
+    "failed": 5,
+    "passed": 1,
+    "total": 6,
+    "collected": 6
+  },
+  "collectors": [
+    {
+      "nodeid": "",
+      "outcome": "passed",
+      "result": [
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py",
+          "type": "Module"
+        }
+      ]
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py",
+      "outcome": "passed",
+      "result": [
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_backtest_runs",
+          "type": "Function",
+          "lineno": 57
+        },
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_report_structure",
+          "type": "Function",
+          "lineno": 68
+        },
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_trades_generated",
+          "type": "Function",
+          "lineno": 84
+        },
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_metrics_present",
+          "type": "Function",
+          "lineno": 100
+        },
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_strategy_initialization",
+          "type": "Function",
+          "lineno": 121
+        },
+        {
+          "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_indicators_computation",
+          "type": "Function",
+          "lineno": 131
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_backtest_runs",
+      "lineno": 57,
+      "outcome": "failed",
+      "keywords": [
+        "test_backtest_runs",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.38855899999907706,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.11430649999965681,
+        "outcome": "failed",
+        "crash": {
+          "path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+          "lineno": 229,
+          "message": "AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+        },
+        "traceback": [
+          {
+            "path": "tests\\test_ai_strategy_exit_sma_crossover.py",
+            "lineno": 63,
+            "message": "in test_backtest_runs"
+          },
+          {
+            "path": "Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+            "lineno": 229,
+            "message": "in run_backtest"
+          }
+        ],
+        "stdout": "Starting backtest with 100 bars...\nStrategy config: {'symbol': 'EURUSD', 'volume': 1.0}\n",
+        "longrepr": "tests\\test_ai_strategy_exit_sma_crossover.py:63: in test_backtest_runs\n    report = run_backtest(simbroker_adapter, sample_data, cfg)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nBacktest\\codes\\ai_strategy_exit_sma_crossover.py:229: in run_backtest\n    adapter.set_current_bar(bar)\n    ^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+      },
+      "teardown": {
+        "duration": 0.0014083000023674686,
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_report_structure",
+      "lineno": 68,
+      "outcome": "failed",
+      "keywords": [
+        "test_report_structure",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.00860130000000936,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.003981500001827953,
+        "outcome": "failed",
+        "crash": {
+          "path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+          "lineno": 229,
+          "message": "AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+        },
+        "traceback": [
+          {
+            "path": "tests\\test_ai_strategy_exit_sma_crossover.py",
+            "lineno": 72,
+            "message": "in test_report_structure"
+          },
+          {
+            "path": "Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+            "lineno": 229,
+            "message": "in run_backtest"
+          }
+        ],
+        "stdout": "Starting backtest with 100 bars...\nStrategy config: {'symbol': 'EURUSD', 'volume': 1.0}\n",
+        "longrepr": "tests\\test_ai_strategy_exit_sma_crossover.py:72: in test_report_structure\n    report = run_backtest(simbroker_adapter, sample_data, cfg)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nBacktest\\codes\\ai_strategy_exit_sma_crossover.py:229: in run_backtest\n    adapter.set_current_bar(bar)\n    ^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+      },
+      "teardown": {
+        "duration": 0.0008468999985780101,
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_trades_generated",
+      "lineno": 84,
+      "outcome": "failed",
+      "keywords": [
+        "test_trades_generated",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.005396199998358497,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.0032831000025907997,
+        "outcome": "failed",
+        "crash": {
+          "path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+          "lineno": 229,
+          "message": "AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+        },
+        "traceback": [
+          {
+            "path": "tests\\test_ai_strategy_exit_sma_crossover.py",
+            "lineno": 88,
+            "message": "in test_trades_generated"
+          },
+          {
+            "path": "Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+            "lineno": 229,
+            "message": "in run_backtest"
+          }
+        ],
+        "stdout": "Starting backtest with 100 bars...\nStrategy config: {'symbol': 'EURUSD', 'volume': 1.0}\n",
+        "longrepr": "tests\\test_ai_strategy_exit_sma_crossover.py:88: in test_trades_generated\n    report = run_backtest(simbroker_adapter, sample_data, cfg)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nBacktest\\codes\\ai_strategy_exit_sma_crossover.py:229: in run_backtest\n    adapter.set_current_bar(bar)\n    ^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+      },
+      "teardown": {
+        "duration": 0.0009293999974033795,
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_metrics_present",
+      "lineno": 100,
+      "outcome": "failed",
+      "keywords": [
+        "test_metrics_present",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.018938500001240755,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.007416699998429976,
+        "outcome": "failed",
+        "crash": {
+          "path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+          "lineno": 229,
+          "message": "AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+        },
+        "traceback": [
+          {
+            "path": "tests\\test_ai_strategy_exit_sma_crossover.py",
+            "lineno": 104,
+            "message": "in test_metrics_present"
+          },
+          {
+            "path": "Backtest\\codes\\ai_strategy_exit_sma_crossover.py",
+            "lineno": 229,
+            "message": "in run_backtest"
+          }
+        ],
+        "stdout": "Starting backtest with 100 bars...\nStrategy config: {'symbol': 'EURUSD', 'volume': 1.0}\n",
+        "longrepr": "tests\\test_ai_strategy_exit_sma_crossover.py:104: in test_metrics_present\n    report = run_backtest(simbroker_adapter, sample_data, cfg)\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nBacktest\\codes\\ai_strategy_exit_sma_crossover.py:229: in run_backtest\n    adapter.set_current_bar(bar)\n    ^^^^^^^^^^^^^^^^^^^^^^^\nE   AttributeError: 'SimBrokerAdapter' object has no attribute 'set_current_bar'"
+      },
+      "teardown": {
+        "duration": 0.0009061999990080949,
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_strategy_initialization",
+      "lineno": 121,
+      "outcome": "failed",
+      "keywords": [
+        "test_strategy_initialization",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.0007320000004256144,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.0027497999981278554,
+        "outcome": "failed",
+        "crash": {
+          "path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+          "lineno": 128,
+          "message": "AttributeError: 'Strategy' object has no attribute 'symbol'"
+        },
+        "traceback": [
+          {
+            "path": "tests\\test_ai_strategy_exit_sma_crossover.py",
+            "lineno": 128,
+            "message": "in test_strategy_initialization"
+          }
+        ],
+        "longrepr": "tests\\test_ai_strategy_exit_sma_crossover.py:128: in test_strategy_initialization\n    assert strategy.symbol == 'EURUSD'\n           ^^^^^^^^^^^^^^^\nE   AttributeError: 'Strategy' object has no attribute 'symbol'"
+      },
+      "teardown": {
+        "duration": 0.0007417999986500945,
+        "outcome": "passed"
+      }
+    },
+    {
+      "nodeid": "tests/test_ai_strategy_exit_sma_crossover.py::test_indicators_computation",
+      "lineno": 131,
+      "outcome": "passed",
+      "keywords": [
+        "test_indicators_computation",
+        "test_ai_strategy_exit_sma_crossover.py",
+        "tests",
+        "multi_agent",
+        ""
+      ],
+      "setup": {
+        "duration": 0.005240099999355152,
+        "outcome": "passed"
+      },
+      "call": {
+        "duration": 0.004582399997161701,
+        "outcome": "passed"
+      },
+      "teardown": {
+        "duration": 0.00087599999824306,
+        "outcome": "passed"
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "message": "'H' is deprecated and will be removed in a future version, please use 'h' instead.",
+      "category": "FutureWarning",
+      "when": "runtest",
+      "filename": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+      "lineno": 33
+    },
+    {
+      "message": "'H' is deprecated and will be removed in a future version, please use 'h' instead.",
+      "category": "FutureWarning",
+      "when": "runtest",
+      "filename": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+      "lineno": 33
+    },
+    {
+      "message": "'H' is deprecated and will be removed in a future version, please use 'h' instead.",
+      "category": "FutureWarning",
+      "when": "runtest",
+      "filename": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+      "lineno": 33
+    },
+    {
+      "message": "'H' is deprecated and will be removed in a future version, please use 'h' instead.",
+      "category": "FutureWarning",
+      "when": "runtest",
+      "filename": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+      "lineno": 33
+    },
+    {
+      "message": "'H' is deprecated and will be removed in a future version, please use 'h' instead.",
+      "category": "FutureWarning",
+      "when": "runtest",
+      "filename": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\tests\\test_ai_strategy_exit_sma_crossover.py",
+      "lineno": 33
+    }
+  ]
+}

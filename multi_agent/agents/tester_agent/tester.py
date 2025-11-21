@@ -5,8 +5,8 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from contracts.message_bus import get_message_bus, Channels, Event
-from contracts.event_types import EventType
+from contracts.message_bus import get_message_bus, Channels
+from contracts.event_types import EventType, TaskEvent
 
 from .config import config
 from .sandbox_client import run_tests_in_sandbox
@@ -49,7 +49,7 @@ class TesterAgent:
         
         print(f"[{self.agent_id}] Ready. Listening for tester tasks...")
     
-    def handle_task(self, event: Event):
+    def handle_task(self, event: TaskEvent):
         """
         Handle incoming task event.
         
@@ -264,7 +264,7 @@ class TesterAgent:
     
     def publish_test_started(self, corr_id: str, wf_id: str, task_id: str):
         """Publish TEST_STARTED event."""
-        evt = Event.create(
+        evt = TaskEvent.create(
             event_type=EventType.TEST_STARTED,
             correlation_id=corr_id,
             workflow_id=wf_id,
@@ -284,7 +284,7 @@ class TesterAgent:
         duration: float
     ):
         """Publish TEST_PASSED event."""
-        evt = Event.create(
+        evt = TaskEvent.create(
             event_type=EventType.TEST_PASSED,
             correlation_id=corr_id,
             workflow_id=wf_id,
@@ -311,7 +311,7 @@ class TesterAgent:
         workspace: Path
     ):
         """Publish TEST_FAILED event."""
-        evt = Event.create(
+        evt = TaskEvent.create(
             event_type=EventType.TEST_FAILED,
             correlation_id=corr_id,
             workflow_id=wf_id,
@@ -365,7 +365,7 @@ class TesterAgent:
             "reproduce_command": f"docker run --rm -v $(pwd):/app algo-sandbox pytest tests/"
         }
         
-        evt = Event.create(
+        evt = TaskEvent.create(
             event_type=EventType.WORKFLOW_BRANCH_CREATED,
             correlation_id=corr_id,
             workflow_id=wf_id,

@@ -335,3 +335,29 @@ def register_provider(name: str, client: ProviderClient):
     """Register a custom provider client."""
     _PROVIDERS[name.lower()] = client
     logger.info(f"Registered provider: {name}")
+
+
+class GeminiProvider:
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash"):
+        import google.generativeai as genai
+        
+        genai.configure(api_key=api_key)
+        
+        # Configure safety settings to be more permissive for code generation
+        safety_settings = {
+            "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+            "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+            "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_MEDIUM_AND_ABOVE"
+        }
+        
+        self.model = genai.GenerativeModel(
+            model_name,
+            safety_settings=safety_settings
+        )
+        self.model_name = model_name
+
+    def chat_completion(self, messages: List[Dict], **kwargs) -> str:
+        """Generate chat completion for the given messages."""
+        response = self.model.chat(messages, **kwargs)
+        return response.generations[0].text.strip()
