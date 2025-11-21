@@ -36,6 +36,9 @@ if not os.getenv('GOOGLE_API_KEY') and os.getenv('GEMINI_API_KEY'):
     os.environ['GOOGLE_API_KEY'] = os.getenv('GEMINI_API_KEY')
     print(f"✓ Loaded GEMINI_API_KEY from .env")
 
+# Import strategy registry for testing
+from agents.coder_agent.strategy_registry import StrategyRegistry
+
 
 class MultiAgentCLI:
     """Command-line interface for multi-agent system."""
@@ -208,6 +211,11 @@ class MultiAgentCLI:
             if not task_details:
                 print(f"   ⚠️  Task details not found: {task_id}")
                 continue
+            
+            # Inject workflow_id into task metadata for agent identification
+            if 'metadata' not in task_details:
+                task_details['metadata'] = {}
+            task_details['metadata']['workflow_id'] = workflow_id
             
             agent_role = task_details['agent_role']
             
@@ -715,12 +723,13 @@ class MultiAgentCLI:
                 print(f"   ❌ Error reading {todo_file.name}: {e}")
                 print()
     
-    def test_workflow(self, workflow_id: str) -> Dict[str, Any]:
+    def test_workflow(self, workflow_id: str, iteration_start_time: Optional[datetime] = None) -> Dict[str, Any]:
         """
-        Test all generated artifacts from a workflow.
+        Test generated artifacts from a workflow using unique naming convention.
         
         Args:
             workflow_id: Workflow identifier
+            iteration_start_time: If provided, only test strategies created after this time
             
         Returns:
             Dictionary with test results
@@ -728,7 +737,7 @@ class MultiAgentCLI:
         print(f"\n🧪 Testing workflow: {workflow_id}")
         print()
         
-        # Find generated strategy files
+        # Initialize registry
         artifacts_dir = self.workspace_root / "multi_agent" / "Backtest" / "codes"
         test_dir = self.workspace_root / "multi_agent" / "tests"
         
@@ -736,32 +745,49 @@ class MultiAgentCLI:
             print(f"   ❌ Artifacts directory not found: {artifacts_dir}")
             return {'status': 'error', 'message': 'Artifacts directory not found'}
         
-        # Get workflow creation time to filter only new files
-        workflow_time = None
-        todolist_file = self.output_dir / f"{workflow_id}_todolist.json"
-        if todolist_file.exists():
-            workflow_time = todolist_file.stat().st_mtime
-            print(f"📅 Workflow created: {datetime.fromtimestamp(workflow_time).strftime('%Y-%m-%d %H:%M:%S')}")
+        registry = StrategyRegistry(artifacts_dir)
         
-        # Find strategy files created AFTER workflow started
-        all_strategy_files = list(artifacts_dir.glob("ai_strategy_*.py"))
+        # Get all strategies for this workflow
+        workflow_strategies = registry.get_by_workflow(workflow_id)
         
-        if workflow_time:
-            strategy_files = [sf for sf in all_strategy_files if sf.stat().st_mtime >= workflow_time]
-            if len(strategy_files) < len(all_strategy_files):
-                print(f"📂 Filtered: {len(strategy_files)} new files (out of {len(all_strategy_files)} total)")
+        # Filter by iteration start time (prioritized) or workflow creation time
+        if iteration_start_time:
+            # CRITICAL: Only test NEW files from current iteration
+            strategy_files = [
+                s for s in workflow_strategies 
+                if s.timestamp >= iteration_start_time
+            ]
+            print(f"📂 Testing {len(strategy_files)} NEW strategies from current iteration")
+            print(f"   (Total {len(workflow_strategies)} strategies exist for this workflow)")
         else:
-            strategy_files = all_strategy_files
-            print(f"⚠️  No workflow timestamp found, testing all {len(strategy_files)} files")
+            # Fallback: Use workflow creation time
+            workflow_time = None
+            todolist_file = self.output_dir / f"{workflow_id}_todolist.json"
+            if todolist_file.exists():
+                workflow_time = todolist_file.stat().st_mtime
+                print(f"📅 Workflow created: {datetime.fromtimestamp(workflow_time).strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            if workflow_time:
+                strategy_files = [
+                    s for s in workflow_strategies 
+                    if s.timestamp.timestamp() >= workflow_time
+                ]
+                print(f"📂 Found {len(strategy_files)} strategies for workflow (filtered by time)")
+            else:
+                strategy_files = workflow_strategies
+                print(f"📂 Found {len(strategy_files)} strategies for workflow")
         
         if not strategy_files:
-            print(f"   ⚠️  No generated strategy files found")
-            print(f"   Looking for: ai_strategy_*.py in {artifacts_dir}")
+            print(f"   ⚠️  No strategies found for workflow: {workflow_id}")
+            print(f"   Tip: Strategies should use naming format:")
+            print(f"        {{timestamp}}_{{workflow_id}}_{{task_id}}_{{description}}.py")
             return {'status': 'skipped', 'message': 'No strategy files to test'}
         
-        print(f"📁 Found {len(strategy_files)} strategy file(s):")
-        for sf in strategy_files:
-            print(f"   - {sf.name}")
+        print(f"📁 Strategies to test:")
+        for metadata in strategy_files:
+            print(f"   - {metadata.filename}")
+            print(f"     Task: {metadata.task_id}")
+            print(f"     Created: {metadata.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         print()
         
         # Run tests for each strategy
@@ -769,8 +795,9 @@ class MultiAgentCLI:
         passed = 0
         failed = 0
         
-        for strategy_file in strategy_files:
-            strategy_name = strategy_file.stem
+        for metadata in strategy_files:
+            strategy_file = metadata.filepath
+            strategy_name = metadata.filename.replace('.py', '')
             test_file = test_dir / f"test_{strategy_name}.py"
             
             print(f"🧪 Testing: {strategy_name}")

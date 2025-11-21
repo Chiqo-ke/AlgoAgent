@@ -68,10 +68,14 @@ class IterativeLoop:
             print(f"🔄 ITERATION {iteration}/{self.max_iterations}")
             print(f"{'─'*70}\n")
             
+            # CRITICAL: Record iteration start time BEFORE execution
+            iteration_start_time = datetime.now()
             iteration_start = time.time()
             
             # Step 1: Execute workflow (Coder/Architect generate code)
             print(f"📝 Step 1: Executing workflow tasks...")
+            print(f"   ⏰ Iteration started at: {iteration_start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print()
             exec_result = self.cli.execute_workflow(workflow_id, auto_execute=True)
             
             if exec_result.get('status') != 'completed':
@@ -82,9 +86,9 @@ class IterativeLoop:
             print(f"   ✅ Workflow execution completed")
             print()
             
-            # Step 2: Test generated code
-            print(f"🧪 Step 2: Testing generated strategy...")
-            test_result = self.cli.test_workflow(workflow_id)
+            # Step 2: Test generated code - ONLY test files created in THIS iteration
+            print(f"🧪 Step 2: Testing NEW strategies from this iteration...")
+            test_result = self.cli.test_workflow(workflow_id, iteration_start_time=iteration_start_time)
             
             summary = test_result.get('summary', {})
             total = summary.get('total', 0)

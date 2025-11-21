@@ -13,7 +13,8 @@
 Planner → TodoList (contract.json)
    ↓
 Orchestrator dispatch → Coder Agent
-   └─ produces: Backtest/codes/<strategy>.py (single-file)
+   └─ produces: Backtest/codes/{timestamp}_{workflow_id}_{task_id}_{description}.py
+         ├─ uses unique identifier naming for full traceability
          ├─ uses Adapter API (BaseAdapter)
          ├─ contains Strategy class + run_backtest/run_live helpers
    ↓

@@ -14,9 +14,13 @@ from pathlib import Path
 
 from llm.router import get_request_router
 from contracts.validate_contract import SchemaValidator
+from planner_service.planner_prompt_single_file import PLANNER_SYSTEM_PROMPT_SINGLE_FILE
 
 
 logger = logging.getLogger(__name__)
+
+# Use single-file strategy prompt
+PLANNER_SYSTEM_PROMPT = PLANNER_SYSTEM_PROMPT_SINGLE_FILE
 
 
 PLANNER_SYSTEM_PROMPT = """You are an expert software project planner for a multi-agent AI development system.
@@ -403,16 +407,10 @@ class PlannerService:
                         continue
                     raise ValueError(f"Invalid dependencies: {dep_errors}")
                 
-                # Validate 4-step template
-                is_valid, template_errors = self._validate_4step_template(todo_list)
-                if not is_valid:
-                    logger.warning(f"Attempt {attempt + 1}: Template violations - {template_errors}")
-                    if attempt < max_attempts - 1:
-                        prompt += f"\n\n❌ 4-STEP TEMPLATE VALIDATION FAILED:\n{template_errors}\n\n✅ REMINDER: You MUST create exactly 4 tasks in this order:\n1. task_data_loading (coder) - Data Loading Integration\n2. task_indicators (architect → coder) - Indicator Loading\n3. task_entry (coder) - Entry Conditions\n4. task_exit (coder) - Exit Conditions\n\nGenerate corrected JSON with exactly 4 tasks:"
-                        continue
-                    raise ValueError(f"Template validation failed: {template_errors}")
+                # Skip 4-step template validation for single-file strategy approach
+                # Single comprehensive task doesn't need multi-step validation
                 
-                logger.info(f"Created valid plan with {len(todo_list['items'])} tasks following 4-step template")
+                logger.info(f"Created valid plan with {len(todo_list['items'])} tasks (single-file strategy)")
                 return todo_list
                 
             except json.JSONDecodeError as e:
@@ -443,8 +441,8 @@ class PlannerService:
         if repo_context:
             context_str = f"\n\nRepository Context:\n{json.dumps(repo_context, indent=2)}"
         
-        # Extract strategy details for fixture hints
-        fixture_hints = self._generate_fixture_hints(user_request)
+        # Extract strategy details for description hints
+        strategy_hints = self._generate_strategy_hints(user_request)
         
         prompt = f"""{PLANNER_SYSTEM_PROMPT}
 
@@ -452,33 +450,99 @@ USER REQUEST:
 {user_request}
 {context_str}
 
-FIXTURE HINTS for this strategy:
-{fixture_hints}
+STRATEGY DETAILS for this request:
+{strategy_hints}
 
-Create a TodoList following the 4-STEP TEMPLATE with:
+Create a TodoList with ONE comprehensive task following the SINGLE-FILE STRATEGY TEMPLATE:
 - todo_list_id: "{todo_list_id}"
 - workflow_name: "{workflow_name}"
 - created_at: "{timestamp}"
 - created_by: "planner_service"
 - metadata.planner_version: "{self.version}"
 - metadata.user_request: "{user_request}"
+- metadata.strategy_type: "single_file_complete"
 - metadata.auto_fix_mode: true
 - metadata.max_branch_depth: 2
 - metadata.max_debug_attempts: 3
 
 REQUIREMENTS:
-✅ Exactly 4 tasks (Data Loading → Indicators → Entry → Exit)
-✅ Each test command includes "fixture" field
-✅ Each task includes "failure_routing"
-✅ Fixtures included in output_artifacts
-✅ Tests use pytest with --json-report
+✅ ONE comprehensive task (id: "task_complete_strategy")
+✅ Include ALL components: data loading + indicators + entry + exit + backtest
+✅ Comprehensive test suite: component tests + integration tests
+✅ Explicit loop termination conditions (max_iterations)
+✅ Complete file path with workflow_id in filename
+✅ Include failure_routing for all error types
 
 Output valid JSON only:"""
         
         return prompt
     
+    def _generate_strategy_hints(self, user_request: str) -> str:
+        """Generate strategy implementation hints based on user request."""
+        hints = []
+        
+        # Extract mentioned indicators
+        indicators = []
+        if "rsi" in user_request.lower():
+            indicators.append("RSI (14-period default)")
+        if "macd" in user_request.lower():
+            indicators.append("MACD (12, 26, 9)")
+        if "sma" in user_request.lower() or "moving average" in user_request.lower():
+            indicators.append("SMA (50-day, 200-day)")
+        if "bollinger" in user_request.lower():
+            indicators.append("Bollinger Bands (20, 2)")
+        if "ema" in user_request.lower():
+            indicators.append("EMA (12-day, 26-day)")
+        
+        if indicators:
+            hints.append(f"Indicators: {', '.join(indicators)}")
+        else:
+            hints.append("Indicators: Determine from strategy logic")
+        
+        # Extract entry conditions
+        entry_hints = []
+        if "buy" in user_request.lower():
+            entry_hints.append("buy signals")
+        if "<" in user_request or "below" in user_request.lower() or "under" in user_request.lower():
+            entry_hints.append("threshold-based entry")
+        if "crossover" in user_request.lower() or "cross" in user_request.lower():
+            entry_hints.append("crossover signals")
+        
+        if entry_hints:
+            hints.append(f"Entry logic: {', '.join(entry_hints)}")
+        else:
+            hints.append("Entry logic: Define based on strategy requirements")
+        
+        # Extract exit conditions
+        exit_hints = []
+        if "sell" in user_request.lower():
+            exit_hints.append("sell signals")
+        if "stop loss" in user_request.lower() or "sl" in user_request.lower():
+            exit_hints.append("stop loss")
+        if "take profit" in user_request.lower() or "tp" in user_request.lower():
+            exit_hints.append("take profit")
+        if ">" in user_request or "above" in user_request.lower():
+            exit_hints.append("threshold-based exit")
+        
+        if exit_hints:
+            hints.append(f"Exit logic: {', '.join(exit_hints)}")
+        else:
+            hints.append("Exit logic: Stop loss + take profit + signal-based")
+        
+        # Extract stop loss/take profit values
+        import re
+        stop_loss = re.search(r'(\d+)%?\s*stop\s*loss', user_request.lower())
+        take_profit = re.search(r'(\d+)%?\s*(take\s*profit|target|tp)', user_request.lower())
+        
+        if stop_loss:
+            hints.append(f"Stop loss: {stop_loss.group(1)}%")
+        if take_profit:
+            hints.append(f"Take profit: {take_profit.group(1)}%")
+        
+        return "\n".join(f"- {hint}" for hint in hints) if hints else "- Standard momentum/mean-reversion strategy"
+    
     def _generate_fixture_hints(self, user_request: str) -> str:
-        """Generate fixture hints based on strategy description."""
+        """DEPRECATED: Use _generate_strategy_hints instead."""
         hints = []
         
         # Extract mentioned indicators
