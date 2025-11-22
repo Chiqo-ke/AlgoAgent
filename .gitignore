@@ -3,7 +3,7 @@ pycache/
 *.py[cod]
 *$py.class
 
-/workflows/
+workflows
 
 C extensions
 *.so
@@ -139,3 +139,33 @@ tmp/
 *db
 
 *.parquet
+
+# Multi-agent temporary folders
+workflows/
+fixtures/
+fixtures_test/
+Backtest/codes/ai_strategy_*.py
+Backtest/codes/archive/
+tests/test_ai_strategy_*.py
+tests/archive/
+
+# Generated artifacts
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+
+# Test reports and outputs
+test_report_*.json
+.pytest_cache/
+htmlcov/
+.coverage
+
+tests/
+
+# Keys and secrets (safety)
+keys.json
+*.key
+*.pem
+api_keys.json

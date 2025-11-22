@@ -295,9 +295,10 @@ Output valid JSON only with structure:
         return contract
     
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
-        """Parse JSON from LLM response"""
+        """Parse JSON from LLM response with repair capability"""
         text = text.strip()
         
+        # Remove markdown code blocks
         if text.startswith("```json"):
             text = text[7:]
         elif text.startswith("```"):
@@ -306,7 +307,72 @@ Output valid JSON only with structure:
         if text.endswith("```"):
             text = text[:-3]
         
-        return json.loads(text.strip())
+        text = text.strip()
+        
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            print(f"[Architect] ⚠️  JSON parse error: {str(e)[:100]}")
+            print(f"[Architect] 🔧 Attempting repair...")
+            
+            # Try to repair common issues
+            repaired_text = self._repair_json(text, e)
+            
+            try:
+                result = json.loads(repaired_text)
+                print(f"[Architect] ✅ JSON repaired successfully")
+                return result
+            except json.JSONDecodeError as e2:
+                print(f"[Architect] ❌ Repair failed: {str(e2)[:100]}")
+                print(f"[Architect] First 500 chars of text: {text[:500]}")
+                raise ValueError(f"Failed to parse contract JSON after repair: {str(e2)}")
+    
+    def _repair_json(self, text: str, error: json.JSONDecodeError) -> str:
+        """Attempt to repair malformed JSON"""
+        error_msg = str(error).lower()
+        
+        # Handle unterminated strings
+        if "unterminated string" in error_msg:
+            lines = text.split('\n')
+            line_num = error.lineno - 1
+            
+            if 0 <= line_num < len(lines):
+                line = lines[line_num]
+                # Find the opening quote position
+                col_num = error.colno - 1
+                
+                # Check if line is missing closing quote
+                if col_num < len(line) and line[col_num] == '"':
+                    # Count quotes after error position
+                    quotes_after = line[col_num:].count('"')
+                    if quotes_after % 2 == 1:  # Odd number = missing quote
+                        # Add closing quote at end of line (before comma if exists)
+                        if line.rstrip().endswith(','):
+                            lines[line_num] = line.rstrip()[:-1] + '"' + ','
+                        else:
+                            lines[line_num] = line.rstrip() + '"'
+            
+            return '\n'.join(lines)
+        
+        # Handle missing commas between objects
+        elif "expecting ',' delimiter" in error_msg:
+            lines = text.split('\n')
+            line_num = error.lineno - 1
+            
+            if 0 <= line_num < len(lines):
+                line = lines[line_num]
+                if not line.rstrip().endswith(','):
+                    lines[line_num] = line.rstrip() + ','
+            
+            return '\n'.join(lines)
+        
+        # Handle trailing commas
+        elif "trailing comma" in error_msg or "extra data" in error_msg:
+            # Remove trailing commas before closing brackets/braces
+            text = text.replace(',]', ']').replace(',}', '}')
+            return text
+        
+        return text
     
     async def _save_contract(self, contract: Contract) -> Path:
         """Save contract to file"""

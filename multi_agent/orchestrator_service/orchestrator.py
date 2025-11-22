@@ -100,6 +100,40 @@ class MinimalOrchestrator:
         
         logger.info("Initialized MinimalOrchestrator")
     
+    def reload_workflow_tasks(self, workflow_id: str):
+        """
+        Reloads the tasks for a workflow from its updated todo list.
+        This is used after the iterative loop adds new 'fix' tasks.
+        """
+        if workflow_id not in self.workflows:
+            raise ValueError(f"Workflow not found: {workflow_id}")
+
+        workflow = self.workflows[workflow_id]
+        todo_list_id = workflow.todo_list_id
+
+        if todo_list_id not in self.todo_lists:
+            raise ValueError(f"Todo list not found for workflow: {todo_list_id}")
+
+        todo_list = self.todo_lists[todo_list_id]
+        
+        # Create a new task state dictionary
+        new_tasks = {}
+        for item in todo_list.get('items', []):
+            task_id = item['id']
+            # If the task already existed, keep its state, otherwise create a new one
+            if task_id in workflow.tasks:
+                # Preserve completed states, reset others to pending
+                if workflow.tasks[task_id].status == TaskStatus.COMPLETED:
+                    new_tasks[task_id] = workflow.tasks[task_id]
+                else:
+                     new_tasks[task_id] = TaskState(task_id=task_id, status=TaskStatus.PENDING)
+            else:
+                # This is a new "fix" task
+                new_tasks[task_id] = TaskState(task_id=task_id, status=TaskStatus.PENDING)
+
+        workflow.tasks = new_tasks
+        logger.info(f"Reloaded and updated tasks for workflow {workflow_id}. Now has {len(workflow.tasks)} tasks.")
+    
     def _setup_subscriptions(self):
         """Setup message bus subscriptions."""
         if self.use_message_bus:
@@ -236,6 +270,11 @@ class MinimalOrchestrator:
         for task_id in execution_order:
             task_item = next(item for item in todo_list['items'] if item['id'] == task_id)
             task_state = workflow.tasks[task_id]
+            
+            # Skip tasks that are already completed
+            if task_state.status == TaskStatus.COMPLETED:
+                logger.info(f"Skipping completed task: {task_id}")
+                continue
             
             logger.info(f"Executing task: {task_id} - {task_item['title']}")
             

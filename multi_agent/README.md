@@ -16,7 +16,7 @@ python cli.py
 python cli.py --request "Create MACD crossover strategy" --run
 ```
 
-See [CLI_QUICKSTART.md](CLI_QUICKSTART.md) for complete guide.
+See [docs/guides/CLI_READY.md](docs/guides/CLI_READY.md) for complete guide.
 
 ## Overview
 
@@ -225,7 +225,23 @@ When a step **fails its acceptance tests**, the Orchestrator automatically creat
 ✅ **Reproducibility** - Deterministic fixtures eliminate flakiness  
 ✅ **Traceability** - Branch todos create clear audit trail  
 
-See [PLANNER_DESIGN.md](PLANNER_DESIGN.md) for complete specification.
+See [docs/architecture/PLANNER_DESIGN.md](docs/architecture/PLANNER_DESIGN.md) for complete specification.
+
+## 📚 Documentation
+
+### Quick Links
+- **[Getting Started](QUICKSTART_GUIDE.md)** - Installation and first steps
+- **[Architecture](ARCHITECTURE.md)** - System design overview
+- **[CLI Guide](docs/guides/CLI_READY.md)** - Command-line interface usage
+- **[Quick Reference](DOCS_QUICKREF.md)** - Fast access to all docs
+- **[Complete Documentation](docs/README.md)** - Full documentation index
+
+### Documentation Structure
+- **`docs/architecture/`** - System design, planning, and architecture
+- **`docs/implementation/`** - Agent implementations and fixes
+- **`docs/testing/`** - Test reports and results
+- **`docs/guides/`** - User guides and how-tos
+- **`docs/api/`** - API documentation and references
 
 ## Data Formats
 

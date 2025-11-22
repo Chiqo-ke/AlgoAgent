@@ -180,6 +180,10 @@ class CoderAgent:
         
         contract = self._load_contract(contract_path)
         
+        # Add workflow_id from task metadata to contract for unique filename generation
+        workflow_id = task.get('metadata', {}).get('workflow_id', 'nowf')
+        contract['workflow_id'] = workflow_id
+        
         # 2. Validate contract
         if not self._validate_contract(contract):
             raise ValueError(f"Invalid contract: {contract_path}")
@@ -276,9 +280,8 @@ class CoderAgent:
             # Fallback: use template only
             code = self._generate_from_template(task, contract)
         
-        # Create artifact
-        strategy_id = task.get('id', 'unknown').replace('task_', '')
-        filename = f"ai_strategy_{strategy_id}.py"
+        # Create artifact with unique identifier naming
+        filename = self._generate_unique_filename(task, contract)
         
         artifact = CodeArtifact(
             file_path=f"Backtest/codes/{filename}",
@@ -303,28 +306,40 @@ class CoderAgent:
         - Template structure
         - Constraints
         """
-        prompt = f"""System: You are Coder Agent. Implement functions exactly as specified in the contract. Use the provided fixtures. Output complete Python code.
+        prompt = f"""You are a professional trading system developer implementing Python code for quantitative analysis.
 
-Contract ID: {contract['contract_id']}
-
+**TASK SPECIFICATION**
 Task: {task.get('title', 'Unknown')}
 Description: {task.get('description', '')}
+Contract ID: {contract['contract_id']}
 
-CONTRACT SPECIFICATION:
+**CONTRACT SPECIFICATION**
 {json.dumps(contract['interfaces'], indent=2)}
 
-CONSTRAINTS:
-- Use only these dependencies: pandas, numpy, typing
-- Include exact function names and signatures from contract
-- Use deterministic seeds where randomness needed
-- No network calls inside functions
-- Include docstrings referencing contract id
-- Implement run_smoke() runner for testing
+**TECHNICAL REQUIREMENTS**
+1. Generate production-ready Python code
+2. Use NEUTRAL, TECHNICAL language in all comments and docstrings
+3. Include proper error handling and input validation
+4. Add TIMEOUT PROTECTION to all loops - use explicit max_iterations
+5. Follow these dependencies: pandas, numpy, typing
+6. Include exact function names and signatures from contract
+7. Use deterministic seeds for any randomness
+8. NO network calls inside functions
+9. Include docstrings referencing contract ID
 
-FIXTURES:
+**LOOP SAFETY (MANDATORY)**
+All loops must include explicit termination:
+```python
+max_iterations = 1000  # Prevent infinite loops
+for i in range(max_iterations):
+    if break_condition:
+        break
+```
+
+**FIXTURES AVAILABLE**
 {task.get('fixture_paths', [])}
 
-TEMPLATE STRUCTURE:
+**TEMPLATE STRUCTURE**
 """
 
         # Add strategy template
@@ -332,14 +347,67 @@ TEMPLATE STRUCTURE:
         
         prompt += f"""
 
-REQUIRED OUTPUTS:
+**REQUIRED OUTPUTS**
 1. Complete implementation of all functions in contract["interfaces"]
 2. prepare_indicators() function
 3. run_smoke() runner that produces artifacts/entries.csv
 
-Output only Python code, no explanations."""
+**OUTPUT FORMAT**
+Provide ONLY the complete Python code.
+Do NOT include markdown, explanations, or commentary.
+Just the raw Python code implementing the specification."""
         
         return prompt
+    
+    def _generate_unique_filename(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
+        """
+        Generate unique filename with comprehensive identifiers.
+        
+        Format: {timestamp}_{workflow_id}_{task_id}_{descriptive_name}.py
+        Example: 20251121_143052_wf_abc123de_task_data_loading_rsi_strategy.py
+        
+        Components:
+        - Timestamp: YYYYMMDD_HHMMSS for chronological sorting
+        - Workflow ID: Full workflow identifier for accurate traceability
+        - Task ID: Task identifier from todo
+        - Descriptive name: Human-readable strategy description
+        
+        Args:
+            task: Task dictionary
+            contract: Contract dictionary
+            
+        Returns:
+            Unique filename string
+        """
+        from datetime import datetime
+        import re
+        
+        # 1. Timestamp (sortable)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # 2. Workflow ID (full ID for traceability)
+        workflow_id = contract.get('workflow_id', 'nowf')
+        if workflow_id.startswith('workflow_'):
+            workflow_id = workflow_id.replace('workflow_', 'wf_')
+        # Keep full workflow_id for accurate matching
+        
+        # 3. Task ID (cleaned)
+        task_id = task.get('id', 'unknown')
+        if task_id.startswith('task_'):
+            task_id = task_id.replace('task_', '')
+        task_id = task_id[:20] if len(task_id) > 20 else task_id
+        
+        # 4. Descriptive name from task title
+        task_title = task.get('title', 'strategy')
+        # Clean and convert to snake_case
+        desc_name = re.sub(r'[^a-zA-Z0-9\s]', '', task_title.lower())
+        words = desc_name.split()[:6]  # Max 6 words for readability
+        desc_name = '_'.join(words) if words else 'strategy'
+        
+        # Combine all components
+        filename = f"{timestamp}_{workflow_id}_{task_id}_{desc_name}.py"
+        
+        return filename
     
     def _get_strategy_template(self) -> str:
         """
@@ -602,16 +670,20 @@ if __name__ == '__main__':
             return code
             
         except ValueError as e:
-            error_str = str(e)
+            error_str = str(e).lower()
             
             # Check if it's a safety filter error and we should retry
-            if retry_with_pro and ('safety' in error_str.lower() or 'finish_reason' in error_str):
+            safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
+            is_safety_error = any(indicator in error_str for indicator in safety_indicators)
+            
+            if retry_with_pro and is_safety_error:
                 print(f"[CoderAgent] Safety filter triggered with {self.model_name}")
-                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro...")
+                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro (relaxed safety)...")
                 
-                # Attempt 2: Retry with Gemini Pro (less restrictive)
+                # Attempt 2: Retry with Gemini Pro with relaxed safety settings
                 try:
                     if self.use_router:
+                        # Try to use router with safety settings override
                         response_data = self.router.send_chat(
                             conv_id=self.conversation_id,
                             prompt=safe_prompt,
@@ -843,8 +915,11 @@ def test_indicators_computation(sample_data):
     # But it should be a dict
 '''
         
+        # Generate matching test filename
+        test_module_name = strategy_filename.replace('.py', '')
+        
         test_artifact = CodeArtifact(
-            file_path=f"tests/test_{module_name}.py",
+            file_path=f"tests/test_{test_module_name}.py",
             content=test_content,
             artifact_type='test',
             contract_id=contract['contract_id']
