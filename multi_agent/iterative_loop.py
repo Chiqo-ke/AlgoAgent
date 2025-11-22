@@ -132,16 +132,21 @@ class IterativeLoop:
                     iteration
                 )
                 
-                if not fix_tasks:
-                    print(f"   ⚠️  No fixes generated, stopping iteration")
+                if fix_tasks:
+                    print(f"   ✅ Created {len(fix_tasks)} fix task(s)")
+                    # Add fix tasks to workflow
+                    self._add_fix_tasks_to_workflow(workflow_id, fix_tasks)
+                else:
+                    print(f"   ℹ️  No new fix tasks generated")
+                
+                # Check if there are ANY pending tasks left to execute
+                pending_tasks = self._get_pending_tasks(workflow_id)
+                
+                if not pending_tasks:
+                    print(f"   ✅ No pending tasks remaining - iteration complete")
                     break
                 
-                print(f"   ✅ Created {len(fix_tasks)} fix task(s)")
-                
-                # Add fix tasks to workflow
-                self._add_fix_tasks_to_workflow(workflow_id, fix_tasks)
-                
-                print(f"   🔄 Retrying in next iteration...")
+                print(f"   🔄 Continuing with {len(pending_tasks)} pending task(s)...")
             else:
                 print(f"\n⚠️  Auto-fix disabled or max iterations reached")
                 break
@@ -220,29 +225,24 @@ class IterativeLoop:
             print(f"      Error: {error_text[:150]}..." if len(error_text) > 150 else f"      Error: {error_text}")
                 
             
-            # Create appropriate fix task with comprehensive context
+            # Create appropriate fix task with clean, sanitized instructions
             if error_type == 'syntax_error':
                 fix_task = {
                     'id': f"fix_syntax_{strategy_name}_iter{iteration}",
                     'title': f"Fix syntax error in {strategy_name}",
-                    'description': f"""Fix the syntax error in the generated strategy.
+                    'description': """Fix syntax error in the strategy code.
 
-**Strategy File:** {strategy_file}
-**Error Type:** Syntax Error
-**Iteration:** {iteration}
+**Task:** Review and correct Python syntax errors
 
-**Error Message:**
-{error_text}
-
-**Full Traceback:**
-{full_traceback[:2000]}
-
-**Required Actions:**
-1. Analyze the syntax error from the traceback
-2. Identify the exact line and character causing the issue
-3. Generate corrected code with proper Python syntax
-4. Ensure all parentheses, brackets, and quotes are balanced
-5. Verify indentation is correct
+**Fix Instructions:**
+1. Check for common syntax issues:
+   - Missing or extra parentheses, brackets, or braces
+   - Unbalanced quotes (single or double)
+   - Incorrect indentation (use 4 spaces per level)
+   - Invalid Python keywords or operators
+2. Fix the syntax error while preserving the original logic
+3. Ensure code follows Python 3.11+ syntax
+4. Validate all function definitions and classes are properly structured
 """,
                     'agent_role': 'coder',
                     'priority': 1,
@@ -262,24 +262,22 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_imports_{strategy_name}_iter{iteration}",
                     'title': f"Fix import errors in {strategy_name}",
-                    'description': f"""Fix the import error in the generated strategy.
+                    'description': """Fix missing import in the strategy.
 
-**Strategy File:** {strategy_file}
-**Error Type:** Import Error
-**Iteration:** {iteration}
+**Task:** Add required import statements
 
-**Error Message:**
-{error_text}
+**Required Imports:**
+Ensure these imports are at the top of the file:
+- from typing import Dict, List, Optional
+- import pandas as pd
+- import numpy as np
+- from adapters.base_adapter import BaseAdapter
 
-**Full Traceback:**
-{full_traceback[:2000]}
-
-**Required Actions:**
-1. Identify the missing or incorrect import
-2. Add necessary import statements (pandas, numpy, typing, etc.)
-3. Ensure imports are from correct modules
-4. Verify all dependencies are available
-5. Check for typos in module/function names
+**Fix Instructions:**
+1. Add the missing import statement
+2. Verify all imports match the project structure
+3. Check for typos in import names
+4. Remove any unused imports to keep code clean
 """,
                     'agent_role': 'coder',
                     'priority': 1,
@@ -299,24 +297,23 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_logic_{strategy_name}_iter{iteration}",
                     'title': f"Fix logic errors in {strategy_name}",
-                    'description': f"""Fix the logic error causing test failure.
+                    'description': """Fix runtime logic error in the strategy.
 
-**Strategy File:** {strategy_file}
-**Error Type:** Logic/Test Failure
-**Iteration:** {iteration}
+**Task:** Correct strategy logic to pass tests
 
-**Error Message:**
-{error_text}
+**Common Issues:**
+- AttributeError: Verify object has required attribute or method
+- TypeError: Check function arguments match expected types
+- KeyError: Ensure dictionary key exists before accessing
+- IndexError: Validate list or array indices are within bounds
+- ValueError: Add input validation for invalid values
 
-**Full Test Output:**
-{full_traceback[:2000]}
-
-**Required Actions:**
-1. Analyze the test failure and expected vs actual behavior
-2. Review the logic in the failing function/method
-3. Fix calculation errors, condition checks, or algorithm issues
-4. Ensure edge cases are handled properly
-5. Verify output matches contract specifications
+**Fix Instructions:**
+1. Review the code logic at the point of failure
+2. Add defensive checks where needed
+3. Add proper error handling where appropriate
+4. Ensure data structures are initialized correctly
+5. Validate function inputs before processing
 """,
                     'agent_role': 'coder',  # Changed to coder for faster fixes
                     'priority': 2,
@@ -337,7 +334,17 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_contract_{strategy_name}_iter{iteration}",
                     'title': f"Fix contract mismatch in {strategy_name}",
-                    'description': f"Contract violation: {error_text}\n\nDetails:\n{full_traceback[:500]}",
+                    'description': """Fix contract or assertion mismatch.
+
+**Task:** Ensure strategy meets contract specifications
+
+**Fix Instructions:**
+1. Review contract specifications carefully
+2. Verify all required methods are implemented
+3. Check function signatures match contract
+4. Ensure return types are correct
+5. Test edge cases and boundary conditions
+""",
                     'agent_role': 'architect',
                     'priority': 1,
                     'dependencies': [],
@@ -354,7 +361,18 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_unknown_{strategy_name}_iter{iteration}",
                     'title': f"Debug {strategy_name} test failure",
-                    'description': f"Unknown error: {error_text}\n\nOutput:\n{full_traceback[:500]}",
+                    'description': """Debug and fix the failing strategy.
+
+**Task:** Analyze and resolve test failure
+
+**Investigation Steps:**
+1. Check if test timeout occurred (optimize performance)
+2. Verify DataFrame has required columns
+3. Review indicator calculations
+4. Check entry and exit conditions
+5. Add error handling where needed
+6. Test with sample data
+""",
                     'agent_role': 'debugger',
                     'priority': 3,
                     'dependencies': [],
@@ -429,6 +447,46 @@ class IterativeLoop:
         # knows about the new fix tasks for the next iteration
         self.cli.orchestrator.reload_workflow_tasks(workflow_id)
         print(f"   🔄 Orchestrator reloaded with {len(fix_tasks)} new fix task(s)")
+    
+    def _get_pending_tasks(self, workflow_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all pending tasks for a workflow.
+        
+        Args:
+            workflow_id: Workflow to check
+            
+        Returns:
+            List of pending task dictionaries
+        """
+        workflow_state = self.cli.orchestrator.workflows.get(workflow_id)
+        if not workflow_state:
+            return []
+        
+        todo_list = self.cli.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+        if not todo_list:
+            return []
+        
+        pending = []
+        for task in todo_list.get('items', []):
+            # Check task state in orchestrator
+            task_state = workflow_state.tasks.get(task['id'])
+            
+            # Task is pending if:
+            # 1. It exists in task_state and status is 'pending', OR
+            # 2. It doesn't exist in task_state yet (newly added task)
+            if task_state:
+                if task_state.status.value == 'pending':
+                    pending.append(task)
+            else:
+                # Newly added task not yet tracked in workflow state
+                # Check if it has explicit status field
+                task_status = task.get('status', 'pending')
+                if task_status != 'completed':
+                    pending.append(task)
+        
+        return pending
+        
+        return pending
     
     def _generate_final_report(
         self,

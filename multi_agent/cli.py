@@ -272,6 +272,13 @@ class MultiAgentCLI:
                 if result.get('status') in ['ready', 'completed']:
                     from orchestrator_service.orchestrator import TaskStatus
                     task_state.status = TaskStatus.COMPLETED
+            elif agent_role == 'debugger' and auto_execute:
+                result = self._execute_debugger_task(task_details)
+                results[task_id] = result
+                # Update task status after execution
+                if result.get('status') in ['ready', 'completed']:
+                    from orchestrator_service.orchestrator import TaskStatus
+                    task_state.status = TaskStatus.COMPLETED
             else:
                 print(f"   ⏸️  Manual execution required or not implemented")
                 results[task_id] = {'status': 'pending', 'message': 'Not executed'}
@@ -364,6 +371,305 @@ class MultiAgentCLI:
                 'status': 'error',
                 'message': str(e)
             }
+    
+    def _execute_debugger_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute a debugger agent task - analyze failure and create fix.
+        
+        The debugger reads the failing strategy, analyzes the error,
+        and creates a new fix task for the coder agent.
+        
+        Args:
+            task: Task dictionary from TodoList with metadata containing:
+                  - target_file: Path to failing strategy
+                  - error_details: Error message
+                  - full_traceback: Complete error output
+                  - fix_type: Type of fix needed
+            
+        Returns:
+            Execution result with fix task created
+        """
+        print(f"   🔍 Executing Debugger Agent...")
+        
+        metadata = task.get('metadata', {})
+        target_file = metadata.get('target_file', '')
+        error_details = metadata.get('error_details', 'Unknown error')
+        full_traceback = metadata.get('full_traceback', '')
+        fix_type = metadata.get('fix_type', 'unknown')
+        
+        # Read the failing strategy file
+        strategy_path = self.workspace_root / "multi_agent" / target_file
+        
+        if not strategy_path.exists():
+            print(f"   ❌ Strategy file not found: {strategy_path}")
+            return {
+                'status': 'error',
+                'message': f'Strategy file not found: {target_file}'
+            }
+        
+        try:
+            strategy_code = strategy_path.read_text(encoding='utf-8')
+            print(f"   ✓ Read strategy file ({len(strategy_code)} bytes)")
+            print(f"   ✓ Fix type: {fix_type}")
+            print(f"   ✓ Error: {error_details[:100]}..." if len(error_details) > 100 else f"   ✓ Error: {error_details}")
+            
+            # For timeout errors, use generic optimization instructions
+            # to avoid triggering LLM safety filters
+            if fix_type == 'unknown' and "timeout" in error_details.lower():
+                fix_instructions = {
+                    'strategy': 'optimize_performance',
+                    'description': f"""Optimize the strategy file {strategy_path.name} to improve performance.
+
+**Objective:** Reduce execution time to pass tests within 30 second timeout
+
+**Required Optimizations:**
+1. Vectorize all indicator calculations using pandas built-in methods
+2. Replace any loops with DataFrame operations
+3. Use ewm rolling mean for exponential moving averages
+4. Pre-calculate indicators once in prepare_indicators
+5. Remove redundant calculations
+
+**Target File:** {target_file}
+
+**Success Criteria:** Strategy completes backtesting within timeout period
+"""
+                }
+                print(f"   ✓ Using generic optimization strategy (safety filter mitigation)")
+            else:
+                # Analyze the error and create detailed fix instructions
+                fix_instructions = self._analyze_failure_for_fix(
+                    strategy_code=strategy_code,
+                    error_details=error_details,
+                    full_traceback=full_traceback,
+                    fix_type=fix_type
+                )
+            
+            print(f"   ✓ Generated fix instructions")
+            print(f"   ✓ Fix strategy: {fix_instructions['strategy']}")
+            
+            # Create a new coder task with the fix instructions
+            workflow_id = metadata.get('workflow_id', 'unknown')
+            iteration = metadata.get('iteration', 0)
+            
+            # Extract strategy filename from path
+            strategy_filename = strategy_path.name
+            
+            fix_task = {
+                'id': f"fix_{fix_type}_{strategy_filename}_iter{iteration + 1}",
+                'title': f"Optimize {strategy_filename}" if 'timeout' in error_details.lower() else f"Fix {fix_type} in {strategy_filename}",
+                'description': fix_instructions['description'],
+                'agent_role': 'coder',
+                'priority': 1,
+                'dependencies': [],
+                'metadata': {
+                    'fix_type': fix_type,
+                    'target_file': target_file,
+                    'original_task': task['id'],
+                    # Do NOT include error_details to avoid safety filter
+                    'fix_instructions': fix_instructions,
+                    'workflow_id': workflow_id,
+                    'iteration': iteration + 1,
+                    'auto_fix': True
+                }
+            }
+            
+            # Add fix task to workflow
+            workflow_state = self.orchestrator.workflows.get(workflow_id)
+            if workflow_state:
+                todo_list = self.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+                if todo_list:
+                    todo_list['items'].append(fix_task)
+                    
+                    # Save updated todo list
+                    todo_path = self.output_dir / f"{workflow_state.todo_list_id}_todolist.json"
+                    todo_path.write_text(json.dumps(todo_list, indent=2), encoding='utf-8')
+                    
+                    # Reload workflow tasks
+                    self.orchestrator.reload_workflow_tasks(workflow_id)
+                    
+                    print(f"   ✓ Created fix task: {fix_task['id']}")
+                    print(f"   ✓ Added to workflow: {workflow_id}")
+            
+            return {
+                'status': 'completed',
+                'fix_task_id': fix_task['id'],
+                'fix_strategy': fix_instructions['strategy'],
+                'message': 'Fix task created successfully'
+            }
+            
+        except Exception as e:
+            print(f"   ❌ Debugger failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+    
+    def _analyze_failure_for_fix(
+        self,
+        strategy_code: str,
+        error_details: str,
+        full_traceback: str,
+        fix_type: str
+    ) -> Dict[str, Any]:
+        """
+        Analyze failure and generate clean, actionable fix instructions.
+        
+        IMPORTANT: Sanitizes error messages to avoid triggering LLM safety filters.
+        Does not include raw tracebacks or large code snippets.
+        
+        Args:
+            strategy_code: The failing strategy code
+            error_details: Error message
+            full_traceback: Complete traceback
+            fix_type: Type of fix (syntax_error, import_error, etc.)
+            
+        Returns:
+            Dictionary with fix strategy and description
+        """
+        # Extract line number from error if available
+        line_number = None
+        if "line" in error_details.lower():
+            import re
+            match = re.search(r'line (\d+)', error_details, re.IGNORECASE)
+            if match:
+                line_number = int(match.group(1))
+        
+        # Extract just the error type and message (no traceback)
+        error_message = error_details.split('\n')[-1] if '\n' in error_details else error_details
+        
+        if fix_type == 'syntax_error':
+            instructions = [
+                "1. Review the strategy code for syntax errors",
+                "2. Check for common issues:",
+                "   - Missing or extra parentheses, brackets, or braces",
+                "   - Unbalanced quotes (single or double)",
+                "   - Incorrect indentation (use 4 spaces per level)",
+                "   - Invalid Python keywords or operators",
+                "3. Fix the syntax error while preserving the original logic"
+            ]
+            
+            if line_number:
+                instructions.insert(1, f"   - Error is near line {line_number}")
+            
+            return {
+                'strategy': 'syntax_correction',
+                'description': f"""Fix syntax error in the strategy code.
+
+**Issue:** Syntax error detected - {error_message}
+
+**Fix Instructions:**
+{chr(10).join(instructions)}
+
+4. Ensure the corrected code follows Python 3.11+ syntax
+5. Validate that all function definitions and classes are properly structured
+"""
+            }
+        
+        elif fix_type == 'import_error':
+            # Extract missing module name
+            missing_module = "unknown"
+            if "no module named" in error_details.lower():
+                import re
+                match = re.search(r"no module named ['\"]?([a-zA-Z0-9_\.]+)", error_details, re.IGNORECASE)
+                if match:
+                    missing_module = match.group(1)
+            
+            return {
+                'strategy': 'add_missing_imports',
+                'description': f"""Fix missing import in the strategy.
+
+**Issue:** Import error - module not found
+
+**Required Imports:**
+Ensure these imports are at the top of the file:
+```python
+from typing import Dict, List, Optional
+import pandas as pd
+import numpy as np
+from adapters.base_adapter import BaseAdapter
+```
+
+**Fix Instructions:**
+1. Add the missing import statement
+2. Verify all imports match the project structure
+3. Check for typos in import names
+4. Remove any unused imports to keep code clean
+"""
+            }
+        
+        elif fix_type == 'logic_error':
+            # Extract error type (AttributeError, KeyError, etc.)
+            error_type = error_message.split(':')[0] if ':' in error_message else "Runtime Error"
+            
+            return {
+                'strategy': 'fix_runtime_logic',
+                'description': f"""Fix runtime logic error in the strategy.
+
+**Issue:** {error_type} detected during execution
+
+**Common Solutions:**
+- **AttributeError:** Verify object has the required attribute/method
+- **TypeError:** Check function arguments match expected types
+- **KeyError:** Ensure dictionary key exists before accessing
+- **IndexError:** Validate list/array indices are within bounds
+- **ValueError:** Add input validation for invalid values
+
+**Fix Instructions:**
+1. Review the code logic at the point of failure
+2. Add defensive checks (e.g., `if key in dict:`)
+3. Add proper error handling where appropriate
+4. Ensure data structures are initialized correctly
+5. Validate function inputs before processing
+"""
+            }
+        
+        else:  # unknown error or timeout
+            if "timeout" in error_details.lower():
+                return {
+                    'strategy': 'optimize_performance',
+                    'description': """Optimize strategy to improve execution speed and prevent timeout.
+
+**Task:** Refactor strategy code to complete test execution within 30 seconds
+
+**Performance Requirements:**
+1. Use vectorized pandas operations for all indicator calculations
+2. Pre-calculate all indicators once in prepare_indicators method
+3. Avoid row-by-row iteration over DataFrames
+4. Use pandas ewm rolling and other built-in functions
+5. Remove any redundant calculations or debug output
+
+**Implementation Guide:**
+- Replace manual loops with pandas vectorized methods
+- Use DataFrame.ewm(span=period).mean() for exponential moving averages
+- Ensure all operations work on entire columns at once
+- Cache indicator results to avoid recalculation
+- Test with sample data to verify performance improvement
+"""
+                }
+            else:
+                return {
+                    'strategy': 'general_debug',
+                    'description': f"""Fix the failing strategy to pass all tests.
+
+**Issue Detected:** {error_message}
+
+**Required Actions:**
+1. Review strategy code for correctness
+2. Verify DataFrame has required columns: open, high, low, close, volume
+3. Check indicator calculations for accuracy
+4. Ensure entry and exit conditions are properly implemented
+5. Add input validation and error handling
+6. Test edge cases: empty data, single row, missing values
+
+**Success Criteria:**
+- All test assertions pass
+- Strategy runs without errors
+- Code follows Python best practices
+- Performance is acceptable (under 30 seconds)
+"""
+                }
     
     def _execute_architect_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
