@@ -670,16 +670,20 @@ if __name__ == '__main__':
             return code
             
         except ValueError as e:
-            error_str = str(e)
+            error_str = str(e).lower()
             
             # Check if it's a safety filter error and we should retry
-            if retry_with_pro and ('safety' in error_str.lower() or 'finish_reason' in error_str):
+            safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
+            is_safety_error = any(indicator in error_str for indicator in safety_indicators)
+            
+            if retry_with_pro and is_safety_error:
                 print(f"[CoderAgent] Safety filter triggered with {self.model_name}")
-                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro...")
+                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro (relaxed safety)...")
                 
-                # Attempt 2: Retry with Gemini Pro (less restrictive)
+                # Attempt 2: Retry with Gemini Pro with relaxed safety settings
                 try:
                     if self.use_router:
+                        # Try to use router with safety settings override
                         response_data = self.router.send_chat(
                             conv_id=self.conversation_id,
                             prompt=safe_prompt,

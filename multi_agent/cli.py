@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Multi-Agent System Command-Line Interface
 
@@ -18,6 +19,15 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 import time
 
+# Fix Windows console encoding issues
+if sys.platform == 'win32':
+    try:
+        import codecs
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+    except:
+        pass  # If reconfiguration fails, continue anyway
+
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -34,10 +44,12 @@ else:
 # Also check for GOOGLE_API_KEY mapping from GEMINI_API_KEY
 if not os.getenv('GOOGLE_API_KEY') and os.getenv('GEMINI_API_KEY'):
     os.environ['GOOGLE_API_KEY'] = os.getenv('GEMINI_API_KEY')
-    print(f"✓ Loaded GEMINI_API_KEY from .env")
+    print(f"[OK] Loaded GEMINI_API_KEY from .env")
 
+print("[DEBUG] About to import StrategyRegistry...")
 # Import strategy registry for testing
 from agents.coder_agent.strategy_registry import StrategyRegistry
+print("[DEBUG] StrategyRegistry imported successfully")
 
 
 class MultiAgentCLI:
@@ -49,27 +61,33 @@ class MultiAgentCLI:
         from orchestrator_service.orchestrator import MinimalOrchestrator
         from contracts.message_bus import InMemoryMessageBus
         
+        print("[DEBUG] Initializing CLI...")
+        
         self.workspace_root = Path(__file__).parent.parent
         self.output_dir = self.workspace_root / "multi_agent" / "workflows"
         self.output_dir.mkdir(exist_ok=True)
         
+        print("[DEBUG] Creating message bus...")
         # Initialize components
         self.message_bus = InMemoryMessageBus()
         
+        print("[DEBUG] Checking for API key...")
         # Initialize Planner with API key if available
         api_key = os.getenv('GOOGLE_API_KEY')
         if api_key:
+            print("[DEBUG] Initializing Planner with API key...")
             self.planner = PlannerService(api_key=api_key)
             self.ai_mode = True
             self.api_key = api_key
-            print("🤖 AI Mode: ENABLED (using Gemini API)")
+            print("[AI] AI Mode: ENABLED (using Gemini API)")
         else:
             # No Planner without API key, will use template mode
             self.planner = None
             self.ai_mode = False
             self.api_key = None
-            print("📋 Template Mode: ENABLED (no AI API key)")
+            print("[TEMPLATE] Template Mode: ENABLED (no AI API key)")
         
+        print("[DEBUG] Initializing Orchestrator...")
         # Initialize Orchestrator
         self.orchestrator = MinimalOrchestrator(use_message_bus=False)
         
@@ -77,8 +95,9 @@ class MultiAgentCLI:
         self.coder_agent = None
         self.architect_agent = None
         
-        print(f"📁 Workspace: {self.workspace_root}")
-        print(f"📂 Workflows: {self.output_dir}")
+        print(f"[Workspace] {self.workspace_root}")
+        print(f"[Workflows] {self.output_dir}")
+        print("[DEBUG] Initialization complete!")
         print()
     
     def submit_request(self, user_request: str) -> Dict[str, Any]:
@@ -235,12 +254,24 @@ class MultiAgentCLI:
             if agent_role == 'architect' and auto_execute:
                 result = self._execute_architect_task(task_details)
                 results[task_id] = result
+                # Update task status after execution
+                if result.get('status') in ['ready', 'completed']:
+                    from orchestrator_service.orchestrator import TaskStatus
+                    task_state.status = TaskStatus.COMPLETED
             elif agent_role == 'coder' and auto_execute:
                 result = self._execute_coder_task(task_details)
                 results[task_id] = result
+                # Update task status after execution
+                if result.get('status') in ['ready', 'completed']:
+                    from orchestrator_service.orchestrator import TaskStatus
+                    task_state.status = TaskStatus.COMPLETED
             elif agent_role == 'tester' and auto_execute:
                 result = self._execute_tester_task(task_details)
                 results[task_id] = result
+                # Update task status after execution
+                if result.get('status') in ['ready', 'completed']:
+                    from orchestrator_service.orchestrator import TaskStatus
+                    task_state.status = TaskStatus.COMPLETED
             else:
                 print(f"   ⏸️  Manual execution required or not implemented")
                 results[task_id] = {'status': 'pending', 'message': 'Not executed'}
@@ -912,14 +943,25 @@ class MultiAgentCLI:
                             if line.strip() and not line.startswith('='):
                                 print(f"      {line[:100]}")
                 
+                # Capture full output but limit to reasonable size for analysis
+                full_output = result.stdout if result.stdout else ''
+                full_error = result.stderr if result.stderr else ''
+                
+                # For error analysis, capture more context (up to 5000 chars)
+                error_context = test_errors[0]['message'] if test_errors else full_output
+                if len(error_context) > 5000:
+                    error_context = error_context[:5000] + "\n... (output truncated for brevity)"
+                
                 results.append({
                     'strategy': strategy_name,
                     'status': 'ready' if result.returncode == 0 else 'error',
                     'duration': duration,
                     'exit_code': result.returncode,
-                    'output': result.stdout[:1000] if result.stdout else None,
+                    'output': full_output[:2000] if full_output else None,  # Preview for display
+                    'full_output': full_output,  # Complete output for analysis
+                    'stderr': full_error,
                     'errors': test_errors,
-                    'error': test_errors[0]['message'] if test_errors else (result.stdout[:200] if result.stdout else 'Unknown error')
+                    'error': error_context  # Full context for debugger
                 })
                 
             except subprocess.TimeoutExpired:
@@ -1069,22 +1111,39 @@ class MultiAgentCLI:
                     workflow_id = parts[0]
                     max_iterations = int(parts[1]) if len(parts) > 1 else 5
                     
-                    # Run iterative loop
-                    from iterative_loop import IterativeLoop
-                    
-                    loop = IterativeLoop(
-                        cli=self,
-                        max_iterations=max_iterations,
-                        auto_fix=True
-                    )
-                    
-                    result = loop.run_until_success(workflow_id, verbose=True)
-                    
-                    if result.get('success'):
-                        print(f"✅ Strategy perfected in {result.get('total_iterations')} iterations!")
+                    if workflow_id in self.orchestrator.workflows:
+                        from iterative_loop import IterativeLoop
+                        
+                        # Initialize the loop
+                        loop = IterativeLoop(cli=self, max_iterations=max_iterations, auto_fix=True)
+                        
+                        # Run the iterative loop (use run_until_success method)
+                        result = loop.run_until_success(workflow_id, verbose=True)
+                        
+                        # After the loop, check if a new TodoList was generated
+                        # and update the orchestrator's state.
+                        if result and result.get("updated_todo_list"):
+                            new_todo_list = result["updated_todo_list"]
+                            
+                            # Get workflow to access todo_list_id
+                            workflow = self.orchestrator.workflows[workflow_id]
+                            
+                            # Update the orchestrator's internal todolist
+                            self.orchestrator.todo_lists[workflow.todo_list_id] = new_todo_list
+                            
+                            # Reload the workflow tasks to reflect the new "fix" tasks
+                            self.orchestrator.reload_workflow_tasks(workflow_id)
+                            
+                            print(f"✓ Orchestrator updated with new fix tasks.")
+                            
+                        if result.get('success'):
+                            print(f"✅ Strategy perfected in {result.get('total_iterations')} iterations!")
+                        else:
+                            print(f"⚠️  Max iterations ({max_iterations}) reached without full success")
+                        print()
                     else:
-                        print(f"⚠️  Max iterations ({max_iterations}) reached without full success")
-                    print()
+                        print(f"❌ Workflow not found: {workflow_id}")
+                        print()
                 
                 elif command == "status":
                     if not args:
@@ -1092,10 +1151,26 @@ class MultiAgentCLI:
                         print()
                         continue
                     
-                    self.get_status(args)
+                    result = self.get_status(args)
+                    if result.get('workflow_id'):
+                        print(f"Status for {result['workflow_id']}:")
+                        print(f"  Status: {result['status']}")
+                        print(f"  Tasks: {result.get('completed_tasks', 0)}/{result.get('total_tasks', 0)}")
+                        print()
+                    else:
+                        print(f"❌ Workflow not found: {args}")
+                        print()
                 
                 elif command == "list":
-                    self.list_workflows()
+                    result = self.list_workflows()
+                    if result.get('workflows'):
+                        print(f"Workflows ({len(result['workflows'])}):")
+                        for wf in result['workflows']:
+                            print(f"  - {wf['id']}: {wf['status']}")
+                        print()
+                    else:
+                        print("No workflows found.")
+                        print()
                 
                 else:
                     print(f"❌ Unknown command: {command}")
@@ -1103,167 +1178,16 @@ class MultiAgentCLI:
                     print()
             
             except KeyboardInterrupt:
-                print()
-                print("👋 Goodbye!")
+                print("\n👋 Goodbye!")
                 break
-            
             except Exception as e:
-                print(f"❌ Error: {e}")
-                import traceback
-                traceback.print_exc()
+                print(f"❌ Error: {str(e)}")
                 print()
 
 
 def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Multi-Agent System CLI",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python cli.py
-      Start interactive mode
-  
-  python cli.py --request "Create RSI strategy with buy<30, sell>70"
-      Submit single request
-  
-  python cli.py --execute wf_08915b40866d
-      Execute workflow tasks with AI agents
-  
-  python cli.py --status workflow_20251108_120000
-      Check workflow status
-  
-  python cli.py --list
-      List all workflows
-        """
-    )
-    
-    parser.add_argument(
-        '--request', '-r',
-        type=str,
-        help='Submit a strategy request'
-    )
-    
-    parser.add_argument(
-        '--execute', '-e',
-        type=str,
-        help='Execute workflow tasks'
-    )
-    
-    parser.add_argument(
-        '--test', '-t',
-        type=str,
-        help='Test generated strategy artifacts'
-    )
-    
-    parser.add_argument(
-        '--iterate', '-i',
-        type=str,
-        help='Run iterative loop until tests pass (workflow_id)'
-    )
-    
-    parser.add_argument(
-        '--max-iterations',
-        type=int,
-        default=5,
-        help='Maximum iterations for iterative loop (default: 5)'
-    )
-    
-    parser.add_argument(
-        '--run',
-        action='store_true',
-        help='Execute workflow immediately after submit (use with --request)'
-    )
-    
-    parser.add_argument(
-        '--status', '-s',
-        type=str,
-        help='Check workflow status'
-    )
-    
-    parser.add_argument(
-        '--list', '-l',
-        action='store_true',
-        help='List all workflows'
-    )
-    
-    args = parser.parse_args()
-    
-    # Initialize CLI
     cli = MultiAgentCLI()
-    
-    # Handle commands
-    if args.request:
-        result = cli.submit_request(args.request)
-        print(f"✅ Workflow: {result['workflow_id']}")
-        print(f"   Status: {result['status']}")
-        
-        # Execute immediately if --run flag is set
-        if args.run and result['status'] == 'queued':
-            print()
-            print("🔄 Auto-executing workflow...")
-            print()
-            exec_result = cli.execute_workflow(result['workflow_id'])
-            if exec_result['status'] == 'completed':
-                print(f"✅ Execution complete!")
-            else:
-                print(f"❌ Execution failed: {exec_result.get('message', 'Unknown error')}")
-        elif result['status'] == 'queued':
-            print(f"   Use 'python cli.py --status {result['workflow_id']}' to check status")
-            print(f"   Use 'python cli.py --execute {result['workflow_id']}' to run agents")
-        sys.exit(0)
-    
-    elif args.execute:
-        result = cli.execute_workflow(args.execute)
-        if result['status'] == 'completed':
-            print(f"✅ Execution complete for: {result['workflow_id']}")
-        else:
-            print(f"❌ Execution failed: {result.get('message', 'Unknown error')}")
-        sys.exit(0)
-    
-    elif args.test:
-        result = cli.test_workflow(args.test)
-        if result.get('status') != 'error':
-            summary = result.get('summary', {})
-            passed = summary.get('passed', 0)
-            total = summary.get('total', 0)
-            print(f"✅ Testing complete: {passed}/{total} passed")
-            sys.exit(0 if passed == total else 1)
-        else:
-            print(f"❌ Testing failed: {result.get('message', 'Unknown error')}")
-            sys.exit(1)
-    
-    elif args.iterate:
-        from iterative_loop import IterativeLoop
-        
-        loop = IterativeLoop(
-            cli=cli,
-            max_iterations=args.max_iterations,
-            auto_fix=True
-        )
-        
-        result = loop.run_until_success(args.iterate, verbose=True)
-        
-        if result.get('success'):
-            print(f"✅ Strategy perfected in {result.get('total_iterations')} iterations!")
-            sys.exit(0)
-        else:
-            print(f"⚠️  Max iterations ({args.max_iterations}) reached without full success")
-            sys.exit(1)
-    
-    elif args.status:
-        cli.get_status(args.status)
-        sys.exit(0)
-    
-    elif args.list:
-        cli.list_workflows()
-        sys.exit(0)
-    
-    else:
-        # Interactive mode
-        cli.interactive_mode()
-        sys.exit(0)
+    cli.interactive_mode()
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

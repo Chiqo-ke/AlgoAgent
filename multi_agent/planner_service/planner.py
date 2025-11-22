@@ -19,11 +19,11 @@ from planner_service.planner_prompt_single_file import PLANNER_SYSTEM_PROMPT_SIN
 
 logger = logging.getLogger(__name__)
 
-# Use single-file strategy prompt
+# Use single-file strategy prompt (DO NOT OVERRIDE!)
 PLANNER_SYSTEM_PROMPT = PLANNER_SYSTEM_PROMPT_SINGLE_FILE
 
-
-PLANNER_SYSTEM_PROMPT = """You are an expert software project planner for a multi-agent AI development system.
+# OLD 4-STEP PROMPT - DEPRECATED - DO NOT USE
+_OLD_PLANNER_SYSTEM_PROMPT = """You are an expert software project planner for a multi-agent AI development system.
 
 Your job is to analyze user requests and create trading strategy workflows following the **4-STEP TEMPLATE**.
 
@@ -291,7 +291,7 @@ EXAMPLE VALID TASK:
 ⚠️ CRITICAL: Follow this EXACT structure. Copy the pattern above and adapt for the user's strategy.
 
 Be thorough. Output only valid JSON matching the schema above EXACTLY.
-"""
+"""  # End of OLD_PLANNER_SYSTEM_PROMPT - This should NOT be used
 
 
 class PlannerService:

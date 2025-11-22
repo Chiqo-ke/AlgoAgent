@@ -200,6 +200,7 @@ class IterativeLoop:
             # Get detailed error information
             errors = result.get('errors', [])
             error_msg = result.get('error', 'Unknown error')
+            strategy_file = result.get('strategy', 'unknown')
             
             # Use first error if available, otherwise use error field
             if errors:
@@ -208,30 +209,51 @@ class IterativeLoop:
                 full_traceback = primary_error.get('full_traceback', '')
             else:
                 error_text = error_msg
-                full_traceback = result.get('output', '')
+                # Get full output for better context
+                full_traceback = result.get('full_output', result.get('output', ''))
             
             # Classify error type
             error_type = self._classify_error(error_text)
             
             print(f"   📝 {strategy_name}")
             print(f"      Type: {error_type}")
-            print(f"      Error: {error_text[:100]}..." if len(error_text) > 100 else f"      Error: {error_text}")
+            print(f"      Error: {error_text[:150]}..." if len(error_text) > 150 else f"      Error: {error_text}")
                 
             
-            # Create appropriate fix task
+            # Create appropriate fix task with comprehensive context
             if error_type == 'syntax_error':
                 fix_task = {
                     'id': f"fix_syntax_{strategy_name}_iter{iteration}",
                     'title': f"Fix syntax error in {strategy_name}",
-                    'description': f"Syntax error detected: {error_text}\n\nTraceback:\n{full_traceback[:500]}",
+                    'description': f"""Fix the syntax error in the generated strategy.
+
+**Strategy File:** {strategy_file}
+**Error Type:** Syntax Error
+**Iteration:** {iteration}
+
+**Error Message:**
+{error_text}
+
+**Full Traceback:**
+{full_traceback[:2000]}
+
+**Required Actions:**
+1. Analyze the syntax error from the traceback
+2. Identify the exact line and character causing the issue
+3. Generate corrected code with proper Python syntax
+4. Ensure all parentheses, brackets, and quotes are balanced
+5. Verify indentation is correct
+""",
                     'agent_role': 'coder',
                     'priority': 1,
                     'dependencies': [],
                     'metadata': {
                         'fix_type': 'syntax',
-                        'target_file': f"Backtest/codes/{strategy_name}.py",
+                        'target_file': f"Backtest/codes/{strategy_file}",
                         'error_details': error_text,
-                        'iteration': iteration
+                        'full_traceback': full_traceback[:2000],
+                        'iteration': iteration,
+                        'auto_fix': True
                     }
                 }
                 fix_tasks.append(fix_task)
@@ -240,15 +262,35 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_imports_{strategy_name}_iter{iteration}",
                     'title': f"Fix import errors in {strategy_name}",
-                    'description': f"Import error: {error_text}\n\nTraceback:\n{full_traceback[:500]}",
+                    'description': f"""Fix the import error in the generated strategy.
+
+**Strategy File:** {strategy_file}
+**Error Type:** Import Error
+**Iteration:** {iteration}
+
+**Error Message:**
+{error_text}
+
+**Full Traceback:**
+{full_traceback[:2000]}
+
+**Required Actions:**
+1. Identify the missing or incorrect import
+2. Add necessary import statements (pandas, numpy, typing, etc.)
+3. Ensure imports are from correct modules
+4. Verify all dependencies are available
+5. Check for typos in module/function names
+""",
                     'agent_role': 'coder',
                     'priority': 1,
                     'dependencies': [],
                     'metadata': {
                         'fix_type': 'imports',
-                        'target_file': f"Backtest/codes/{strategy_name}.py",
+                        'target_file': f"Backtest/codes/{strategy_file}",
                         'error_details': error_text,
-                        'iteration': iteration
+                        'full_traceback': full_traceback[:2000],
+                        'iteration': iteration,
+                        'auto_fix': True
                     }
                 }
                 fix_tasks.append(fix_task)
@@ -257,16 +299,36 @@ class IterativeLoop:
                 fix_task = {
                     'id': f"fix_logic_{strategy_name}_iter{iteration}",
                     'title': f"Fix logic errors in {strategy_name}",
-                    'description': f"Test failure: {error_text}\n\nFull output:\n{full_traceback[:500]}",
-                    'agent_role': 'debugger',
+                    'description': f"""Fix the logic error causing test failure.
+
+**Strategy File:** {strategy_file}
+**Error Type:** Logic/Test Failure
+**Iteration:** {iteration}
+
+**Error Message:**
+{error_text}
+
+**Full Test Output:**
+{full_traceback[:2000]}
+
+**Required Actions:**
+1. Analyze the test failure and expected vs actual behavior
+2. Review the logic in the failing function/method
+3. Fix calculation errors, condition checks, or algorithm issues
+4. Ensure edge cases are handled properly
+5. Verify output matches contract specifications
+""",
+                    'agent_role': 'coder',  # Changed to coder for faster fixes
                     'priority': 2,
                     'dependencies': [],
                     'metadata': {
                         'fix_type': 'logic',
-                        'target_file': f"Backtest/codes/{strategy_name}.py",
+                        'target_file': f"Backtest/codes/{strategy_file}",
                         'error_details': error_text,
+                        'full_traceback': full_traceback[:2000],
                         'iteration': iteration,
-                        'test_output': full_traceback
+                        'test_output': full_traceback[:2000],
+                        'auto_fix': True
                     }
                 }
                 fix_tasks.append(fix_task)
@@ -362,6 +424,11 @@ class IterativeLoop:
         todo_path.write_text(json.dumps(todo_list, indent=2), encoding='utf-8')
         
         print(f"   ✅ Updated TodoList with fix tasks")
+        
+        # CRITICAL: Immediately reload the workflow tasks so the orchestrator
+        # knows about the new fix tasks for the next iteration
+        self.cli.orchestrator.reload_workflow_tasks(workflow_id)
+        print(f"   🔄 Orchestrator reloaded with {len(fix_tasks)} new fix task(s)")
     
     def _generate_final_report(
         self,
@@ -370,13 +437,20 @@ class IterativeLoop:
         total_iterations: int
     ) -> Dict[str, Any]:
         """Generate final report with iteration history."""
+        # Get the updated TodoList from the workflow
+        workflow_state = self.cli.orchestrator.workflows.get(workflow_id)
+        updated_todo_list = None
+        if workflow_state:
+            updated_todo_list = self.cli.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+        
         report = {
             'workflow_id': workflow_id,
             'success': success,
             'total_iterations': total_iterations,
             'max_iterations': self.max_iterations,
             'completed_at': datetime.now().isoformat(),
-            'iteration_history': self.iteration_history
+            'iteration_history': self.iteration_history,
+            'updated_todo_list': updated_todo_list  # Add the updated TodoList
         }
         
         # Save report
