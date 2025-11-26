@@ -28,6 +28,14 @@ class RateLimitError(ProviderError):
         self.retry_after = retry_after  # Seconds
 
 
+class SafetyBlockError(ProviderError):
+    """Raised when content is blocked by safety filters."""
+    
+    def __init__(self, message: str, safety_ratings: Optional[List[Dict[str, Any]]] = None):
+        super().__init__(message)
+        self.safety_ratings = safety_ratings  # Safety rating details
+
+
 class ProviderClient(ABC):
     """Abstract base class for provider clients."""
     
@@ -84,27 +92,88 @@ class GeminiClient(ProviderClient):
             # Configure API key
             genai.configure(api_key=api_key)
             
-            # Create model
+            # Create model with safety settings bypassed
             generation_config = {
                 'max_output_tokens': max_tokens,
                 'temperature': temperature
             }
             
+            # Bypass safety filters for code generation (TRIPLE REDUNDANCY)
+            # Applied at: 1) Model init, 2) Chat session, 3) Message send
+            safety_settings = [
+                {
+                    "category": "HARM_CATEGORY_HARASSMENT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_NONE"
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_NONE"
+                }
+            ]
+            
+            # 1) Apply at model initialization
             model_instance = genai.GenerativeModel(
                 model_name=model,
-                generation_config=generation_config
+                generation_config=generation_config,
+                safety_settings=safety_settings
             )
             
             # Convert messages to Gemini format
             history, last_message = self._convert_messages(messages)
             
-            # Start chat
-            chat = model_instance.start_chat(history=history)
+            # 2) Start chat session (safety settings inherited from model)
+            chat = model_instance.start_chat(
+                history=history
+            )
             
-            # Send message
-            response = chat.send_message(last_message)
+            # 3) Apply at message send (explicit override - CRITICAL for safety bypass)
+            response = chat.send_message(
+                last_message,
+                safety_settings=safety_settings
+            )
             
-            # Extract response
+            # Validate response for safety blocks BEFORE accessing .text
+            if not response.candidates:
+                raise SafetyBlockError(
+                    f"No candidates returned - likely safety block. Prompt feedback: {response.prompt_feedback}",
+                    safety_ratings=None
+                )
+            
+            candidate = response.candidates[0]
+            
+            # Check finish_reason (2 = SAFETY, 3 = RECITATION, 4 = OTHER)
+            if candidate.finish_reason in [2, 3]:
+                finish_reason_name = {
+                    2: "SAFETY",
+                    3: "RECITATION",
+                    4: "OTHER"
+                }.get(candidate.finish_reason, "UNKNOWN")
+                
+                safety_ratings = []
+                if hasattr(candidate, 'safety_ratings'):
+                    safety_ratings = [
+                        {
+                            'category': rating.category.name if hasattr(rating.category, 'name') else str(rating.category),
+                            'probability': rating.probability.name if hasattr(rating.probability, 'name') else str(rating.probability)
+                        }
+                        for rating in candidate.safety_ratings
+                    ]
+                
+                raise SafetyBlockError(
+                    f"Content blocked by safety filter. Finish reason: {finish_reason_name}. "
+                    f"Safety ratings: {safety_ratings}. Prompt feedback: {response.prompt_feedback}",
+                    safety_ratings=safety_ratings
+                )
+            
+            # Extract response (safe to access .text now)
             content = response.text
             
             # Get token counts if available

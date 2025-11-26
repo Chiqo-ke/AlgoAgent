@@ -1,9 +1,10 @@
 """Tester Agent - Main implementation for Docker sandbox test execution."""
 
 import json
+import re
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from contracts.message_bus import get_message_bus, Channels
 from contracts.event_types import EventType, TaskEvent
@@ -126,13 +127,52 @@ class TesterAgent:
             )
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
-                "sandbox_error", str(e)
+                "sandbox_error", str(e),
+                artifact_path=task.get('artifact_path')
             )
             return
         
         print(f"[{self.agent_id}] Test execution completed in {result['duration_seconds']:.1f}s")
         
-        # 4. Check exit code
+        # 4. Check for timeout first (special handling)
+        if result['exit_code'] == -1:
+            failures = result.get('failures', [])
+            is_timeout = any(f.get('check') == 'timeout' for f in failures)
+            
+            if is_timeout:
+                print(f"[{self.agent_id}] ✗ Test timeout detected - analyzing root cause...")
+                
+                # Perform deep timeout analysis
+                docker_logs = result.get('stdout', '')
+                stderr = result.get('stderr', '')
+                timeout_analysis = self._analyze_timeout_error(docker_logs, stderr)
+                
+                print(f"[{self.agent_id}]   Root causes: {timeout_analysis['root_cause']}")
+                print(f"[{self.agent_id}]   Fix strategies: {len(timeout_analysis['fix_strategy'])} suggestions")
+                
+                # Enhance failure with analysis
+                enhanced_failures = [{
+                    'check': 'timeout',
+                    'message': f"Timeout after {sandbox_params['timeout']}s",
+                    'root_cause': timeout_analysis['root_cause'],
+                    'last_line': timeout_analysis['last_line'],
+                    'fix_strategy': timeout_analysis['fix_strategy']
+                }]
+                
+                self.publish_test_failed(
+                    corr_id, wf_id, task_id,
+                    enhanced_failures,
+                    workspace
+                )
+                
+                self.request_debug_branch(
+                    corr_id, wf_id, task_id, workspace,
+                    "timeout", timeout_analysis,
+                    artifact_path=task.get('artifact_path')
+                )
+                return
+        
+        # 5. Check exit code for other failures
         if result['exit_code'] != 0:
             print(f"[{self.agent_id}] ✗ Tests failed (exit code: {result['exit_code']})")
             self.publish_test_failed(
@@ -142,7 +182,8 @@ class TesterAgent:
             )
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
-                "test_failures", result['failures']
+                "test_failures", result['failures'],
+                artifact_path=task.get('artifact_path')
             )
             return
         
@@ -157,7 +198,8 @@ class TesterAgent:
             )
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
-                "artifact_missing", "test_report.json not created"
+                "artifact_missing", "test_report.json not created",
+                artifact_path=task.get('artifact_path')
             )
             return
         
@@ -173,7 +215,8 @@ class TesterAgent:
             )
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
-                "schema_invalid", str(e)
+                "schema_invalid", str(e),
+                artifact_path=task.get('artifact_path')
             )
             return
         
@@ -190,7 +233,8 @@ class TesterAgent:
             )
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
-                "invalid_artifacts", artifact_errors
+                "invalid_artifacts", artifact_errors,
+                artifact_path=task.get('artifact_path')
             )
             return
         
@@ -211,7 +255,8 @@ class TesterAgent:
                 )
                 self.request_debug_branch(
                     corr_id, wf_id, task_id, workspace,
-                    "secrets_detected", secrets_found
+                    "secrets_detected", secrets_found,
+                    artifact_path=task.get('artifact_path')
                 )
                 return
             
@@ -259,6 +304,151 @@ class TesterAgent:
                 "win_rate": 0,
                 "max_drawdown": 0
             }
+    
+    def _analyze_timeout_error(self, docker_logs: str, stderr: str = "") -> Dict:
+        """
+        Deep analysis of timeout root cause.
+        
+        Detects patterns like:
+        - infinite_loop: while True or missing break conditions
+        - large_data: df.iterrows(), nested DataFrame loops
+        - blocking_io: network requests, file I/O without timeouts
+        - missing_timeout: API calls without timeout parameters
+        
+        Args:
+            docker_logs: stdout from Docker execution
+            stderr: stderr from Docker execution
+            
+        Returns:
+            {
+                "error_type": "timeout",
+                "root_cause": List[str],  # Detected patterns
+                "last_line": str,  # Last executed code line
+                "fix_strategy": List[str]  # Specific fix instructions
+            }
+        """
+        combined_logs = f"{docker_logs}\n{stderr}"
+        
+        # Extract last executed line (approximate)
+        last_line = self._extract_last_execution_line(combined_logs)
+        
+        # Detect timeout patterns
+        patterns = {
+            "infinite_loop": [
+                r"while\s+True\s*:",
+                r"while\s+1\s*:",
+                r"for\s+\w+\s+in\s+range\([^)]*\)\s*:\s*$"  # Unbounded range
+            ],
+            "large_data": [
+                r"\.iterrows\(\)",
+                r"for\s+.*\s+in\s+df\.",
+                r"for\s+.*\s+in\s+data\[",
+                r"pd\.read_csv\([^)]{100,}\)"  # Very long file path = large file
+            ],
+            "blocking_io": [
+                r"requests\.",
+                r"urllib\.",
+                r"socket\.",
+                r"http\.",
+                r"urlopen\("
+            ],
+            "missing_timeout": [
+                r"\.get\([^)]*\)(?!.*timeout)",  # .get() without timeout param
+                r"\.post\([^)]*\)(?!.*timeout)",
+                r"\.request\([^)]*\)(?!.*timeout)"
+            ]
+        }
+        
+        detected = []
+        for pattern_name, regexes in patterns.items():
+            for regex in regexes:
+                if re.search(regex, combined_logs, re.MULTILINE | re.IGNORECASE):
+                    detected.append(pattern_name)
+                    break  # Only add once per pattern type
+        
+        # Remove duplicates
+        detected = list(set(detected))
+        
+        return {
+            "error_type": "timeout",
+            "root_cause": detected,
+            "last_line": last_line,
+            "fix_strategy": self._get_timeout_fix_strategy(detected)
+        }
+    
+    def _extract_last_execution_line(self, logs: str) -> str:
+        """
+        Extract the last line of code that was executing before timeout.
+        
+        Args:
+            logs: Combined stdout/stderr
+            
+        Returns:
+            Last executed line or empty string
+        """
+        # Look for common patterns
+        patterns = [
+            r"File \"([^\"]+)\", line (\d+)",  # Python traceback
+            r"at line (\d+)",
+            r"^\s+(.+)$"  # Last indented line (likely code)
+        ]
+        
+        lines = logs.split('\n')
+        for line in reversed(lines[-50:]):  # Check last 50 lines
+            for pattern in patterns:
+                match = re.search(pattern, line)
+                if match:
+                    return line.strip()
+        
+        return ""
+    
+    def _get_timeout_fix_strategy(self, causes: List[str]) -> List[str]:
+        """
+        Map timeout causes to specific fix instructions.
+        
+        Args:
+            causes: List of detected root causes
+            
+        Returns:
+            List of actionable fix instructions
+        """
+        fixes = {
+            "infinite_loop": [
+                "Add explicit loop counter: max_iterations = 1000",
+                "Add break condition based on data size or convergence",
+                "Replace 'while True' with 'while condition' where condition has clear exit",
+                "Add timeout validation: assert time.time() - start < 10"
+            ],
+            "large_data": [
+                "Replace df.iterrows() with vectorized operations (df.apply, df.rolling, etc.)",
+                "Sample data for testing: df = df.head(1000) or df = df.sample(1000)",
+                "Add early validation: if len(df) > 10000: raise ValueError('Dataset too large')",
+                "Use numpy operations instead of pandas loops"
+            ],
+            "blocking_io": [
+                "Remove all network requests - sandbox has network disabled",
+                "Use pre-loaded data from adapter.get_historical_data()",
+                "Remove file I/O except adapter.save_report()",
+                "Add timeout parameter to all I/O operations if absolutely required"
+            ],
+            "missing_timeout": [
+                "Add timeout parameter to all API calls: requests.get(url, timeout=5)",
+                "Add timeout to socket operations: sock.settimeout(5)",
+                "Use asyncio with timeout wrappers for async operations"
+            ]
+        }
+        
+        result = []
+        for cause in causes:
+            result.extend(fixes.get(cause, []))
+        
+        # Add generic fix if no specific cause detected
+        if not result:
+            result.append("Add execution time validation: assert time.time() - start < 10")
+            result.append("Profile code to identify bottleneck: python -m cProfile script.py")
+            result.append("Add progress logging to identify slow sections")
+        
+        return result
     
     # Event publishers
     
@@ -335,7 +525,8 @@ class TesterAgent:
         task_id: str,
         workspace: Path,
         reason: str,
-        details: any
+        details: any,
+        artifact_path: str = None
     ):
         """
         Request Debugger to create branch todo.
@@ -347,6 +538,7 @@ class TesterAgent:
             workspace: Workspace path with artifacts
             reason: Failure classification (e.g., "test_failures")
             details: Detailed failure information
+            artifact_path: Path to the original artifact file that needs fixing
         """
         # Collect attachments (logs, fixtures)
         attachments = []
@@ -362,7 +554,8 @@ class TesterAgent:
             "attachments": attachments[:10],  # Limit to 10 files
             "target_agent": "debugger",
             "failure_classification": reason,
-            "reproduce_command": f"docker run --rm -v $(pwd):/app algo-sandbox pytest tests/"
+            "reproduce_command": f"docker run --rm -v $(pwd):/app algo-sandbox pytest tests/",
+            "artifact_path": artifact_path  # Include original file path
         }
         
         evt = TaskEvent.create(

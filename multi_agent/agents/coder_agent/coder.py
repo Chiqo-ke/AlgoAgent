@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import shutil
 import re
+from dotenv import load_dotenv
+
+# Load environment variables (for API keys)
+load_dotenv()
 
 from llm.router import get_request_router
 from contracts import Event, EventType
@@ -268,10 +272,19 @@ class CoderAgent:
         # Build prompt for Gemini
         prompt = self._build_coder_prompt(task, contract)
         
+        # Check if this is a fix task (use experimental model for better safety filter handling)
+        auto_fix = task.get('metadata', {}).get('auto_fix', False)
+        print(f"[CoderAgent] Task metadata: {task.get('metadata', {})}")
+        print(f"[CoderAgent] auto_fix flag: {auto_fix}")
+        
         # Generate code with retry mechanism
         if self.use_router or self.fallback_model:
             try:
-                code = self._generate_with_gemini(prompt, retry_with_pro=True)
+                code = self._generate_with_gemini(
+                    prompt, 
+                    retry_with_pro=True,
+                    is_fix_task=auto_fix
+                )
             except Exception as e:
                 print(f"[CoderAgent] All Gemini attempts failed: {e}")
                 print(f"[CoderAgent] ⚠️  Falling back to template mode...")
@@ -280,11 +293,21 @@ class CoderAgent:
             # Fallback: use template only
             code = self._generate_from_template(task, contract)
         
-        # Create artifact with unique identifier naming
-        filename = self._generate_unique_filename(task, contract)
+        # Determine if this is a fix task with existing artifact
+        existing_artifact_path = task.get('artifact_path')
+        
+        if existing_artifact_path and auto_fix:
+            # Fix task: Update existing file instead of creating new one
+            print(f"[CoderAgent] 🔧 Fix task detected - updating existing file: {existing_artifact_path}")
+            filename = Path(existing_artifact_path).name
+            file_path = existing_artifact_path
+        else:
+            # New implementation: Create unique filename
+            filename = self._generate_unique_filename(task, contract)
+            file_path = f"Backtest/codes/{filename}"
         
         artifact = CodeArtifact(
-            file_path=f"Backtest/codes/{filename}",
+            file_path=file_path,
             content=code,
             artifact_type='implementation',
             contract_id=contract_id
@@ -316,24 +339,103 @@ Contract ID: {contract['contract_id']}
 **CONTRACT SPECIFICATION**
 {json.dumps(contract['interfaces'], indent=2)}
 
+**MANDATORY PERFORMANCE REQUIREMENTS**
+
+⚠️ CRITICAL: All generated code MUST execute in <10 seconds in Docker sandbox with:
+- 512MB RAM limit
+- 1 CPU core
+- Network disabled (no external I/O)
+- 30 second timeout (fail fast at 10s)
+
+1. **EXECUTION TIME CONSTRAINT**
+   - Add timing validation at start of run() method:
+     ```python
+     import time
+     start_time = time.time()
+     # ... your code ...
+     elapsed = time.time() - start_time
+     assert elapsed < 10, f"Timeout: {{elapsed:.1f}}s exceeds 10s limit"
+     ```
+
+2. **LOOP SAFETY (MANDATORY)**
+   - NEVER use `while True` without explicit break condition
+   - ALL loops MUST have max_iterations counter:
+     ```python
+     MAX_ITERATIONS = 1000  # Explicit limit
+     for i in range(MAX_ITERATIONS):
+         if condition:
+             break
+     ```
+   - For data loops, use min(len(df), MAX_ITERATIONS)
+
+3. **DATA PROCESSING CONSTRAINTS**
+   - Use VECTORIZED operations (pandas/numpy) - NO row-by-row loops
+   - FORBIDDEN: df.iterrows(), nested loops on DataFrames
+   - Validate data size BEFORE processing:
+     ```python
+     if len(df) > 10000:
+         df = df.tail(10000)  # Sample for testing
+     ```
+   - Clear large variables when done: `del large_df; gc.collect()`
+
+4. **NO EXTERNAL I/O**
+   - Network requests WILL timeout (sandbox isolated)
+   - All data comes from adapter.get_historical_data()
+   - No file I/O except adapter.save_report()
+   - NO requests, urllib, socket, http libraries
+
+5. **MEMORY MANAGEMENT**
+   - Maximum 512MB RAM available
+   - Use efficient data structures (numpy arrays over lists)
+   - Avoid data duplication
+   - Delete intermediate results after use
+
 **TECHNICAL REQUIREMENTS**
 1. Generate production-ready Python code
 2. Use NEUTRAL, TECHNICAL language in all comments and docstrings
 3. Include proper error handling and input validation
-4. Add TIMEOUT PROTECTION to all loops - use explicit max_iterations
-5. Follow these dependencies: pandas, numpy, typing
-6. Include exact function names and signatures from contract
-7. Use deterministic seeds for any randomness
-8. NO network calls inside functions
-9. Include docstrings referencing contract ID
+4. Follow these dependencies: pandas, numpy, typing
+5. Include exact function names and signatures from contract
+6. Use deterministic seeds for any randomness
+7. Include docstrings referencing contract ID
 
-**LOOP SAFETY (MANDATORY)**
-All loops must include explicit termination:
+**CODE STRUCTURE SKELETON**
 ```python
-max_iterations = 1000  # Prevent infinite loops
-for i in range(max_iterations):
-    if break_condition:
-        break
+import time
+import gc
+import pandas as pd
+import numpy as np
+from typing import Dict, Optional
+
+class Strategy:
+    MAX_ITERATIONS = 1000  # Always define limits
+    
+    def run(self, adapter, df: pd.DataFrame):
+        # 1. Start timing
+        start_time = time.time()
+        
+        # 2. Validate data size
+        if len(df) > 10000:
+            df = df.tail(10000)  # Sample for sandbox
+        
+        # 3. Vectorized indicator calculations
+        df['ema_30'] = df['close'].ewm(span=30).mean()
+        df['ema_50'] = df['close'].ewm(span=50).mean()
+        
+        # 4. Loop with explicit limit
+        for i in range(min(len(df), self.MAX_ITERATIONS)):
+            # Processing logic
+            if i % 100 == 0:  # Progress check
+                elapsed = time.time() - start_time
+                if elapsed > 8:  # Warn before timeout
+                    break
+        
+        # 5. Cleanup
+        gc.collect()
+        
+        # 6. Validate execution time
+        elapsed = time.time() - start_time
+        assert elapsed < 10, f"Timeout: {{elapsed:.1f}}s > 10s"
 ```
 
 **FIXTURES AVAILABLE**
@@ -597,147 +699,139 @@ if __name__ == '__main__':
     main()
 '''
     
-    def _generate_with_gemini(self, prompt: str, retry_with_pro: bool = True) -> str:
-        """Generate code using RequestRouter or Gemini API with retry mechanism.
+    def _generate_with_gemini(self, prompt: str, retry_with_pro: bool = True, is_fix_task: bool = False) -> str:
+        """Generate code using RequestRouter with cascading model fallback.
         
         Args:
             prompt: Generation prompt
-            retry_with_pro: If True, retry with Gemini Pro on safety filter errors
+            retry_with_pro: Whether to enable model fallback on errors
+            is_fix_task: If True, try experimental models first (more lenient safety)
             
         Returns:
             Generated code
             
         Raises:
-            Exception: If all attempts fail
+            Exception: If all model attempts fail
         """
         # Add safety disclaimer to prompt
         safe_prompt = f"""[SYSTEM NOTE: This is a technical code generation task for backtesting simulation software. All outputs are for educational and research purposes only.]
 
 {prompt}"""
         
-        # Attempt 1: Try with preferred model (Flash)
-        try:
-            if self.use_router:
-                # Use RequestRouter with conversation mode for context
-                response_data = self.router.send_chat(
-                    conv_id=self.conversation_id,
-                    prompt=safe_prompt,
-                    model_preference=self.model_name,
-                    expected_completion_tokens=4096,
-                    max_output_tokens=8192,
-                    temperature=self.temperature
-                )
-                
-                if not response_data.get('success'):
-                    error_msg = response_data.get('error', 'Unknown error')
-                    
-                    # Check for safety filter (finish_reason=2 or safety-related error)
-                    if 'finish_reason' in str(error_msg) and '2' in str(error_msg):
-                        raise ValueError(f"Safety filter triggered: {error_msg}")
-                    elif 'safety' in str(error_msg).lower():
-                        raise ValueError(f"Safety filter triggered: {error_msg}")
-                    else:
-                        raise ValueError(f"Router error: {error_msg}")
-                
-                code = response_data['content']
-            else:
-                # Fallback to direct Gemini
-                if not hasattr(self, 'fallback_model') or self.fallback_model is None:
-                    raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
-                
-                import google.generativeai as genai
-                response = self.fallback_model.generate_content(
-                    safe_prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=self.temperature,
-                        max_output_tokens=8192
-                    )
-                )
-                
-                # Check if response was blocked by safety filters
-                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                    if hasattr(response.prompt_feedback, 'block_reason'):
-                        raise ValueError(f"Safety filter triggered: {response.prompt_feedback.block_reason}")
-                
-                code = response.text
-            
-            # Extract code from markdown if present
-            if '```python' in code:
-                code = code.split('```python')[1].split('```')[0].strip()
-            elif '```' in code:
-                code = code.split('```')[1].split('```')[0].strip()
-            
-            return code
-            
-        except ValueError as e:
-            error_str = str(e).lower()
-            
-            # Check if it's a safety filter error and we should retry
-            safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
-            is_safety_error = any(indicator in error_str for indicator in safety_indicators)
-            
-            if retry_with_pro and is_safety_error:
-                print(f"[CoderAgent] Safety filter triggered with {self.model_name}")
-                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro (relaxed safety)...")
-                
-                # Attempt 2: Retry with Gemini Pro with relaxed safety settings
-                try:
-                    if self.use_router:
-                        # Try to use router with safety settings override
-                        response_data = self.router.send_chat(
-                            conv_id=self.conversation_id,
-                            prompt=safe_prompt,
-                            model_preference="gemini-2.5-pro",  # Force Pro model
-                            expected_completion_tokens=4096,
-                            max_output_tokens=8192,
-                            temperature=self.temperature
-                        )
-                        
-                        if not response_data.get('success'):
-                            raise ValueError(f"Pro model also failed: {response_data.get('error')}")
-                        
-                        code = response_data['content']
-                    else:
-                        # Direct Gemini fallback - try Pro model
-                        import google.generativeai as genai
-                        
-                        # Get API key for Pro model
-                        pro_key = os.getenv('API_KEY_gemini_pro_01') or os.getenv('GEMINI_API_KEY')
-                        if pro_key:
-                            genai.configure(api_key=pro_key)
-                            pro_model = genai.GenerativeModel("gemini-2.5-pro")
-                            
-                            response = pro_model.generate_content(
-                                safe_prompt,
-                                generation_config=genai.types.GenerationConfig(
-                                    temperature=self.temperature,
-                                    max_output_tokens=8192
-                                )
-                            )
-                            code = response.text
-                        else:
-                            raise ValueError("No API key available for Pro model retry")
-                    
-                    # Extract code from markdown if present
-                    if '```python' in code:
-                        code = code.split('```python')[1].split('```')[0].strip()
-                    elif '```' in code:
-                        code = code.split('```')[1].split('```')[0].strip()
-                    
-                    print(f"[CoderAgent] ✓ Pro model succeeded")
-                    return code
-                    
-                except Exception as pro_error:
-                    print(f"[CoderAgent] Pro model also failed: {pro_error}")
-                    raise ValueError(f"Both Flash and Pro models failed. Flash: {error_str}, Pro: {str(pro_error)}")
-            else:
-                # Not a safety error or retry disabled
-                print(f"[CoderAgent] LLM error: {e}")
-                raise
+        # Define model cascade based on task type
+        if is_fix_task:
+            # For fix/debug tasks: Try experimental/lenient models first
+            model_cascade = [
+                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
+                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                ("gemini-2.0-flash-thinking-exp-01-21", "Gemini 2.0 Flash Thinking Experimental"),
+                ("gemini-exp-1206", "Gemini Experimental 1206")
+            ]
+            print(f"[CoderAgent] 🔧 Fix task detected - trying {len(model_cascade)} models in cascade")
+        else:
+            # For normal generation: Try standard models first (cheaper)
+            model_cascade = [
+                ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
+            ]
         
-        except Exception as e:
-            print(f"[CoderAgent] LLM error: {e}")
-            raise
+        # Try each model in sequence
+        last_error = None
+        for attempt_num, (model_id, model_name) in enumerate(model_cascade, 1):
+            try:
+                print(f"[CoderAgent] 🔄 Attempt {attempt_num}/{len(model_cascade)}: {model_name}")
+                
+                if self.use_router:
+                    # Use RequestRouter with correct API signature
+                    response_data = self.router.send_chat(
+                        conv_id=self.conversation_id,
+                        prompt=safe_prompt,
+                        model_preference=model_id,
+                        expected_completion_tokens=4096,
+                        max_output_tokens=8192,
+                        temperature=self.temperature
+                    )
+                    
+                    if not response_data.get('success'):
+                        error_msg = response_data.get('error', 'Unknown error')
+                        
+                        # Check for safety filter or other errors
+                        if 'finish_reason' in str(error_msg) and '2' in str(error_msg):
+                            raise ValueError(f"Safety filter: {error_msg}")
+                        elif 'safety' in str(error_msg).lower():
+                            raise ValueError(f"Safety filter: {error_msg}")
+                        else:
+                            raise ValueError(f"Router error: {error_msg}")
+                    
+                    code = response_data.get('content') or response_data.get('response', '')
+                else:
+                    # Fallback to direct Gemini API
+                    if not hasattr(self, 'fallback_model') or self.fallback_model is None:
+                        raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
+                    
+                    import google.generativeai as genai
+                    response = self.fallback_model.generate_content(
+                        safe_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=self.temperature,
+                            max_output_tokens=8192
+                        )
+                    )
+                    
+                    # Check if response was blocked by safety filters
+                    if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                        if hasattr(response.prompt_feedback, 'block_reason'):
+                            raise ValueError(f"Safety filter: {response.prompt_feedback.block_reason}")
+                    
+                    code = response.text
+                
+                # Extract code from markdown if present
+                if '```python' in code:
+                    code = code.split('```python')[1].split('```')[0].strip()
+                elif '```' in code:
+                    code = code.split('```')[1].split('```')[0].strip()
+                
+                print(f"[CoderAgent] ✅ {model_name} succeeded!")
+                return code
+                
+            except ValueError as e:
+                error_str = str(e).lower()
+                last_error = e
+                
+                # Check if it's a safety filter error
+                safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
+                is_safety_error = any(indicator in error_str for indicator in safety_indicators)
+                
+                if is_safety_error:
+                    print(f"[CoderAgent] ⚠️  {model_name} blocked by safety filter")
+                    # Continue to next model in cascade
+                    if attempt_num < len(model_cascade):
+                        print(f"[CoderAgent] 🔄 Trying next model...")
+                        continue
+                    else:
+                        print(f"[CoderAgent] ❌ All {len(model_cascade)} models blocked by safety filter")
+                        raise ValueError(f"All models blocked: {e}")
+                else:
+                    # Non-safety error - might be temporary, try next model
+                    print(f"[CoderAgent] ⚠️  {model_name} error: {str(e)[:100]}")
+                    if attempt_num < len(model_cascade):
+                        continue
+                    else:
+                        raise ValueError(f"All models failed: {e}")
+            
+            except Exception as e:
+                last_error = e
+                print(f"[CoderAgent] ⚠️  {model_name} unexpected error: {str(e)[:100]}")
+                
+                # Try next model in cascade
+                if attempt_num < len(model_cascade):
+                    continue
+                else:
+                    raise ValueError(f"All {len(model_cascade)} models failed: {e}")
+        
+        # If we get here, all models failed
+        raise ValueError(f"All models in cascade failed. Last error: {last_error}")
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
         """Generate code from template (fallback without Gemini)."""

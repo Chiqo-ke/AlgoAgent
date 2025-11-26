@@ -121,19 +121,41 @@ class DebuggerAgent:
         traceback_text = test_result.get("traceback", "")
         failed_tests = test_result.get("failed_tests", [])
         
-        # Timeout detection
+        # Timeout detection with enhanced analysis
         if "timeout" in error_message.lower() or test_result.get("timed_out"):
-            return FailureAnalysis(
-                failure_type="timeout",
-                target_agent="tester",  # Tester can add more time or optimize
-                confidence=0.95,
-                debug_summary="Test execution exceeded timeout limit",
-                traceback_snippet=traceback_text[:500],
-                suggested_fixes=[
+            # Check if tester provided timeout analysis
+            timeout_analysis = test_result.get("root_cause")
+            fix_strategies = test_result.get("fix_strategy", [])
+            last_line = test_result.get("last_line", "")
+            
+            if timeout_analysis:
+                # Use enhanced timeout analysis from tester
+                suggested_fixes = fix_strategies if fix_strategies else [
+                    "Add execution time validation",
+                    "Profile code to identify bottleneck",
+                    "Add progress logging"
+                ]
+                
+                debug_summary = (
+                    f"Test timeout detected. Root causes: {', '.join(timeout_analysis)}. "
+                    f"Last executing line: {last_line[:100]}"
+                )
+            else:
+                # Fallback to generic timeout handling
+                suggested_fixes = [
                     "Increase timeout_seconds in test config",
                     "Optimize slow operations",
                     "Check for infinite loops"
                 ]
+                debug_summary = "Test execution exceeded timeout limit"
+            
+            return FailureAnalysis(
+                failure_type="timeout",
+                target_agent="coder",  # Coder must fix slow code, not just increase timeout
+                confidence=0.95,
+                debug_summary=debug_summary,
+                traceback_snippet=traceback_text[:500],
+                suggested_fixes=suggested_fixes
             )
         
         # Missing dependency detection
