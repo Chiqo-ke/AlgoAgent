@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-12-03T16:47:45.631534",
+  "total_tests": 7,
+  "passed": 4,
+  "failed": 3,
+  "success_rate": 0.5714285714285714,
+  "errors": [
+    {
+      "test": "Strategy Generation with Rotation",
+      "error": "400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]"
+    },
+    {
+      "test": "File Persistence",
+      "error": "400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]"
+    },
+    {
+      "test": "Strategy Validation",
+      "error": "400 API key not valid. Please pass a valid API key. [reason: \"API_KEY_INVALID\"\ndomain: \"googleapis.com\"\nmetadata {\n  key: \"service\"\n  value: \"generativelanguage.googleapis.com\"\n}\n, locale: \"en-US\"\nmessage: \"API key not valid. Please pass a valid API key.\"\n]"
+    }
+  ]
+}

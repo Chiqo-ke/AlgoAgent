@@ -1,0 +1,52 @@
+{
+  "keys": [
+    {
+      "key_id": "flash_01",
+      "model_name": "gemini-2.5-flash",
+      "provider": "gemini",
+      "rpm": 60,
+      "tpm": 1000000,
+      "rpd": 500,
+      "active": true,
+      "tags": {
+        "region": "us-east",
+        "workload": "light",
+        "tier": "standard"
+      },
+      "created_at": "2024-01-01T00:00:00",
+      "updated_at": "2024-01-01T00:00:00"
+    },
+    {
+      "key_id": "flash_02",
+      "model_name": "gemini-2.5-flash",
+      "provider": "gemini",
+      "rpm": 60,
+      "tpm": 1000000,
+      "rpd": 500,
+      "active": true,
+      "tags": {
+        "region": "us-west",
+        "workload": "light",
+        "tier": "standard"
+      },
+      "created_at": "2024-01-01T00:00:00",
+      "updated_at": "2024-01-01T00:00:00"
+    },
+    {
+      "key_id": "pro_01",
+      "model_name": "gemini-2.5-pro",
+      "provider": "gemini",
+      "rpm": 10,
+      "tpm": 4000000,
+      "rpd": 100,
+      "active": true,
+      "tags": {
+        "region": "us-east",
+        "workload": "heavy",
+        "tier": "premium"
+      },
+      "created_at": "2024-01-01T00:00:00",
+      "updated_at": "2024-01-01T00:00:00"
+    }
+  ]
+}

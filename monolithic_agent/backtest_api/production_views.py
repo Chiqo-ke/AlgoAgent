@@ -54,7 +54,7 @@ if PRODUCTION_COMPONENTS_AVAILABLE:
         state_manager = StateManager(db_path=str(workspace_root / "production_state.db"))
         output_validator = OutputValidator(strict_safety=True)
         sandbox_runner = SandboxRunner(workspace_root=workspace_root)
-        logger.info("✅ Backtest production components initialized")
+        logger.info("[OK] Backtest production components initialized")
     except Exception as e:
         logger.error(f"Failed to initialize backtest components: {e}")
         PRODUCTION_COMPONENTS_AVAILABLE = False

@@ -109,23 +109,26 @@ class KeyManager:
         self,
         model_preference: Optional[str] = None,
         tokens_needed: int = 1000,
-        exclude_keys: Optional[List[str]] = None
+        exclude_keys: Optional[List[str]] = None,
+        workload: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Select an API key with available capacity.
         
         Selection algorithm:
-        1. Filter by model preference (if specified)
-        2. Shuffle to distribute load
-        3. Check cooldown status
-        4. Atomically reserve RPM and TPM capacity
-        5. Fetch secret from vault
-        6. Return key metadata + secret
+        1. Filter by workload type (light/medium/heavy) if specified
+        2. Filter by model preference (if specified)
+        3. Shuffle to distribute load
+        4. Check cooldown status
+        5. Atomically reserve RPM and TPM capacity
+        6. Fetch secret from vault
+        7. Return key metadata + secret
         
         Args:
             model_preference: Preferred model name (e.g., "gemini-2.5-pro")
             tokens_needed: Estimated tokens for this request
             exclude_keys: List of key_ids to exclude (e.g., already tried)
+            workload: Workload type - "light" (flash), "medium" (pro), "heavy" (pro-preview)
             
         Returns:
             {
@@ -152,11 +155,22 @@ class KeyManager:
             logger.warning("No candidate keys after filtering")
             return None
         
+        # Filter by workload if specified
+        if workload:
+            workload_candidates = [
+                k for k in candidates
+                if k.tags.get('workload') == workload
+            ]
+            if workload_candidates:
+                candidates = workload_candidates
+                logger.debug(f"Filtered to {len(candidates)} keys with workload={workload}")
+        
         # Sort by preference: exact model match first, then others
         # Add randomness to distribute load
         candidates.sort(
             key=lambda k: (
                 k.model_name != model_preference if model_preference else 0,
+                k.tags.get('priority', 999),
                 random.random()
             )
         )
@@ -167,14 +181,26 @@ class KeyManager:
             if result:
                 return result
         
-        # No key available - try fallback without model preference
-        if self.enable_fallback and model_preference:
-            logger.info(f"Fallback: retrying without model preference {model_preference}")
-            return self.select_key(
-                model_preference=None,
-                tokens_needed=tokens_needed,
-                exclude_keys=exclude_keys
-            )
+        # No key available - try fallback strategies
+        if self.enable_fallback:
+            # Try without workload filter
+            if workload:
+                logger.info(f"Fallback: retrying without workload filter ({workload})")
+                return self.select_key(
+                    model_preference=model_preference,
+                    tokens_needed=tokens_needed,
+                    exclude_keys=exclude_keys,
+                    workload=None
+                )
+            # Try without model preference
+            elif model_preference:
+                logger.info(f"Fallback: retrying without model preference {model_preference}")
+                return self.select_key(
+                    model_preference=None,
+                    tokens_needed=tokens_needed,
+                    exclude_keys=exclude_keys,
+                    workload=None
+                )
         
         logger.warning("No keys with available capacity")
         return None

@@ -458,17 +458,20 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 
                 strategy.save(update_fields=['status', 'last_validated'])
                 
-                # Create or update StrategyValidation record
+                # Create or update StrategyValidation record with correct field names
                 StrategyValidation.objects.update_or_create(
                     strategy=strategy,
+                    validation_type='backtest',
                     defaults={
                         'status': 'passed' if result['valid'] else 'failed',
-                        'validation_errors': result.get('errors', []),
-                        'validation_warnings': result.get('warnings', []),
-                        'validation_suggestions': result.get('suggestions', []),
-                        'validated_at': timezone.now(),
-                        'validated_by': None,  # System validation
-                        'results': result
+                        'score': result.get('performance_score', 0),
+                        'passed_checks': result.get('passed_checks', []),
+                        'failed_checks': result.get('errors', []),
+                        'warnings': result.get('warnings', []),
+                        'recommendations': result.get('suggestions', []),
+                        'validation_config': {'test_period': '1 year', 'framework': 'backtesting.py'},
+                        'execution_time': result.get('execution_time', 0),
+                        'completed_at': timezone.now(),
                     }
                 )
                 
@@ -1039,8 +1042,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             # Check if validation was successful
             if ai_result.get('status') != 'success':
                 # Store failure in conversation
+                error_message = ai_result.get('message', 'Unknown error')
                 conv_manager.add_ai_message(
-                    f"Strategy validation failed: {ai_result.get('message', 'Unknown error')}",
+                    f"Strategy validation failed: {error_message}",
                     metadata={
                         'action': 'creation_failed',
                         'status': ai_result.get('status'),
@@ -1049,8 +1053,16 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 )
                 return Response({
                     'error': 'Strategy validation failed',
+                    'message': error_message,
+                    'details': ai_result.get('details', ''),
                     'validation_result': ai_result,
-                    'session_id': conv_manager.session_id
+                    'session_id': conv_manager.session_id,
+                    'suggestions': [
+                        'Ensure your strategy description is clear and specific',
+                        'Include entry and exit signal descriptions',
+                        'Specify what indicators or conditions to use',
+                        'Try regenerating or modifying the strategy description'
+                    ]
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Extract canonical JSON
@@ -1100,9 +1112,32 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             except (ValueError, TypeError):
                 pass
             
+            # Handle duplicate name/version constraint
+            # Check if strategy with this name already exists and find next available version
+            base_name = strategy_name
+            version_num = 1
+            existing = Strategy.objects.filter(name=strategy_name, version='1.0.0').first()
+            if existing:
+                # Find the highest version number for this strategy name
+                existing_strategies = Strategy.objects.filter(name__startswith=base_name)
+                version_numbers = []
+                for strat in existing_strategies:
+                    try:
+                        # Parse version string like "1.0.0" to extract major version
+                        parts = str(strat.version).split('.')
+                        version_numbers.append(int(parts[0]))
+                    except (ValueError, IndexError):
+                        pass
+                
+                version_num = max(version_numbers) + 1 if version_numbers else 1
+                strategy_name = f"{base_name} v{version_num}"
+            
+            version_str = f"{version_num}.0.0"
+            
             # Create the Strategy record
             strategy = Strategy.objects.create(
                 name=strategy_name,
+                version=version_str,
                 description=data.get('description', canonical_data.get('description', '')),
                 template=template,
                 strategy_code=canonical_json_str,  # Store canonical JSON as code

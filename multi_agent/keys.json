@@ -1,58 +1,135 @@
 {
   "keys": [
     {
-      "key_id": "gemini-flash-01",
-      "model_name": "gemini-2.5-flash",
+      "key_id": "gemini-key-01",
       "provider": "gemini",
-      "rpm": 10,
-      "tpm": 250000,
+      "model_name": "gemini-2.5-flash",
+      "rpm": 15,
+      "tpm": 1000000,
       "rpd": 1500,
       "active": true,
       "tags": {
         "tier": "free",
         "pool": "flash",
-        "priority": "high"
-      },
-      "created_at": "2025-11-11T00:00:00Z",
-      "updated_at": "2025-11-11T00:00:00Z"
+        "workload": "light",
+        "priority": 1
+      }
     },
     {
-      "key_id": "gemini-flash-02",
-      "model_name": "gemini-2.5-flash",
+      "key_id": "gemini-key-02",
       "provider": "gemini",
-      "rpm": 10,
-      "tpm": 250000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "flash",
-        "priority": "medium"
-      },
-      "created_at": "2025-11-11T00:00:00Z",
-      "updated_at": "2025-11-11T00:00:00Z"
-    },
-    {
-      "key_id": "gemini-pro-01",
       "model_name": "gemini-2.5-pro",
+      "rpm": 15,
+      "tpm": 1000000,
+      "rpd": 1500,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "heavy",
+        "priority": 2
+      }
+    },
+    {
+      "key_id": "gemini-key-03",
       "provider": "gemini",
-      "rpm": 5,
-      "tpm": 100000,
+      "model_name": "gemini-2.5-flash",
+      "rpm": 15,
+      "tpm": 1000000,
+      "rpd": 1500,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "flash",
+        "workload": "light",
+        "priority": 3
+      }
+    },
+    {
+      "key_id": "gemini-key-04",
+      "provider": "gemini",
+      "model_name": "gemini-1.5-pro",
+      "rpm": 15,
+      "tpm": 1000000,
+      "rpd": 1500,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "medium",
+        "priority": 4
+      }
+    },
+    {
+      "key_id": "gemini-key-05",
+      "provider": "gemini",
+      "model_name": "gemini-1.5-pro",
+      "rpm": 2,
+      "tpm": 32000,
       "rpd": 50,
       "active": true,
       "tags": {
         "tier": "free",
         "pool": "pro",
-        "priority": "high"
-      },
-      "created_at": "2025-11-11T00:00:00Z",
-      "updated_at": "2025-11-11T00:00:00Z"
-    }
+        "workload": "heavy",
+        "priority": 5
+      }
+    },
+    {
+      "key_id": "gemini-key-06",
+      "provider": "gemini",
+      "model_name": "gemini-2.5-pro",
+      "rpm": 2,
+      "tpm": 32000,
+      "rpd": 50,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "heavy",
+        "priority": 6
+      }
+    },
+    {
+      "key_id": "gemini-key-07",
+      "provider": "gemini",
+      "model_name": "gemini-1.5-pro",
+      "rpm": 2,
+      "tpm": 32000,
+      "rpd": 50,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "heavy",
+        "priority": 7
+      }
+    },
+    {
+      "key_id": "gemini-key-08",
+      "provider": "gemini",
+      "model_name": "gemini-2.5-pro",
+      "rpm": 2,
+      "tpm": 32000,
+      "rpd": 50,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "heavy",
+        "priority": 7
+      }
+    }    
   ],
   "config": {
-    "max_retries": 2,
+    "max_retries": 3,
     "base_backoff_ms": 500,
     "enable_fallback": true,
-    "conversation_ttl_seconds": 86400
+    "conversation_ttl_seconds": 86400,
+    "workload_model_mapping": {
+      "light": ["gemini-2.0-flash", "gemini-2.5-flash"],
+      "medium": ["gemini-1.5-flash", "gemini-2.0-flash"],
+      "heavy": ["gemini-2.5-pro", "gemini-1.5-pro"]
+    }
   }
 }

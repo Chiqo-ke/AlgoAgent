@@ -22,6 +22,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import shutil
 import re
+from dotenv import load_dotenv
+
+# Load environment variables (for API keys)
+load_dotenv()
 
 from llm.router import get_request_router
 from contracts import Event, EventType
@@ -268,10 +272,19 @@ class CoderAgent:
         # Build prompt for Gemini
         prompt = self._build_coder_prompt(task, contract)
         
+        # Check if this is a fix task (use experimental model for better safety filter handling)
+        auto_fix = task.get('metadata', {}).get('auto_fix', False)
+        print(f"[CoderAgent] Task metadata: {task.get('metadata', {})}")
+        print(f"[CoderAgent] auto_fix flag: {auto_fix}")
+        
         # Generate code with retry mechanism
         if self.use_router or self.fallback_model:
             try:
-                code = self._generate_with_gemini(prompt, retry_with_pro=True)
+                code = self._generate_with_gemini(
+                    prompt, 
+                    retry_with_pro=True,
+                    is_fix_task=auto_fix
+                )
             except Exception as e:
                 print(f"[CoderAgent] All Gemini attempts failed: {e}")
                 print(f"[CoderAgent] ⚠️  Falling back to template mode...")
@@ -280,11 +293,28 @@ class CoderAgent:
             # Fallback: use template only
             code = self._generate_from_template(task, contract)
         
-        # Create artifact with unique identifier naming
-        filename = self._generate_unique_filename(task, contract)
+        # Determine if this is a fix task with existing artifact
+        # Use original_artifact_path (stays constant) instead of artifact_path (changes each iteration)
+        metadata = task.get('metadata', {})
+        original_artifact_path = metadata.get('original_artifact_path')
+        
+        if original_artifact_path and auto_fix:
+            # Fix task: Update ORIGINAL file instead of creating new one
+            print(f"[CoderAgent] 🔧 Fix task detected - updating ORIGINAL file: {original_artifact_path}")
+            print(f"[CoderAgent]    (NOT creating new fix_{datetime.now().strftime('%Y%m%d_%H%M%S')}_... file)")
+            filename = Path(original_artifact_path).name
+            file_path = original_artifact_path
+        else:
+            # New implementation: Create unique filename
+            filename = self._generate_unique_filename(task, contract)
+            file_path = f"Backtest/codes/{filename}"
+            
+            # Store this as original_artifact_path for future fix tasks
+            if not metadata.get('original_artifact_path'):
+                metadata['original_artifact_path'] = file_path
         
         artifact = CodeArtifact(
-            file_path=f"Backtest/codes/{filename}",
+            file_path=file_path,
             content=code,
             artifact_type='implementation',
             contract_id=contract_id
@@ -306,7 +336,32 @@ class CoderAgent:
         - Template structure
         - Constraints
         """
+        # Check if this is an EMA-based strategy
+        description = task.get('description', '').lower()
+        is_ema_strategy = 'ema' in description or 'exponential moving average' in description
+        
         prompt = f"""You are a professional trading system developer implementing Python code for quantitative analysis.
+
+**CRITICAL IMPORT REQUIREMENTS**
+
+Generated code will run from multi_agent/Backtest/codes/ directory.
+MUST include this import header at the top of EVERY file:
+
+```python
+import sys
+from pathlib import Path
+
+# Fix imports: Add multi_agent root to Python path
+MULTI_AGENT_ROOT = Path(__file__).parent.parent.parent
+if str(MULTI_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(MULTI_AGENT_ROOT))
+
+from typing import Dict, List, Optional
+import pandas as pd
+from adapters.base_adapter import BaseAdapter
+from adapters.simbroker_adapter import SimBrokerAdapter
+from simulator.simbroker import SimBroker, SimConfig
+```
 
 **TASK SPECIFICATION**
 Task: {task.get('title', 'Unknown')}
@@ -316,28 +371,110 @@ Contract ID: {contract['contract_id']}
 **CONTRACT SPECIFICATION**
 {json.dumps(contract['interfaces'], indent=2)}
 
+**MANDATORY PERFORMANCE REQUIREMENTS**
+
+⚠️ CRITICAL: All generated code MUST execute in <10 seconds in Docker sandbox with:
+- 512MB RAM limit
+- 1 CPU core
+- Network disabled (no external I/O)
+- 30 second timeout (fail fast at 10s)
+
+1. **EXECUTION TIME CONSTRAINT**
+   - Add timing validation at start of run() method:
+     ```python
+     import time
+     start_time = time.time()
+     # ... your code ...
+     elapsed = time.time() - start_time
+     assert elapsed < 10, f"Timeout: {{elapsed:.1f}}s exceeds 10s limit"
+     ```
+
+2. **LOOP SAFETY (MANDATORY)**
+   - NEVER use `while True` without explicit break condition
+   - ALL loops MUST have max_iterations counter:
+     ```python
+     MAX_ITERATIONS = 1000  # Explicit limit
+     for i in range(MAX_ITERATIONS):
+         if condition:
+             break
+     ```
+   - For data loops, use min(len(df), MAX_ITERATIONS)
+
+3. **DATA PROCESSING CONSTRAINTS**
+   - Use VECTORIZED operations (pandas/numpy) - NO row-by-row loops
+   - FORBIDDEN: df.iterrows(), nested loops on DataFrames
+   - Validate data size BEFORE processing:
+     ```python
+     if len(df) > 10000:
+         df = df.tail(10000)  # Sample for testing
+     ```
+   - Clear large variables when done: `del large_df; gc.collect()`
+
+4. **NO EXTERNAL I/O**
+   - Network requests WILL timeout (sandbox isolated)
+   - All data comes from adapter.get_historical_data()
+   - No file I/O except adapter.save_report()
+   - NO requests, urllib, socket, http libraries
+
+5. **MEMORY MANAGEMENT**
+   - Maximum 512MB RAM available
+   - Use efficient data structures (numpy arrays over lists)
+   - Avoid data duplication
+   - Delete intermediate results after use
+
 **TECHNICAL REQUIREMENTS**
 1. Generate production-ready Python code
 2. Use NEUTRAL, TECHNICAL language in all comments and docstrings
 3. Include proper error handling and input validation
-4. Add TIMEOUT PROTECTION to all loops - use explicit max_iterations
-5. Follow these dependencies: pandas, numpy, typing
-6. Include exact function names and signatures from contract
-7. Use deterministic seeds for any randomness
-8. NO network calls inside functions
-9. Include docstrings referencing contract ID
+4. Follow these dependencies: pandas, numpy, typing
+5. Include exact function names and signatures from contract
+6. Use deterministic seeds for any randomness
+7. Include docstrings referencing contract ID
 
-**LOOP SAFETY (MANDATORY)**
-All loops must include explicit termination:
+**CODE STRUCTURE SKELETON**
 ```python
-max_iterations = 1000  # Prevent infinite loops
-for i in range(max_iterations):
-    if break_condition:
-        break
+import time
+import gc
+import pandas as pd
+import numpy as np
+from typing import Dict, Optional
+
+class Strategy:
+    MAX_ITERATIONS = 1000  # Always define limits
+    
+    def run(self, adapter, df: pd.DataFrame):
+        # 1. Start timing
+        start_time = time.time()
+        
+        # 2. Validate data size
+        if len(df) > 10000:
+            df = df.tail(10000)  # Sample for sandbox
+        
+        # 3. Vectorized indicator calculations
+        df['ema_30'] = df['close'].ewm(span=30).mean()
+        df['ema_50'] = df['close'].ewm(span=50).mean()
+        
+        # 4. Loop with explicit limit
+        for i in range(min(len(df), self.MAX_ITERATIONS)):
+            # Processing logic
+            if i % 100 == 0:  # Progress check
+                elapsed = time.time() - start_time
+                if elapsed > 8:  # Warn before timeout
+                    break
+        
+        # 5. Cleanup
+        gc.collect()
+        
+        # 6. Validate execution time
+        elapsed = time.time() - start_time
+        assert elapsed < 10, f"Timeout: {{elapsed:.1f}}s > 10s"
 ```
 
 **FIXTURES AVAILABLE**
 {task.get('fixture_paths', [])}
+
+{'**CONCRETE IMPLEMENTATION EXAMPLE - EMA CROSSOVER**' if is_ema_strategy else ''}
+{self._get_ema_example() if is_ema_strategy else ''}
 
 **TEMPLATE STRUCTURE**
 """
@@ -359,18 +496,84 @@ Just the raw Python code implementing the specification."""
         
         return prompt
     
+    def _get_ema_example(self) -> str:
+        """Get concrete EMA crossover implementation example."""
+        return '''
+You MUST implement a working EMA crossover strategy following this pattern:
+
+def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    """Calculate EMA indicators."""
+    indicators = {}
+    indicators['ema_30'] = df['Close'].ewm(span=30, adjust=False).mean()
+    indicators['ema_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    return indicators
+
+def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+    """Detect EMA crossovers for entries."""
+    if idx < 1:
+        return None
+    
+    ema_30_curr = indicators['ema_30'].iloc[idx]
+    ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+    ema_50_curr = indicators['ema_50'].iloc[idx]
+    ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+    
+    # Bullish crossover: EMA 30 crosses above EMA 50
+    if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+        return {
+            'action': 'BUY',
+            'symbol': self.symbol,
+            'volume': self.volume,
+            'type': 'MARKET',
+            'sl': df['Close'].iloc[idx] * 0.98,
+            'tp': df['Close'].iloc[idx] * 1.02
+        }
+    
+    # Bearish crossover: EMA 30 crosses below EMA 50
+    if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+        return {
+            'action': 'SELL',
+            'symbol': self.symbol,
+            'volume': self.volume,
+            'type': 'MARKET',
+            'sl': df['Close'].iloc[idx] * 1.02,
+            'tp': df['Close'].iloc[idx] * 0.98
+        }
+    
+    return None
+
+def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+    """Exit on opposite crossover."""
+    if idx < 1:
+        return None
+    
+    ema_30_curr = indicators['ema_30'].iloc[idx]
+    ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+    ema_50_curr = indicators['ema_50'].iloc[idx]
+    ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+    
+    if position['action'] == 'BUY' and ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+        return {'position_id': position['id']}
+    
+    if position['action'] == 'SELL' and ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+        return {'position_id': position['id']}
+    
+    return None
+
+IMPLEMENT THIS LOGIC - DO NOT LEAVE TODO COMMENTS.
+'''
+    
     def _generate_unique_filename(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
         """
         Generate unique filename with comprehensive identifiers.
         
-        Format: {timestamp}_{workflow_id}_{task_id}_{descriptive_name}.py
-        Example: 20251121_143052_wf_abc123de_task_data_loading_rsi_strategy.py
+        Format: {timestamp}_{workflow_id}_{descriptive_name}.py
+        Example: 20251121_143052_wf_abc123de_ema_cross.py
         
         Components:
         - Timestamp: YYYYMMDD_HHMMSS for chronological sorting
         - Workflow ID: Full workflow identifier for accurate traceability
-        - Task ID: Task identifier from todo
-        - Descriptive name: Human-readable strategy description
+        - Descriptive name: Brief strategy description (max 3 key terms)
         
         Args:
             task: Task dictionary
@@ -391,23 +594,36 @@ Just the raw Python code implementing the specification."""
             workflow_id = workflow_id.replace('workflow_', 'wf_')
         # Keep full workflow_id for accurate matching
         
-        # 3. Task ID (cleaned)
-        task_id = task.get('id', 'unknown')
-        if task_id.startswith('task_'):
-            task_id = task_id.replace('task_', '')
-        task_id = task_id[:20] if len(task_id) > 20 else task_id
-        
-        # 4. Descriptive name from task title
+        # 3. Descriptive name from task title (SHORTENED)
         task_title = task.get('title', 'strategy')
+        
+        # Remove redundant words
+        redundant_words = {'implement', 'complete', 'strategy', 'create', 'generate', 'fix', 'update', 'the', 'a', 'an'}
+        
         # Clean and convert to snake_case
         desc_name = re.sub(r'[^a-zA-Z0-9\s]', '', task_title.lower())
-        words = desc_name.split()[:6]  # Max 6 words for readability
-        desc_name = '_'.join(words) if words else 'strategy'
+        words = [w for w in desc_name.split() if w not in redundant_words]
         
-        # Combine all components
-        filename = f"{timestamp}_{workflow_id}_{task_id}_{desc_name}.py"
+        # Take max 3 key words for brevity
+        words = words[:3] if words else ['strat']
+        desc_name = '_'.join(words)
+        
+        # Combine all components (removed task_id to save space)
+        filename = f"{timestamp}_{workflow_id}_{desc_name}.py"
         
         return filename
+    
+    def _get_import_header(self) -> str:
+        """Get correct import header with sys.path fix for generated strategies."""
+        return '''import sys
+from pathlib import Path
+
+# Fix imports: Add multi_agent root to Python path
+MULTI_AGENT_ROOT = Path(__file__).parent.parent.parent
+if str(MULTI_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(MULTI_AGENT_ROOT))
+
+from typing import Dict, List, Optional'''
     
     def _get_strategy_template(self) -> str:
         """
@@ -423,8 +639,9 @@ Just the raw Python code implementing the specification."""
             with open(template_path, encoding='utf-8') as f:
                 return f.read()
         
-        # Fallback: inline template with SimBroker integration
-        return '''from typing import Dict, List, Optional
+        # Fallback: inline template with working EMA crossover (not TODOs)
+        import_header = self._get_import_header()
+        return f'''{import_header}
 import pandas as pd
 from pathlib import Path
 from adapters.base_adapter import BaseAdapter
@@ -440,15 +657,16 @@ class Strategy:
         self.volume = cfg.get('volume', 1.0)
     
     def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """Compute indicators (vectorized)."""
-        indicators = {}
-        # TODO: Implement indicator calculations
-        # Example: indicators['rsi'] = compute_rsi(df['Close'], period=14)
+        """Compute EMA indicators (vectorized)."""
+        indicators = {{}}
+        # Calculate 30 and 50 period EMAs
+        indicators['ema_30'] = df['Close'].ewm(span=30, adjust=False).mean()
+        indicators['ema_50'] = df['Close'].ewm(span=50, adjust=False).mean()
         return indicators
     
     def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
         """
-        Check entry conditions and return order request.
+        Check EMA crossover entry conditions.
         
         Args:
             df: Full OHLCV DataFrame
@@ -458,22 +676,42 @@ class Strategy:
         Returns:
             Order request dict or None
         """
-        # TODO: Implement entry logic
-        # Example:
-        # if indicators['rsi'].iloc[idx] < 30:
-        #     return {
-        #         'action': 'BUY',
-        #         'symbol': self.symbol,
-        #         'volume': self.volume,
-        #         'type': 'MARKET',
-        #         'sl': df['Close'].iloc[idx] * 0.98,
-        #         'tp': df['Close'].iloc[idx] * 1.02
-        #     }
+        if idx < 1:  # Need previous bar for crossover detection
+            return None
+        
+        # Get current and previous EMA values
+        ema_30_curr = indicators['ema_30'].iloc[idx]
+        ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+        ema_50_curr = indicators['ema_50'].iloc[idx]
+        ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+        
+        # Bullish crossover: EMA 30 crosses above EMA 50
+        if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+            return {{
+                'action': 'BUY',
+                'symbol': self.symbol,
+                'volume': self.volume,
+                'type': 'MARKET',
+                'sl': df['Close'].iloc[idx] * 0.98,
+                'tp': df['Close'].iloc[idx] * 1.02
+            }}
+        
+        # Bearish crossover: EMA 30 crosses below EMA 50
+        if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+            return {{
+                'action': 'SELL',
+                'symbol': self.symbol,
+                'volume': self.volume,
+                'type': 'MARKET',
+                'sl': df['Close'].iloc[idx] * 1.02,
+                'tp': df['Close'].iloc[idx] * 0.98
+            }}
+        
         return None
     
     def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
         """
-        Check exit conditions for open position.
+        Check exit conditions - exit on opposite crossover.
         
         Args:
             position: Position dict from adapter.get_positions()
@@ -484,10 +722,24 @@ class Strategy:
         Returns:
             Exit request dict or None
         """
-        # TODO: Implement exit logic
-        # Example:
-        # if indicators['rsi'].iloc[idx] > 70:
-        #     return {'position_id': position['id']}
+        if idx < 1:
+            return None
+        
+        ema_30_curr = indicators['ema_30'].iloc[idx]
+        ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+        ema_50_curr = indicators['ema_50'].iloc[idx]
+        ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+        
+        # If long position, exit on bearish crossover
+        if position['action'] == 'BUY':
+            if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+                return {{'position_id': position['id']}}
+        
+        # If short position, exit on bullish crossover
+        if position['action'] == 'SELL':
+            if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+                return {{'position_id': position['id']}}
+        
         return None
 
 def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
@@ -514,7 +766,7 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
         if order_request:
             result = adapter.place_order(order_request)
             if not result.get('success'):
-                print(f"Order failed: {result.get('error')}")
+                print(f"Order failed: {{result.get('error')}}")
         
         # Process bar (check SL/TP, update positions)
         events = adapter.step_bar(bar)
@@ -541,32 +793,42 @@ def main():
     import sys
     
     # Configuration
-    cfg = {
+    cfg = {{
         'symbol': 'EURUSD',
         'volume': 1.0,
         'starting_balance': 10000.0,
         'leverage': 100.0
-    }
+    }}
     
     # Load data
-    data_file = 'fixtures/sample_data.csv'
-    if len(sys.argv) > 1:
-        data_file = sys.argv[1]
+    # CRITICAL: Path from Backtest/codes/ to multi_agent/fixtures/
+    # Go up 3 levels: codes -> Backtest -> multi_agent, then into fixtures
+    data_file = Path(__file__).parent.parent.parent / 'fixtures' / 'sample_aapl.csv'
     
-    print(f"Loading data from {data_file}...")
+    # Allow command-line override
+    if len(sys.argv) > 1:
+        data_file = Path(sys.argv[1])
+    
+    if not data_file.exists():
+        raise FileNotFoundError(
+            f"Data file not found at {{data_file}}. "
+            f"Expected: multi_agent/fixtures/sample_aapl.csv"
+        )
+    
+    print(f"Loading data from {{data_file}}...")
     df = pd.read_csv(data_file)
     
     # Ensure required columns
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"CSV must have columns: {required_cols}")
+        raise ValueError(f"CSV must have columns: {{required_cols}}")
     
     # Create SimBroker with configuration
     sim_config = SimConfig(
         starting_balance=cfg['starting_balance'],
         leverage=cfg['leverage'],
-        commission={'type': 'per_lot', 'value': 7.0},
-        slippage={'type': 'fixed', 'value': 2}
+        commission={{'type': 'per_lot', 'value': 7.0}},
+        slippage={{'type': 'fixed', 'value': 2}}
     )
     broker = SimBroker(sim_config)
     
@@ -578,166 +840,158 @@ def main():
     report = run_backtest(adapter, df, cfg)
     
     # Display results
-    print("\\n=== Backtest Results ===")
-    print(f"Total Trades: {report.get('summary', {}).get('total_trades', 0)}")
-    print(f"Win Rate: {report.get('summary', {}).get('win_rate', 0):.2%}")
-    print(f"Final Balance: ${report.get('summary', {}).get('final_balance', 0):.2f}")
-    print(f"Max Drawdown: {report.get('summary', {}).get('max_drawdown', 0):.2%}")
+    print("\\\\n=== Backtest Results ===")
+    print(f"Total Trades: {{report.get('summary', {{}}).get('total_trades', 0)}}")
+    print(f"Win Rate: {{report.get('summary', {{}}).get('win_rate', 0):.2%}}")
+    print(f"Final Balance: ${{report.get('summary', {{}}).get('final_balance', 0):.2f}}")
+    print(f"Max Drawdown: {{report.get('summary', {{}}).get('max_drawdown', 0):.2%}}")
     
     # Save artifacts
     output_dir = Path('backtest_results')
     output_dir.mkdir(exist_ok=True)
     
     paths = adapter.save_report(str(output_dir))
-    print(f"\\nResults saved to:")
+    print(f"\\\\nResults saved to:")
     for name, path in paths.items():
-        print(f"  {name}: {path}")
+        print(f"  {{name}}: {{path}}")
 
 if __name__ == '__main__':
     main()
 '''
     
-    def _generate_with_gemini(self, prompt: str, retry_with_pro: bool = True) -> str:
-        """Generate code using RequestRouter or Gemini API with retry mechanism.
+    def _generate_with_gemini(self, prompt: str, retry_with_pro: bool = True, is_fix_task: bool = False) -> str:
+        """Generate code using RequestRouter with cascading model fallback.
         
         Args:
             prompt: Generation prompt
-            retry_with_pro: If True, retry with Gemini Pro on safety filter errors
+            retry_with_pro: Whether to enable model fallback on errors
+            is_fix_task: If True, try experimental models first (more lenient safety)
             
         Returns:
             Generated code
             
         Raises:
-            Exception: If all attempts fail
+            Exception: If all model attempts fail
         """
         # Add safety disclaimer to prompt
         safe_prompt = f"""[SYSTEM NOTE: This is a technical code generation task for backtesting simulation software. All outputs are for educational and research purposes only.]
 
 {prompt}"""
         
-        # Attempt 1: Try with preferred model (Flash)
-        try:
-            if self.use_router:
-                # Use RequestRouter with conversation mode for context
-                response_data = self.router.send_chat(
-                    conv_id=self.conversation_id,
-                    prompt=safe_prompt,
-                    model_preference=self.model_name,
-                    expected_completion_tokens=4096,
-                    max_output_tokens=8192,
-                    temperature=self.temperature
-                )
-                
-                if not response_data.get('success'):
-                    error_msg = response_data.get('error', 'Unknown error')
-                    
-                    # Check for safety filter (finish_reason=2 or safety-related error)
-                    if 'finish_reason' in str(error_msg) and '2' in str(error_msg):
-                        raise ValueError(f"Safety filter triggered: {error_msg}")
-                    elif 'safety' in str(error_msg).lower():
-                        raise ValueError(f"Safety filter triggered: {error_msg}")
-                    else:
-                        raise ValueError(f"Router error: {error_msg}")
-                
-                code = response_data['content']
-            else:
-                # Fallback to direct Gemini
-                if not hasattr(self, 'fallback_model') or self.fallback_model is None:
-                    raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
-                
-                import google.generativeai as genai
-                response = self.fallback_model.generate_content(
-                    safe_prompt,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=self.temperature,
-                        max_output_tokens=8192
-                    )
-                )
-                
-                # Check if response was blocked by safety filters
-                if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
-                    if hasattr(response.prompt_feedback, 'block_reason'):
-                        raise ValueError(f"Safety filter triggered: {response.prompt_feedback.block_reason}")
-                
-                code = response.text
-            
-            # Extract code from markdown if present
-            if '```python' in code:
-                code = code.split('```python')[1].split('```')[0].strip()
-            elif '```' in code:
-                code = code.split('```')[1].split('```')[0].strip()
-            
-            return code
-            
-        except ValueError as e:
-            error_str = str(e).lower()
-            
-            # Check if it's a safety filter error and we should retry
-            safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
-            is_safety_error = any(indicator in error_str for indicator in safety_indicators)
-            
-            if retry_with_pro and is_safety_error:
-                print(f"[CoderAgent] Safety filter triggered with {self.model_name}")
-                print(f"[CoderAgent] 🔄 Retrying with Gemini 2.5 Pro (relaxed safety)...")
-                
-                # Attempt 2: Retry with Gemini Pro with relaxed safety settings
-                try:
-                    if self.use_router:
-                        # Try to use router with safety settings override
-                        response_data = self.router.send_chat(
-                            conv_id=self.conversation_id,
-                            prompt=safe_prompt,
-                            model_preference="gemini-2.5-pro",  # Force Pro model
-                            expected_completion_tokens=4096,
-                            max_output_tokens=8192,
-                            temperature=self.temperature
-                        )
-                        
-                        if not response_data.get('success'):
-                            raise ValueError(f"Pro model also failed: {response_data.get('error')}")
-                        
-                        code = response_data['content']
-                    else:
-                        # Direct Gemini fallback - try Pro model
-                        import google.generativeai as genai
-                        
-                        # Get API key for Pro model
-                        pro_key = os.getenv('API_KEY_gemini_pro_01') or os.getenv('GEMINI_API_KEY')
-                        if pro_key:
-                            genai.configure(api_key=pro_key)
-                            pro_model = genai.GenerativeModel("gemini-2.5-pro")
-                            
-                            response = pro_model.generate_content(
-                                safe_prompt,
-                                generation_config=genai.types.GenerationConfig(
-                                    temperature=self.temperature,
-                                    max_output_tokens=8192
-                                )
-                            )
-                            code = response.text
-                        else:
-                            raise ValueError("No API key available for Pro model retry")
-                    
-                    # Extract code from markdown if present
-                    if '```python' in code:
-                        code = code.split('```python')[1].split('```')[0].strip()
-                    elif '```' in code:
-                        code = code.split('```')[1].split('```')[0].strip()
-                    
-                    print(f"[CoderAgent] ✓ Pro model succeeded")
-                    return code
-                    
-                except Exception as pro_error:
-                    print(f"[CoderAgent] Pro model also failed: {pro_error}")
-                    raise ValueError(f"Both Flash and Pro models failed. Flash: {error_str}, Pro: {str(pro_error)}")
-            else:
-                # Not a safety error or retry disabled
-                print(f"[CoderAgent] LLM error: {e}")
-                raise
+        # Define model cascade based on task type
+        if is_fix_task:
+            # For fix/debug tasks: Try experimental/lenient models first
+            model_cascade = [
+                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
+                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                ("gemini-2.0-flash-thinking-exp-01-21", "Gemini 2.0 Flash Thinking Experimental"),
+                ("gemini-exp-1206", "Gemini Experimental 1206")
+            ]
+            print(f"[CoderAgent] 🔧 Fix task detected - trying {len(model_cascade)} models in cascade")
+        else:
+            # For normal generation: Try standard models first (cheaper)
+            model_cascade = [
+                ("gemini-2.5-flash", "Gemini 2.5 Flash"),
+                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
+            ]
         
-        except Exception as e:
-            print(f"[CoderAgent] LLM error: {e}")
-            raise
+        # Try each model in sequence
+        last_error = None
+        for attempt_num, (model_id, model_name) in enumerate(model_cascade, 1):
+            try:
+                print(f"[CoderAgent] 🔄 Attempt {attempt_num}/{len(model_cascade)}: {model_name}")
+                
+                if self.use_router:
+                    # Use RequestRouter with correct API signature
+                    response_data = self.router.send_chat(
+                        conv_id=self.conversation_id,
+                        prompt=safe_prompt,
+                        model_preference=model_id,
+                        expected_completion_tokens=4096,
+                        max_output_tokens=8192,
+                        temperature=self.temperature
+                    )
+                    
+                    if not response_data.get('success'):
+                        error_msg = response_data.get('error', 'Unknown error')
+                        
+                        # Check for safety filter or other errors
+                        if 'finish_reason' in str(error_msg) and '2' in str(error_msg):
+                            raise ValueError(f"Safety filter: {error_msg}")
+                        elif 'safety' in str(error_msg).lower():
+                            raise ValueError(f"Safety filter: {error_msg}")
+                        else:
+                            raise ValueError(f"Router error: {error_msg}")
+                    
+                    code = response_data.get('content') or response_data.get('response', '')
+                else:
+                    # Fallback to direct Gemini API
+                    if not hasattr(self, 'fallback_model') or self.fallback_model is None:
+                        raise ValueError("No LLM available (RequestRouter disabled and no fallback)")
+                    
+                    import google.generativeai as genai
+                    response = self.fallback_model.generate_content(
+                        safe_prompt,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=self.temperature,
+                            max_output_tokens=8192
+                        )
+                    )
+                    
+                    # Check if response was blocked by safety filters
+                    if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                        if hasattr(response.prompt_feedback, 'block_reason'):
+                            raise ValueError(f"Safety filter: {response.prompt_feedback.block_reason}")
+                    
+                    code = response.text
+                
+                # Extract code from markdown if present
+                if '```python' in code:
+                    code = code.split('```python')[1].split('```')[0].strip()
+                elif '```' in code:
+                    code = code.split('```')[1].split('```')[0].strip()
+                
+                print(f"[CoderAgent] ✅ {model_name} succeeded!")
+                return code
+                
+            except ValueError as e:
+                error_str = str(e).lower()
+                last_error = e
+                
+                # Check if it's a safety filter error
+                safety_indicators = ['safety', 'finish_reason', 'blocked', 'content policy', 'harm category']
+                is_safety_error = any(indicator in error_str for indicator in safety_indicators)
+                
+                if is_safety_error:
+                    print(f"[CoderAgent] ⚠️  {model_name} blocked by safety filter")
+                    # Continue to next model in cascade
+                    if attempt_num < len(model_cascade):
+                        print(f"[CoderAgent] 🔄 Trying next model...")
+                        continue
+                    else:
+                        print(f"[CoderAgent] ❌ All {len(model_cascade)} models blocked by safety filter")
+                        raise ValueError(f"All models blocked: {e}")
+                else:
+                    # Non-safety error - might be temporary, try next model
+                    print(f"[CoderAgent] ⚠️  {model_name} error: {str(e)[:100]}")
+                    if attempt_num < len(model_cascade):
+                        continue
+                    else:
+                        raise ValueError(f"All models failed: {e}")
+            
+            except Exception as e:
+                last_error = e
+                print(f"[CoderAgent] ⚠️  {model_name} unexpected error: {str(e)[:100]}")
+                
+                # Try next model in cascade
+                if attempt_num < len(model_cascade):
+                    continue
+                else:
+                    raise ValueError(f"All {len(model_cascade)} models failed: {e}")
+        
+        # If we get here, all models failed
+        raise ValueError(f"All models in cascade failed. Last error: {last_error}")
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
         """Generate code from template (fallback without Gemini)."""
@@ -786,11 +1040,22 @@ import pytest
 import pandas as pd
 from pathlib import Path
 import sys
+import importlib.util
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from Backtest.codes.{module_name} import Strategy, run_backtest, main
+# Import strategy using importlib to handle filenames starting with digits
+strategy_path = Path(__file__).parent / 'Backtest' / 'codes' / '{strategy_filename}'
+spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
+strategy_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(strategy_module)
+
+# Extract strategy components
+Strategy = strategy_module.Strategy
+run_backtest = strategy_module.run_backtest
+main = strategy_module.main
+
 from adapters.simbroker_adapter import SimBrokerAdapter
 from simulator.simbroker import SimBroker, SimConfig
 
