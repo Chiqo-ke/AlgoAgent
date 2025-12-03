@@ -65,31 +65,31 @@ if PRODUCTION_COMPONENTS_AVAILABLE:
     # Initialize each component individually with error handling
     try:
         state_manager = StateManager(db_path=str(workspace_root / "production_state.db"))
-        logger.info("✅ StateManager initialized")
+        logger.info("[OK] StateManager initialized")
     except Exception as e:
         logger.warning(f"StateManager initialization failed: {e}")
     
     try:
         safe_tools = SafeTools(workspace_root=workspace_root / "codes")
-        logger.info("✅ SafeTools initialized")
+        logger.info("[OK] SafeTools initialized")
     except Exception as e:
         logger.warning(f"SafeTools initialization failed: {e}")
     
     try:
         output_validator = OutputValidator(strict_safety=True)
-        logger.info("✅ OutputValidator initialized")
+        logger.info("[OK] OutputValidator initialized")
     except Exception as e:
         logger.warning(f"OutputValidator initialization failed: {e}")
     
     try:
         sandbox_runner = SandboxRunner(workspace_root=workspace_root)
-        logger.info("✅ SandboxRunner initialized")
+        logger.info("[OK] SandboxRunner initialized")
     except Exception as e:
         logger.warning(f"SandboxRunner initialization failed: {e}")
     
     try:
         git_manager = GitPatchManager(repo_path=workspace_root / "codes")
-        logger.info("✅ GitPatchManager initialized")
+        logger.info("[OK] GitPatchManager initialized")
     except Exception as e:
         logger.warning(f"GitPatchManager initialization failed (git repo may not exist): {e}")
 

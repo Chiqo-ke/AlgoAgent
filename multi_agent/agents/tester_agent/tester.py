@@ -128,7 +128,8 @@ class TesterAgent:
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
                 "sandbox_error", str(e),
-                artifact_path=task.get('artifact_path')
+                artifact_path=task.get('artifact_path'),
+                original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
             )
             return
         
@@ -168,7 +169,8 @@ class TesterAgent:
                 self.request_debug_branch(
                     corr_id, wf_id, task_id, workspace,
                     "timeout", timeout_analysis,
-                    artifact_path=task.get('artifact_path')
+                    artifact_path=task.get('artifact_path'),
+                    original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
                 )
                 return
         
@@ -183,7 +185,8 @@ class TesterAgent:
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
                 "test_failures", result['failures'],
-                artifact_path=task.get('artifact_path')
+                artifact_path=task.get('artifact_path'),
+                original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
             )
             return
         
@@ -199,7 +202,8 @@ class TesterAgent:
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
                 "artifact_missing", "test_report.json not created",
-                artifact_path=task.get('artifact_path')
+                artifact_path=task.get('artifact_path'),
+                original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
             )
             return
         
@@ -216,7 +220,8 @@ class TesterAgent:
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
                 "schema_invalid", str(e),
-                artifact_path=task.get('artifact_path')
+                artifact_path=task.get('artifact_path'),
+                original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
             )
             return
         
@@ -234,7 +239,8 @@ class TesterAgent:
             self.request_debug_branch(
                 corr_id, wf_id, task_id, workspace,
                 "invalid_artifacts", artifact_errors,
-                artifact_path=task.get('artifact_path')
+                artifact_path=task.get('artifact_path'),
+                original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
             )
             return
         
@@ -256,7 +262,8 @@ class TesterAgent:
                 self.request_debug_branch(
                     corr_id, wf_id, task_id, workspace,
                     "secrets_detected", secrets_found,
-                    artifact_path=task.get('artifact_path')
+                    artifact_path=task.get('artifact_path'),
+                    original_artifact_path=task.get('metadata', {}).get('original_artifact_path')
                 )
                 return
             
@@ -526,7 +533,8 @@ class TesterAgent:
         workspace: Path,
         reason: str,
         details: any,
-        artifact_path: str = None
+        artifact_path: str = None,
+        original_artifact_path: str = None
     ):
         """
         Request Debugger to create branch todo.
@@ -538,7 +546,8 @@ class TesterAgent:
             workspace: Workspace path with artifacts
             reason: Failure classification (e.g., "test_failures")
             details: Detailed failure information
-            artifact_path: Path to the original artifact file that needs fixing
+            artifact_path: Path to the current artifact file (may be a fix file)
+            original_artifact_path: Path to the ORIGINAL artifact (stays constant across fix iterations)
         """
         # Collect attachments (logs, fixtures)
         attachments = []
@@ -546,6 +555,10 @@ class TesterAgent:
             path = workspace / artifact
             if path.exists():
                 attachments.append(str(path))
+        
+        # Use original_artifact_path if provided, otherwise use artifact_path
+        # This ensures we always track back to the original file, not fix iterations
+        final_artifact_path = original_artifact_path or artifact_path
         
         # Build branch todo
         branch_todo = {
@@ -555,7 +568,8 @@ class TesterAgent:
             "target_agent": "debugger",
             "failure_classification": reason,
             "reproduce_command": f"docker run --rm -v $(pwd):/app algo-sandbox pytest tests/",
-            "artifact_path": artifact_path  # Include original file path
+            "artifact_path": artifact_path,  # Current file (may be fix)
+            "original_artifact_path": final_artifact_path  # Original file (constant)
         }
         
         evt = TaskEvent.create(

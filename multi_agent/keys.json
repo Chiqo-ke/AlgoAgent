@@ -18,15 +18,15 @@
     {
       "key_id": "gemini-key-02",
       "provider": "gemini",
-      "model_name": "gemini-2.5-flash",
+      "model_name": "gemini-2.5-pro",
       "rpm": 15,
       "tpm": 1000000,
       "rpd": 1500,
       "active": true,
       "tags": {
         "tier": "free",
-        "pool": "flash",
-        "workload": "light",
+        "pool": "pro",
+        "workload": "heavy",
         "priority": 2
       }
     },
@@ -48,14 +48,14 @@
     {
       "key_id": "gemini-key-04",
       "provider": "gemini",
-      "model_name": "gemini-2.0-flash",
+      "model_name": "gemini-1.5-pro",
       "rpm": 15,
       "tpm": 1000000,
       "rpd": 1500,
       "active": true,
       "tags": {
         "tier": "free",
-        "pool": "flash-2",
+        "pool": "pro",
         "workload": "medium",
         "priority": 4
       }
@@ -63,7 +63,7 @@
     {
       "key_id": "gemini-key-05",
       "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
+      "model_name": "gemini-1.5-pro",
       "rpm": 2,
       "tpm": 32000,
       "rpd": 50,
@@ -93,6 +93,21 @@
     {
       "key_id": "gemini-key-07",
       "provider": "gemini",
+      "model_name": "gemini-1.5-pro",
+      "rpm": 2,
+      "tpm": 32000,
+      "rpd": 50,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "pool": "pro",
+        "workload": "heavy",
+        "priority": 7
+      }
+    },
+    {
+      "key_id": "gemini-key-08",
+      "provider": "gemini",
       "model_name": "gemini-2.5-pro",
       "rpm": 2,
       "tpm": 32000,
@@ -104,7 +119,7 @@
         "workload": "heavy",
         "priority": 7
       }
-    }
+    }    
   ],
   "config": {
     "max_retries": 3,
@@ -113,8 +128,8 @@
     "conversation_ttl_seconds": 86400,
     "workload_model_mapping": {
       "light": ["gemini-2.0-flash", "gemini-2.5-flash"],
-      "medium": ["gemini-2.5-flash", "gemini-2.0-flash"],
-      "heavy": ["gemini-2.5-pro", "gemini-2.5-flash"]
+      "medium": ["gemini-1.5-flash", "gemini-2.0-flash"],
+      "heavy": ["gemini-2.5-pro", "gemini-1.5-pro"]
     }
   }
 }

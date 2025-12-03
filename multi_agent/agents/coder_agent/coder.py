@@ -294,17 +294,24 @@ class CoderAgent:
             code = self._generate_from_template(task, contract)
         
         # Determine if this is a fix task with existing artifact
-        existing_artifact_path = task.get('artifact_path')
+        # Use original_artifact_path (stays constant) instead of artifact_path (changes each iteration)
+        metadata = task.get('metadata', {})
+        original_artifact_path = metadata.get('original_artifact_path')
         
-        if existing_artifact_path and auto_fix:
-            # Fix task: Update existing file instead of creating new one
-            print(f"[CoderAgent] 🔧 Fix task detected - updating existing file: {existing_artifact_path}")
-            filename = Path(existing_artifact_path).name
-            file_path = existing_artifact_path
+        if original_artifact_path and auto_fix:
+            # Fix task: Update ORIGINAL file instead of creating new one
+            print(f"[CoderAgent] 🔧 Fix task detected - updating ORIGINAL file: {original_artifact_path}")
+            print(f"[CoderAgent]    (NOT creating new fix_{datetime.now().strftime('%Y%m%d_%H%M%S')}_... file)")
+            filename = Path(original_artifact_path).name
+            file_path = original_artifact_path
         else:
             # New implementation: Create unique filename
             filename = self._generate_unique_filename(task, contract)
             file_path = f"Backtest/codes/{filename}"
+            
+            # Store this as original_artifact_path for future fix tasks
+            if not metadata.get('original_artifact_path'):
+                metadata['original_artifact_path'] = file_path
         
         artifact = CodeArtifact(
             file_path=file_path,
@@ -329,7 +336,32 @@ class CoderAgent:
         - Template structure
         - Constraints
         """
+        # Check if this is an EMA-based strategy
+        description = task.get('description', '').lower()
+        is_ema_strategy = 'ema' in description or 'exponential moving average' in description
+        
         prompt = f"""You are a professional trading system developer implementing Python code for quantitative analysis.
+
+**CRITICAL IMPORT REQUIREMENTS**
+
+Generated code will run from multi_agent/Backtest/codes/ directory.
+MUST include this import header at the top of EVERY file:
+
+```python
+import sys
+from pathlib import Path
+
+# Fix imports: Add multi_agent root to Python path
+MULTI_AGENT_ROOT = Path(__file__).parent.parent.parent
+if str(MULTI_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(MULTI_AGENT_ROOT))
+
+from typing import Dict, List, Optional
+import pandas as pd
+from adapters.base_adapter import BaseAdapter
+from adapters.simbroker_adapter import SimBrokerAdapter
+from simulator.simbroker import SimBroker, SimConfig
+```
 
 **TASK SPECIFICATION**
 Task: {task.get('title', 'Unknown')}
@@ -441,6 +473,9 @@ class Strategy:
 **FIXTURES AVAILABLE**
 {task.get('fixture_paths', [])}
 
+{'**CONCRETE IMPLEMENTATION EXAMPLE - EMA CROSSOVER**' if is_ema_strategy else ''}
+{self._get_ema_example() if is_ema_strategy else ''}
+
 **TEMPLATE STRUCTURE**
 """
 
@@ -461,18 +496,84 @@ Just the raw Python code implementing the specification."""
         
         return prompt
     
+    def _get_ema_example(self) -> str:
+        """Get concrete EMA crossover implementation example."""
+        return '''
+You MUST implement a working EMA crossover strategy following this pattern:
+
+def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+    """Calculate EMA indicators."""
+    indicators = {}
+    indicators['ema_30'] = df['Close'].ewm(span=30, adjust=False).mean()
+    indicators['ema_50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    return indicators
+
+def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+    """Detect EMA crossovers for entries."""
+    if idx < 1:
+        return None
+    
+    ema_30_curr = indicators['ema_30'].iloc[idx]
+    ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+    ema_50_curr = indicators['ema_50'].iloc[idx]
+    ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+    
+    # Bullish crossover: EMA 30 crosses above EMA 50
+    if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+        return {
+            'action': 'BUY',
+            'symbol': self.symbol,
+            'volume': self.volume,
+            'type': 'MARKET',
+            'sl': df['Close'].iloc[idx] * 0.98,
+            'tp': df['Close'].iloc[idx] * 1.02
+        }
+    
+    # Bearish crossover: EMA 30 crosses below EMA 50
+    if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+        return {
+            'action': 'SELL',
+            'symbol': self.symbol,
+            'volume': self.volume,
+            'type': 'MARKET',
+            'sl': df['Close'].iloc[idx] * 1.02,
+            'tp': df['Close'].iloc[idx] * 0.98
+        }
+    
+    return None
+
+def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
+    """Exit on opposite crossover."""
+    if idx < 1:
+        return None
+    
+    ema_30_curr = indicators['ema_30'].iloc[idx]
+    ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+    ema_50_curr = indicators['ema_50'].iloc[idx]
+    ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+    
+    if position['action'] == 'BUY' and ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+        return {'position_id': position['id']}
+    
+    if position['action'] == 'SELL' and ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+        return {'position_id': position['id']}
+    
+    return None
+
+IMPLEMENT THIS LOGIC - DO NOT LEAVE TODO COMMENTS.
+'''
+    
     def _generate_unique_filename(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
         """
         Generate unique filename with comprehensive identifiers.
         
-        Format: {timestamp}_{workflow_id}_{task_id}_{descriptive_name}.py
-        Example: 20251121_143052_wf_abc123de_task_data_loading_rsi_strategy.py
+        Format: {timestamp}_{workflow_id}_{descriptive_name}.py
+        Example: 20251121_143052_wf_abc123de_ema_cross.py
         
         Components:
         - Timestamp: YYYYMMDD_HHMMSS for chronological sorting
         - Workflow ID: Full workflow identifier for accurate traceability
-        - Task ID: Task identifier from todo
-        - Descriptive name: Human-readable strategy description
+        - Descriptive name: Brief strategy description (max 3 key terms)
         
         Args:
             task: Task dictionary
@@ -493,23 +594,36 @@ Just the raw Python code implementing the specification."""
             workflow_id = workflow_id.replace('workflow_', 'wf_')
         # Keep full workflow_id for accurate matching
         
-        # 3. Task ID (cleaned)
-        task_id = task.get('id', 'unknown')
-        if task_id.startswith('task_'):
-            task_id = task_id.replace('task_', '')
-        task_id = task_id[:20] if len(task_id) > 20 else task_id
-        
-        # 4. Descriptive name from task title
+        # 3. Descriptive name from task title (SHORTENED)
         task_title = task.get('title', 'strategy')
+        
+        # Remove redundant words
+        redundant_words = {'implement', 'complete', 'strategy', 'create', 'generate', 'fix', 'update', 'the', 'a', 'an'}
+        
         # Clean and convert to snake_case
         desc_name = re.sub(r'[^a-zA-Z0-9\s]', '', task_title.lower())
-        words = desc_name.split()[:6]  # Max 6 words for readability
-        desc_name = '_'.join(words) if words else 'strategy'
+        words = [w for w in desc_name.split() if w not in redundant_words]
         
-        # Combine all components
-        filename = f"{timestamp}_{workflow_id}_{task_id}_{desc_name}.py"
+        # Take max 3 key words for brevity
+        words = words[:3] if words else ['strat']
+        desc_name = '_'.join(words)
+        
+        # Combine all components (removed task_id to save space)
+        filename = f"{timestamp}_{workflow_id}_{desc_name}.py"
         
         return filename
+    
+    def _get_import_header(self) -> str:
+        """Get correct import header with sys.path fix for generated strategies."""
+        return '''import sys
+from pathlib import Path
+
+# Fix imports: Add multi_agent root to Python path
+MULTI_AGENT_ROOT = Path(__file__).parent.parent.parent
+if str(MULTI_AGENT_ROOT) not in sys.path:
+    sys.path.insert(0, str(MULTI_AGENT_ROOT))
+
+from typing import Dict, List, Optional'''
     
     def _get_strategy_template(self) -> str:
         """
@@ -525,8 +639,9 @@ Just the raw Python code implementing the specification."""
             with open(template_path, encoding='utf-8') as f:
                 return f.read()
         
-        # Fallback: inline template with SimBroker integration
-        return '''from typing import Dict, List, Optional
+        # Fallback: inline template with working EMA crossover (not TODOs)
+        import_header = self._get_import_header()
+        return f'''{import_header}
 import pandas as pd
 from pathlib import Path
 from adapters.base_adapter import BaseAdapter
@@ -542,15 +657,16 @@ class Strategy:
         self.volume = cfg.get('volume', 1.0)
     
     def prepare_indicators(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """Compute indicators (vectorized)."""
-        indicators = {}
-        # TODO: Implement indicator calculations
-        # Example: indicators['rsi'] = compute_rsi(df['Close'], period=14)
+        """Compute EMA indicators (vectorized)."""
+        indicators = {{}}
+        # Calculate 30 and 50 period EMAs
+        indicators['ema_30'] = df['Close'].ewm(span=30, adjust=False).mean()
+        indicators['ema_50'] = df['Close'].ewm(span=50, adjust=False).mean()
         return indicators
     
     def find_entries(self, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
         """
-        Check entry conditions and return order request.
+        Check EMA crossover entry conditions.
         
         Args:
             df: Full OHLCV DataFrame
@@ -560,22 +676,42 @@ class Strategy:
         Returns:
             Order request dict or None
         """
-        # TODO: Implement entry logic
-        # Example:
-        # if indicators['rsi'].iloc[idx] < 30:
-        #     return {
-        #         'action': 'BUY',
-        #         'symbol': self.symbol,
-        #         'volume': self.volume,
-        #         'type': 'MARKET',
-        #         'sl': df['Close'].iloc[idx] * 0.98,
-        #         'tp': df['Close'].iloc[idx] * 1.02
-        #     }
+        if idx < 1:  # Need previous bar for crossover detection
+            return None
+        
+        # Get current and previous EMA values
+        ema_30_curr = indicators['ema_30'].iloc[idx]
+        ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+        ema_50_curr = indicators['ema_50'].iloc[idx]
+        ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+        
+        # Bullish crossover: EMA 30 crosses above EMA 50
+        if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+            return {{
+                'action': 'BUY',
+                'symbol': self.symbol,
+                'volume': self.volume,
+                'type': 'MARKET',
+                'sl': df['Close'].iloc[idx] * 0.98,
+                'tp': df['Close'].iloc[idx] * 1.02
+            }}
+        
+        # Bearish crossover: EMA 30 crosses below EMA 50
+        if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+            return {{
+                'action': 'SELL',
+                'symbol': self.symbol,
+                'volume': self.volume,
+                'type': 'MARKET',
+                'sl': df['Close'].iloc[idx] * 1.02,
+                'tp': df['Close'].iloc[idx] * 0.98
+            }}
+        
         return None
     
     def find_exits(self, position: Dict, df: pd.DataFrame, indicators: Dict[str, pd.Series], idx: int) -> Optional[Dict]:
         """
-        Check exit conditions for open position.
+        Check exit conditions - exit on opposite crossover.
         
         Args:
             position: Position dict from adapter.get_positions()
@@ -586,10 +722,24 @@ class Strategy:
         Returns:
             Exit request dict or None
         """
-        # TODO: Implement exit logic
-        # Example:
-        # if indicators['rsi'].iloc[idx] > 70:
-        #     return {'position_id': position['id']}
+        if idx < 1:
+            return None
+        
+        ema_30_curr = indicators['ema_30'].iloc[idx]
+        ema_30_prev = indicators['ema_30'].iloc[idx - 1]
+        ema_50_curr = indicators['ema_50'].iloc[idx]
+        ema_50_prev = indicators['ema_50'].iloc[idx - 1]
+        
+        # If long position, exit on bearish crossover
+        if position['action'] == 'BUY':
+            if ema_30_prev >= ema_50_prev and ema_30_curr < ema_50_curr:
+                return {{'position_id': position['id']}}
+        
+        # If short position, exit on bullish crossover
+        if position['action'] == 'SELL':
+            if ema_30_prev <= ema_50_prev and ema_30_curr > ema_50_curr:
+                return {{'position_id': position['id']}}
+        
         return None
 
 def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
@@ -616,7 +766,7 @@ def run_backtest(adapter: BaseAdapter, df: pd.DataFrame, cfg: Dict) -> Dict:
         if order_request:
             result = adapter.place_order(order_request)
             if not result.get('success'):
-                print(f"Order failed: {result.get('error')}")
+                print(f"Order failed: {{result.get('error')}}")
         
         # Process bar (check SL/TP, update positions)
         events = adapter.step_bar(bar)
@@ -643,32 +793,42 @@ def main():
     import sys
     
     # Configuration
-    cfg = {
+    cfg = {{
         'symbol': 'EURUSD',
         'volume': 1.0,
         'starting_balance': 10000.0,
         'leverage': 100.0
-    }
+    }}
     
     # Load data
-    data_file = 'fixtures/sample_data.csv'
-    if len(sys.argv) > 1:
-        data_file = sys.argv[1]
+    # CRITICAL: Path from Backtest/codes/ to multi_agent/fixtures/
+    # Go up 3 levels: codes -> Backtest -> multi_agent, then into fixtures
+    data_file = Path(__file__).parent.parent.parent / 'fixtures' / 'sample_aapl.csv'
     
-    print(f"Loading data from {data_file}...")
+    # Allow command-line override
+    if len(sys.argv) > 1:
+        data_file = Path(sys.argv[1])
+    
+    if not data_file.exists():
+        raise FileNotFoundError(
+            f"Data file not found at {{data_file}}. "
+            f"Expected: multi_agent/fixtures/sample_aapl.csv"
+        )
+    
+    print(f"Loading data from {{data_file}}...")
     df = pd.read_csv(data_file)
     
     # Ensure required columns
     required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
     if not all(col in df.columns for col in required_cols):
-        raise ValueError(f"CSV must have columns: {required_cols}")
+        raise ValueError(f"CSV must have columns: {{required_cols}}")
     
     # Create SimBroker with configuration
     sim_config = SimConfig(
         starting_balance=cfg['starting_balance'],
         leverage=cfg['leverage'],
-        commission={'type': 'per_lot', 'value': 7.0},
-        slippage={'type': 'fixed', 'value': 2}
+        commission={{'type': 'per_lot', 'value': 7.0}},
+        slippage={{'type': 'fixed', 'value': 2}}
     )
     broker = SimBroker(sim_config)
     
@@ -680,20 +840,20 @@ def main():
     report = run_backtest(adapter, df, cfg)
     
     # Display results
-    print("\\n=== Backtest Results ===")
-    print(f"Total Trades: {report.get('summary', {}).get('total_trades', 0)}")
-    print(f"Win Rate: {report.get('summary', {}).get('win_rate', 0):.2%}")
-    print(f"Final Balance: ${report.get('summary', {}).get('final_balance', 0):.2f}")
-    print(f"Max Drawdown: {report.get('summary', {}).get('max_drawdown', 0):.2%}")
+    print("\\\\n=== Backtest Results ===")
+    print(f"Total Trades: {{report.get('summary', {{}}).get('total_trades', 0)}}")
+    print(f"Win Rate: {{report.get('summary', {{}}).get('win_rate', 0):.2%}}")
+    print(f"Final Balance: ${{report.get('summary', {{}}).get('final_balance', 0):.2f}}")
+    print(f"Max Drawdown: {{report.get('summary', {{}}).get('max_drawdown', 0):.2%}}")
     
     # Save artifacts
     output_dir = Path('backtest_results')
     output_dir.mkdir(exist_ok=True)
     
     paths = adapter.save_report(str(output_dir))
-    print(f"\\nResults saved to:")
+    print(f"\\\\nResults saved to:")
     for name, path in paths.items():
-        print(f"  {name}: {path}")
+        print(f"  {{name}}: {{path}}")
 
 if __name__ == '__main__':
     main()
@@ -880,11 +1040,22 @@ import pytest
 import pandas as pd
 from pathlib import Path
 import sys
+import importlib.util
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from Backtest.codes.{module_name} import Strategy, run_backtest, main
+# Import strategy using importlib to handle filenames starting with digits
+strategy_path = Path(__file__).parent / 'Backtest' / 'codes' / '{strategy_filename}'
+spec = importlib.util.spec_from_file_location("strategy_module", strategy_path)
+strategy_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(strategy_module)
+
+# Extract strategy components
+Strategy = strategy_module.Strategy
+run_backtest = strategy_module.run_backtest
+main = strategy_module.main
+
 from adapters.simbroker_adapter import SimBrokerAdapter
 from simulator.simbroker import SimBroker, SimConfig
 

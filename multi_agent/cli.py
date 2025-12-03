@@ -353,6 +353,24 @@ class MultiAgentCLI:
                 print(f"   ✓ Generated {len(result.artifacts)} artifact(s)")
                 for artifact in result.artifacts:
                     print(f"      - {artifact.file_path}")
+                
+                # Capture original_artifact_path for first iteration
+                # This allows file reuse in subsequent fix iterations
+                if 'original_artifact_path' not in task and result.artifacts:
+                    # Find the strategy file (not the test file)
+                    strategy_artifact = next((a for a in result.artifacts if 'test_' not in a.file_path), None)
+                    if strategy_artifact:
+                        task['original_artifact_path'] = strategy_artifact.file_path
+                        # Save to workload for persistence
+                        workload = self.coordinator.storage.load_workload(task.get('workload_id'))
+                        if workload:
+                            for t in workload.get('tasks', []):
+                                if t['id'] == task['id']:
+                                    t['original_artifact_path'] = strategy_artifact.file_path
+                                    break
+                            self.coordinator.storage.save_workload(workload)
+                        print(f"   ✓ Saved original_artifact_path: {strategy_artifact.file_path}")
+                        
             elif result.status == 'failed':
                 print(f"   ❌ Error: {result.error_message}")
             
@@ -454,6 +472,9 @@ class MultiAgentCLI:
             # Extract strategy filename from path
             strategy_filename = strategy_path.name
             
+            # Get original_artifact_path from current task, or use target_file as fallback
+            original_artifact_path = metadata.get('original_artifact_path', target_file)
+            
             fix_task = {
                 'id': f"fix_{fix_type}_{strategy_filename}_iter{iteration + 1}",
                 'title': f"Optimize {strategy_filename}" if 'timeout' in error_details.lower() else f"Fix {fix_type} in {strategy_filename}",
@@ -464,6 +485,7 @@ class MultiAgentCLI:
                 'metadata': {
                     'fix_type': fix_type,
                     'target_file': target_file,
+                    'original_artifact_path': original_artifact_path,  # Track original file
                     'original_task': task['id'],
                     # Do NOT include error_details to avoid safety filter
                     'fix_instructions': fix_instructions,
