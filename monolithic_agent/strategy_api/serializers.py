@@ -26,11 +26,6 @@ class StrategySerializer(serializers.ModelSerializer):
     template_name = serializers.CharField(source='template.name', read_only=True)
     created_by_username = serializers.CharField(source='created_by.username', read_only=True)
     
-    # NEW: Add fields for execution results and fix attempts
-    execution_result = serializers.JSONField(read_only=True, required=False)
-    fix_attempts = serializers.IntegerField(read_only=True, required=False)
-    key_rotation_enabled = serializers.BooleanField(read_only=True, required=False, default=False)
-    
     class Meta:
         model = Strategy
         fields = '__all__'
@@ -91,37 +86,6 @@ class StrategyValidationRequestSerializer(serializers.Serializer):
         default=dict,
         help_text="Additional validation configuration"
     )
-
-
-class StrategyExecutionSerializer(serializers.Serializer):
-    """Serializer for execution results"""
-    success = serializers.BooleanField()
-    return_pct = serializers.FloatField(allow_null=True)
-    num_trades = serializers.IntegerField(allow_null=True)
-    win_rate = serializers.FloatField(allow_null=True)
-    sharpe_ratio = serializers.FloatField(allow_null=True)
-    max_drawdown = serializers.FloatField(allow_null=True)
-    results_file = serializers.CharField(allow_null=True)
-    execution_time = serializers.FloatField(allow_null=True)
-    error = serializers.CharField(allow_null=True, required=False)
-
-
-class StrategyFixAttemptSerializer(serializers.Serializer):
-    """Serializer for individual fix attempts"""
-    attempt = serializers.IntegerField()
-    success = serializers.BooleanField()
-    error_type = serializers.CharField(allow_null=True)
-    error_message = serializers.CharField(allow_null=True)
-    severity = serializers.CharField(allow_null=True)
-    fix_applied = serializers.BooleanField()
-
-
-class StrategyGenerateRequestSerializer(serializers.Serializer):
-    """Serializer for strategy generation requests"""
-    description = serializers.CharField()
-    auto_fix = serializers.BooleanField(default=True)
-    execute_after_generation = serializers.BooleanField(default=False)
-    max_fix_attempts = serializers.IntegerField(default=3, min_value=1, max_value=10)
 
 
 class StrategyCreateRequestSerializer(serializers.Serializer):
