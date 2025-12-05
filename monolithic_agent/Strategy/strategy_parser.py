@@ -200,6 +200,10 @@ class StrategyParser:
         # Extract instrument if mentioned
         instrument = self._extract_instrument(text)
         
+        # IMPORTANT: Extract exit conditions even from entry steps
+        # Users often specify stop loss/take profit in same sentence as entry
+        exit_conditions = self._extract_exit_conditions(text)
+        
         return ParsedStep(
             order=order,
             title=f"Entry Step {order}",
@@ -210,6 +214,7 @@ class StrategyParser:
             size_info=size_info,
             conditions=conditions,
             parameters=parameters,
+            exit_conditions=exit_conditions if exit_conditions else None,
             raw_text=text
         )
     
@@ -314,35 +319,49 @@ class StrategyParser:
         """Extract exit conditions (stop loss, take profit, etc.)."""
         exit_conditions = {}
         
-        # Stop loss
+        # Stop loss with support for %, $, pips, points
         sl_patterns = [
+            r'(?:stop\s*loss|sl)\s*(?:at|:)?\s*(\d+(?:\.\d+)?)\s*(?:pips?|points?)',
             r'(?:stop\s*loss|sl)\s*(?:at|:)?\s*(\d+(?:\.\d+)?)\s*%',
             r'(?:stop\s*loss|sl)\s*(?:at|:)?\s*\$?(\d+(?:\.\d+)?)',
-            r'stop\s*(?:at)?\s*(\d+(?:\.\d+)?)\s*%\s*(?:below|under)'
+            r'stop\s*(?:at)?\s*(\d+(?:\.\d+)?)\s*%\s*(?:below|under)',
+            r'(?:set|place)?\s*(?:a|an)?\s*stop\s*loss\s*(\d+(?:\.\d+)?)\s*(?:pips?|points?)\s*(?:from|below|under)',
         ]
         
         for pattern in sl_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 value = float(match.group(1))
-                if '%' in text:
+                # Determine unit from the match context
+                if 'pip' in match.group(0).lower():
+                    exit_conditions['stop_loss'] = f"{value} pips from entry"
+                elif 'point' in match.group(0).lower():
+                    exit_conditions['stop_loss'] = f"{value} points from entry"
+                elif '%' in match.group(0):
                     exit_conditions['stop_loss'] = f"{value}% below entry"
                 else:
                     exit_conditions['stop_loss'] = f"${value}"
                 break
         
-        # Take profit
+        # Take profit with support for %, $, pips, points
         tp_patterns = [
+            r'(?:take\s*profit|tp|target)\s*(?:at|:)?\s*(\d+(?:\.\d+)?)\s*(?:pips?|points?)',
             r'(?:take\s*profit|tp|target)\s*(?:at|:)?\s*(\d+(?:\.\d+)?)\s*%',
             r'(?:take\s*profit|tp|target)\s*(?:at|:)?\s*\$?(\d+(?:\.\d+)?)',
-            r'target\s*(?:of)?\s*(\d+(?:\.\d+)?)\s*%\s*(?:above|over)'
+            r'target\s*(?:of)?\s*(\d+(?:\.\d+)?)\s*%\s*(?:above|over)',
+            r'(?:set|place)?\s*(?:a|an)?\s*take\s*profit\s*(\d+(?:\.\d+)?)\s*(?:pips?|points?)\s*(?:from|above|over)',
         ]
         
         for pattern in tp_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 value = float(match.group(1))
-                if '%' in text:
+                # Determine unit from the match context
+                if 'pip' in match.group(0).lower():
+                    exit_conditions['take_profit'] = f"{value} pips from entry"
+                elif 'point' in match.group(0).lower():
+                    exit_conditions['take_profit'] = f"{value} points from entry"
+                elif '%' in match.group(0):
                     exit_conditions['take_profit'] = f"{value}% above entry"
                 else:
                     exit_conditions['take_profit'] = f"${value}"

@@ -8,6 +8,7 @@ This module handles:
 3. Requesting AI agent to fix the issues
 4. Re-running the bot to verify fixes
 5. Tracking error resolution history
+6. Learning from execution failures (feedback loop)
 
 Features:
 - Automatic error detection and classification
@@ -15,9 +16,10 @@ Features:
 - Iterative retry with improvements
 - Error history and pattern tracking
 - Detailed fix reports
+- Feedback loop integration
 
-Last updated: 2025-12-03
-Version: 1.0.0
+Last updated: 2025-12-05
+Version: 2.0.0
 """
 
 import os
@@ -29,6 +31,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime
 from dataclasses import dataclass
 import re
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +107,11 @@ class ErrorAnalyzer:
             'description': 'File not found',
             'severity': 'high'
         },
+        'encoding_error': {
+            'patterns': [r'charmap_encode', r'UnicodeEncodeError', r'codec can\'t encode', r'encoding_table'],
+            'description': 'Character encoding error (emoji/unicode in output)',
+            'severity': 'high'
+        },
     }
     
     @classmethod
@@ -153,17 +161,24 @@ class ErrorAnalyzer:
 class BotErrorFixer:
     """Automatically fix bot execution errors using AI"""
     
-    def __init__(self, strategy_generator=None, max_iterations: int = 3):
+    def __init__(self, strategy_generator=None, max_iterations: int = 5, learning_system=None):
         """
         Initialize bot error fixer
         
         Args:
             strategy_generator: Instance of GeminiStrategyGenerator for fixing code
-            max_iterations: Maximum number of fix attempts (default: 3)
+            max_iterations: Maximum number of fix attempts (default: 5)
+            learning_system: Instance of ErrorLearningSystem for feedback loop (optional)
         """
         self.strategy_generator = strategy_generator
         self.max_iterations = max_iterations
         self.fix_history: List[ErrorFixAttempt] = []
+        self.learning_system = learning_system
+        
+        if self.learning_system:
+            logger.info("Error learning system enabled (feedback loop active)")
+        else:
+            logger.debug("Error learning system not provided (feedback loop disabled)")
     
     def fix_bot_error(
         self,
@@ -233,16 +248,42 @@ class BotErrorFixer:
                 fix_attempt.fixed_code = fixed_code
                 fix_attempt.fix_description = f"AI-generated fix for {error_type}"
                 
-                logger.info("✓ AI generated fixed code")
+                logger.info("[OK] AI generated fixed code")
                 logger.info(f"Fix: {fix_attempt.fix_description}")
                 
                 self.fix_history.append(fix_attempt)
+                
+                # Record in learning system if available
+                if self.learning_system and execution_context:
+                    self.learning_system.record_error(
+                        strategy_name=bot_file.stem,
+                        error_type=error_type,
+                        error_message=error_message,
+                        code_snippet=original_code[:500],  # First 500 chars
+                        fix_successful=True,
+                        fix_attempts=1,
+                        user_description=execution_context.get('user_description'),
+                        generated_params=execution_context.get('params')
+                    )
+                
                 return True, fixed_code, fix_attempt
             else:
                 fix_attempt.success = False
                 fix_attempt.fix_description = "AI failed to generate fixed code"
                 self.fix_history.append(fix_attempt)
                 logger.error("AI failed to generate fixed code")
+                
+                # Record failure in learning system
+                if self.learning_system:
+                    self.learning_system.record_error(
+                        strategy_name=bot_file.stem,
+                        error_type=error_type,
+                        error_message=error_message,
+                        code_snippet=original_code[:500],
+                        fix_successful=False,
+                        fix_attempts=1
+                    )
+                
                 return False, original_code, fix_attempt
         
         except Exception as e:
@@ -250,6 +291,18 @@ class BotErrorFixer:
             fix_attempt.fix_description = f"Error during fix attempt: {str(e)}"
             self.fix_history.append(fix_attempt)
             logger.error(f"Failed to fix error: {e}")
+            
+            # Record exception in learning system
+            if self.learning_system:
+                self.learning_system.record_error(
+                    strategy_name=bot_file.stem,
+                    error_type=error_type,
+                    error_message=f"{error_message}\n\nFix Exception: {str(e)}",
+                    code_snippet=original_code[:500],
+                    fix_successful=False,
+                    fix_attempts=1
+                )
+            
             return False, original_code, fix_attempt
     
     def _build_fix_prompt(
@@ -279,6 +332,24 @@ class BotErrorFixer:
             for key, value in execution_context.items():
                 context_str += f"  - {key}: {value}\n"
         
+        # Add specific instructions for encoding errors
+        encoding_hint = ""
+        if error_type == 'encoding_error' or 'charmap' in error_message.lower():
+            encoding_hint = """
+
+**CRITICAL FIX FOR ENCODING ERROR:**
+The error 'charmap_encode' means there are emoji or unicode characters in print() statements.
+
+FIND AND REPLACE ALL:
+- ✓ → [OK] or SUCCESS
+- ✅ → [OK] or SUCCESS
+- ❌ → [ERROR] or FAILED
+- ⚠️ → [WARNING]
+- Any other emoji/unicode → Plain ASCII text
+
+Search the ENTIRE file for print() statements and remove ALL emojis.
+"""
+        
         prompt = f"""
 TASK: Fix the trading bot code that has an execution error.
 
@@ -289,6 +360,7 @@ ORIGINAL ERROR:
 ```
 {error_message}
 ```
+{encoding_hint}
 
 ORIGINAL CODE:
 ```python
@@ -311,10 +383,24 @@ COMMON FIXES FOR {error_type}:
         # Add error-specific guidance
         if error_type == 'import_error':
             prompt += """
+- CRITICAL: NEVER use 'from Data.data_manager' or 'from Trade.' - these are WRONG paths
+- CORRECT imports for data loading:
+  * from Backtest.data_loader import fetch_market_data, add_indicators
+- CORRECT imports for SimBroker:
+  * from Backtest.sim_broker import SimBroker
+  * from Backtest.config import BacktestConfig
+  * from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+- NEVER import from 'backtesting' or 'backtesting.py' library
+- Add parent directory to path:
+  ```python
+  import sys
+  from pathlib import Path
+  parent_dir = Path(__file__).parent.parent
+  if str(parent_dir) not in sys.path:
+      sys.path.insert(0, str(parent_dir))
+  ```
+- Use fetch_market_data() to load market data dynamically
 - Verify all imports exist and module paths are correct
-- Use relative imports if accessing parent modules
-- Check that required dependencies are installed
-- Use absolute paths from project root when needed
 """
         elif error_type == 'attribute_error':
             prompt += """
@@ -369,6 +455,7 @@ COMMON FIXES FOR {error_type}:
         
         current_code = bot_file.read_text(encoding='utf-8')
         self.fix_history = []
+        start_time = time.time()
         
         logger.info(f"\n{'='*70}")
         logger.info(f"STARTING ITERATIVE ERROR FIXING")
@@ -385,7 +472,21 @@ COMMON FIXES FOR {error_type}:
             )
             
             if result.success:
-                logger.info(f"\n✓ SUCCESS! Bot executed successfully on attempt {attempt + 1}")
+                logger.info(f"\n[OK] SUCCESS! Bot executed successfully on attempt {attempt + 1}")
+                
+                # Record successful resolution in learning system
+                if self.learning_system and self.fix_history:
+                    resolution_time = time.time() - start_time
+                    last_error = self.fix_history[-1]
+                    self.learning_system.record_error(
+                        strategy_name=bot_file.stem,
+                        error_type=last_error.error_type,
+                        error_message=last_error.original_error,
+                        fix_successful=True,
+                        fix_attempts=attempt + 1,
+                        resolution_time_seconds=resolution_time
+                    )
+                
                 return True, current_code, self.fix_history
             
             if not result.error:
@@ -394,9 +495,12 @@ COMMON FIXES FOR {error_type}:
             
             # Try to fix the error
             output_log = result.output_log or ""
+            stderr_log = result.stderr_log or ""
+            # Combine stdout and stderr for proper error classification
+            combined_output = output_log + "\n" + stderr_log
             success, fixed_code, fix_record = self.fix_bot_error(
                 bot_file=bot_file,
-                error_output=output_log,
+                error_output=combined_output,
                 original_code=current_code,
                 execution_context={
                     'symbol': result.test_symbol,
@@ -406,6 +510,20 @@ COMMON FIXES FOR {error_type}:
             
             if not success:
                 logger.error(f"Failed to fix error on attempt {attempt + 1}")
+                
+                # Record final failure in learning system
+                if self.learning_system and self.fix_history:
+                    resolution_time = time.time() - start_time
+                    last_error = self.fix_history[-1]
+                    self.learning_system.record_error(
+                        strategy_name=bot_file.stem,
+                        error_type=last_error.error_type,
+                        error_message=last_error.original_error,
+                        fix_successful=False,
+                        fix_attempts=attempt + 1,
+                        resolution_time_seconds=resolution_time
+                    )
+                
                 break
             
             # Update code and write to file
@@ -416,7 +534,7 @@ COMMON FIXES FOR {error_type}:
         logger.info(f"\n{'='*70}")
         logger.info(f"ERROR FIXING COMPLETE")
         logger.info(f"Total attempts: {len(self.fix_history)}")
-        logger.info(f"Success: {'YES ✓' if any(f.success for f in self.fix_history) else 'NO ✗'}")
+        logger.info(f"Success: {'YES' if any(f.success for f in self.fix_history) else 'NO'}")
         logger.info(f"{'='*70}\n")
         
         return False, current_code, self.fix_history

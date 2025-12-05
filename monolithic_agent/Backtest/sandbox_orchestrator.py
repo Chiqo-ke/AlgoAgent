@@ -141,9 +141,23 @@ class SandboxOrchestrator:
             result = subprocess.run(
                 ["docker", "version"],
                 capture_output=True,
-                timeout=5
+                timeout=15,  # Increased from 5 to 15 seconds
+                text=True
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                logger.info("[OK] Docker is available")
+                return True
+            else:
+                logger.warning(f"Docker command failed with code {result.returncode}")
+                if result.stderr:
+                    logger.debug(f"Docker stderr: {result.stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.warning("Docker check timed out after 15 seconds (Docker may be slow to respond)")
+            return False
+        except FileNotFoundError:
+            logger.warning("Docker command not found (Docker not installed or not in PATH)")
+            return False
         except Exception as e:
             logger.warning(f"Docker check failed: {e}")
             return False
