@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,9 @@ class APIKeyMetadata:
     rpm: int  # Requests per minute
     tpm: int  # Tokens per minute
     rpd: Optional[int] = None  # Requests per day
+    burst_capacity: Optional[int] = None  # Burst capacity for rate limiting
+    priority: Optional[int] = None  # Priority for key selection (lower = higher priority)
+    workload_type: Optional[str] = None  # Workload type: light, heavy, etc.
     active: bool = True
     tags: Dict[str, Any] = None
     created_at: str = None
@@ -78,6 +82,9 @@ class KeyManager:
         Args:
             key_store_path: Path to keys.json file (optional)
         """
+        # Load environment variables
+        load_dotenv()
+        
         self.enabled = os.getenv('ENABLE_KEY_ROTATION', 'false').lower() == 'true'
         self.key_store_path = key_store_path or Path(__file__).parent.parent / 'keys.json'
         self.keys: Dict[str, APIKeyMetadata] = {}
@@ -177,7 +184,7 @@ class KeyManager:
             
             if secret:
                 self.key_secrets[key_id] = secret
-                logger.debug(f"Loaded secret for key {key_id}")
+                logger.info(f"Loaded secret for key {key_id}")
     
     def _load_from_vault(self):
         """Load secrets from HashiCorp Vault"""

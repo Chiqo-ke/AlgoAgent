@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.db.models import Q
 import logging
 import sys
+import os
 from pathlib import Path
 import traceback
 
@@ -312,6 +313,333 @@ class StrategyViewSet(viewsets.ModelViewSet):
         performances = strategy.performance_records.all()
         serializer = StrategyPerformanceSerializer(performances, many=True)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def generate_with_ai(self, request):
+        """Generate a new strategy using AI with key rotation and auto-fix
+        
+        Request body:
+        {
+            "description": "Strategy description in natural language",
+            "auto_fix": true,  // Optional, default true
+            "execute_after_generation": false,  // Optional, default false
+            "max_fix_attempts": 3  // Optional, default 3
+        }
+        """
+        try:
+            description = request.data.get('description')
+            if not description:
+                return Response({
+                    'error': 'Description is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            auto_fix = request.data.get('auto_fix', True)
+            execute_after = request.data.get('execute_after_generation', False)
+            max_fix_attempts = request.data.get('max_fix_attempts', 3)
+            
+            # Import the generator with key rotation
+            try:
+                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+            except ImportError:
+                return Response({
+                    'error': 'Strategy generator not available',
+                    'details': 'GeminiStrategyGenerator module not found'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Initialize generator with key rotation enabled
+            generator = GeminiStrategyGenerator(use_key_rotation=True)
+            
+            # Generate strategy
+            output_file, execution_result = generator.generate_and_save(
+                description=description,
+                execute_after_generation=execute_after
+            )
+            
+            # Auto-fix if enabled and there were errors
+            fix_history = []
+            if auto_fix and execution_result and not execution_result.success:
+                logger.info(f"Auto-fixing strategy errors for {output_file}")
+                success, final_path, fix_history = generator.fix_bot_errors_iteratively(
+                    strategy_file=output_file,
+                    max_iterations=max_fix_attempts
+                )
+                
+                # Re-execute to get final results
+                if success:
+                    from Backtest.bot_executor import BotExecutor
+                    executor = BotExecutor()
+                    execution_result = executor.execute_bot(strategy_file=final_path)
+            
+            # Create Strategy record
+            import os
+            strategy_name = os.path.basename(output_file).replace('.py', '')
+            strategy = Strategy.objects.create(
+                name=strategy_name,
+                description=description,
+                strategy_code='',  # Will be populated on read
+                file_path=output_file,
+                status='generated' if not execution_result else ('executed' if execution_result.success else 'failed'),
+                created_by=request.user if request.user.is_authenticated else None
+            )
+            
+            return Response({
+                'id': strategy.id,
+                'name': strategy.name,
+                'file_path': output_file,
+                'status': strategy.status,
+                'generation_result': {
+                    'success': True,
+                    'file_path': output_file
+                },
+                'execution_result': {
+                    'success': execution_result.success if execution_result else None,
+                    'return_pct': execution_result.return_pct if execution_result else None,
+                    'num_trades': execution_result.num_trades if execution_result else None,
+                    'win_rate': execution_result.win_rate if execution_result else None,
+                    'sharpe_ratio': execution_result.sharpe_ratio if execution_result else None,
+                    'max_drawdown': execution_result.max_drawdown if execution_result else None,
+                } if execution_result else None,
+                'fix_attempts': len(fix_history),
+                'fix_details': [
+                    {
+                        'attempt': i + 1,
+                        'error_type': attempt.error_type,
+                        'success': attempt.success
+                    }
+                    for i, attempt in enumerate(fix_history)
+                ] if fix_history else []
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            logger.error(f"Error in generate_with_ai: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Strategy generation failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def fix_errors(self, request, pk=None):
+        """Fix errors in a generated strategy using AI
+        
+        Request body:
+        {
+            "max_attempts": 3  // Optional, default 3
+        }
+        """
+        strategy = self.get_object()
+        
+        if not strategy.file_path:
+            return Response({
+                'error': 'Strategy has no file path',
+                'details': 'Cannot fix errors without a file path'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            max_attempts = request.data.get('max_attempts', 3)
+            
+            # Import the generator
+            try:
+                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+            except ImportError:
+                return Response({
+                    'error': 'Error fixer not available',
+                    'details': 'GeminiStrategyGenerator module not found'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            generator = GeminiStrategyGenerator(use_key_rotation=True)
+            
+            # Fix errors iteratively
+            success, final_path, fix_history = generator.fix_bot_errors_iteratively(
+                strategy_file=strategy.file_path,
+                max_iterations=max_attempts
+            )
+            
+            # Update strategy status
+            if success:
+                strategy.status = 'working'
+                strategy.file_path = final_path
+            else:
+                strategy.status = 'failed'
+            strategy.save(update_fields=['status', 'file_path'])
+            
+            return Response({
+                'success': success,
+                'final_path': final_path,
+                'attempts': len(fix_history),
+                'fixes': [
+                    {
+                        'attempt': i + 1,
+                        'success': attempt.success,
+                        'error_type': attempt.error_type,
+                        'error_message': attempt.error_message[:200] if attempt.error_message else None,
+                        'timestamp': attempt.timestamp
+                    }
+                    for i, attempt in enumerate(fix_history)
+                ]
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in fix_errors: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Error fixing failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def execute(self, request, pk=None):
+        """Execute a strategy and return results
+        
+        Request body:
+        {
+            "test_symbol": "GOOG",  // Optional, default GOOG
+            "start_date": "2020-01-01",  // Optional
+            "end_date": "2023-12-31"  // Optional
+        }
+        """
+        strategy = self.get_object()
+        
+        if not strategy.file_path:
+            return Response({
+                'error': 'Strategy has no file path',
+                'details': 'Cannot execute without a file path'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            test_symbol = request.data.get('test_symbol', 'GOOG')
+            
+            # Import executor
+            try:
+                from Backtest.bot_executor import BotExecutor
+            except ImportError:
+                return Response({
+                    'error': 'Executor not available',
+                    'details': 'BotExecutor module not found'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            executor = BotExecutor()
+            result = executor.execute_bot(
+                strategy_file=strategy.file_path,
+                test_symbol=test_symbol
+            )
+            
+            # Update strategy
+            strategy.last_validated = timezone.now()
+            strategy.status = 'executed' if result.success else 'failed'
+            strategy.save(update_fields=['last_validated', 'status'])
+            
+            return Response({
+                'success': result.success,
+                'metrics': {
+                    'return_pct': result.return_pct,
+                    'num_trades': result.num_trades,
+                    'win_rate': result.win_rate,
+                    'sharpe_ratio': result.sharpe_ratio,
+                    'max_drawdown': result.max_drawdown,
+                    'execution_time': result.execution_time
+                } if result.success else None,
+                'results_file': result.results_file if result.success else None,
+                'error_message': result.error_message if not result.success else None
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in execute: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Execution failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['get'])
+    def execution_history(self, request, pk=None):
+        """Get execution history for a strategy"""
+        strategy = self.get_object()
+        
+        if not strategy.file_path:
+            return Response({
+                'executions': [],
+                'total_executions': 0
+            })
+        
+        try:
+            import os
+            from Backtest.bot_executor import BotExecutor
+            
+            executor = BotExecutor()
+            strategy_name = os.path.basename(strategy.file_path).replace('.py', '')
+            history = executor.get_strategy_history(strategy_name)
+            
+            return Response({
+                'strategy_id': strategy.id,
+                'strategy_name': strategy.name,
+                'total_executions': len(history),
+                'executions': [
+                    {
+                        'timestamp': exec.timestamp,
+                        'success': exec.success,
+                        'return_pct': exec.return_pct,
+                        'num_trades': exec.num_trades,
+                        'win_rate': exec.win_rate,
+                        'sharpe_ratio': exec.sharpe_ratio,
+                        'max_drawdown': exec.max_drawdown,
+                        'execution_time': exec.execution_time
+                    }
+                    for exec in history[-20:]  # Last 20 executions
+                ]
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in execution_history: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Failed to retrieve execution history',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def available_indicators(self, request):
+        """List all available pre-built indicators from the indicator registry"""
+        try:
+            from Backtest.indicator_registry import INDICATOR_REGISTRY
+            
+            indicators = []
+            for name, info in INDICATOR_REGISTRY.items():
+                if info.get('available', False):
+                    indicators.append({
+                        'name': name,
+                        'display_name': info['name'],
+                        'description': f"Pre-built {name} indicator",
+                        'parameters': [
+                            {
+                                'name': param_name,
+                                'type': param_info['type'],
+                                'default': param_info['default'],
+                                'description': param_info.get('description', '')
+                            }
+                            for param_name, param_info in info['params'].items()
+                        ],
+                        'example': info.get('example', ''),
+                        'usage': info.get('usage', '')
+                    })
+            
+            return Response({
+                'count': len(indicators),
+                'indicators': indicators
+            })
+            
+        except ImportError:
+            return Response({
+                'error': 'Indicator registry not available',
+                'details': 'indicator_registry module not found'
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            logger.error(f"Error in available_indicators: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Failed to retrieve indicators',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class StrategyAPIViewSet(viewsets.ViewSet):
@@ -650,10 +978,23 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
             description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
             
-            # Generate the code
-            generator = GeminiStrategyGenerator()
+            # Generate the code with key rotation from .env configuration
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            use_key_rotation = os.getenv('ENABLE_KEY_ROTATION', 'false').lower() == 'true'
+            generator = GeminiStrategyGenerator(use_key_rotation=use_key_rotation)
             
-            logger.info(f"Generating executable code for: {strategy_name}")
+            # Initialize error learning system for feedback loop
+            try:
+                from Backtest.error_learning_system import ErrorLearningSystem
+                learning_system = ErrorLearningSystem()
+                logger.info("Error learning system initialized (feedback loop enabled)")
+            except ImportError as e:
+                learning_system = None
+                logger.warning(f"Error learning system not available: {e}")
+            
+            logger.info(f"Generating executable code for: {strategy_name} (Key Rotation: {generator.use_key_rotation})")
             
             strategy_code = generator.generate_strategy(
                 description=description,
@@ -690,6 +1031,83 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             logger.info(f"Strategy code saved to: {python_file}")
             
+            # AUTO-EXECUTE AND FIX ERRORS (NEW FEATURE)
+            execution_result = None
+            fix_history = []
+            validation_status = 'pending'
+            
+            try:
+                from Backtest.bot_executor import BotExecutor
+                
+                # Get test configuration from request
+                test_config = data.get('test_config', {})
+                test_symbol = test_config.get('symbol', 'AAPL')
+                test_period = test_config.get('period', '1y')
+                test_interval = test_config.get('interval', '1d')
+                
+                # Convert period string to days
+                period_to_days = {
+                    '1mo': 30, '3mo': 90, '6mo': 180,
+                    '1y': 365, '2y': 730, '5y': 1825, 'max': 3650
+                }
+                test_period_days = period_to_days.get(test_period, 365)
+                
+                logger.info(f"Auto-executing generated strategy... (Symbol: {test_symbol}, Period: {test_period}, Interval: {test_interval})")
+                executor = BotExecutor()
+                execution_result = executor.execute_bot(
+                    strategy_file=str(python_file),
+                    test_symbol=test_symbol,
+                    test_period_days=test_period_days,
+                    parameters={'test_period': test_period, 'test_interval': test_interval},
+                    save_results=True
+                )
+                
+                if execution_result.success:
+                    logger.info(f"[OK] Strategy executed successfully!")
+                    validation_status = 'passed'
+                else:
+                    # Execution failed - trigger iterative error fixing
+                    logger.warning(f"Execution failed: {execution_result.error}")
+                    logger.info("Starting iterative error fixing...")
+                    
+                    max_fix_attempts = 5  # Increased from 3 to 5 for better success rate
+                    
+                    # Pass learning system to error fixer for feedback loop
+                    success, final_path, fix_attempts = generator.fix_bot_errors_iteratively(
+                        strategy_file=str(python_file),
+                        max_iterations=max_fix_attempts,
+                        learning_system=learning_system  # Enable feedback loop
+                    )
+                    
+                    fix_history = [
+                        {
+                            'attempt': f.attempt_number if hasattr(f, 'attempt_number') else i+1,
+                            'error_type': f.error_type if hasattr(f, 'error_type') else 'unknown',
+                            'success': f.success if hasattr(f, 'success') else False,
+                            'description': f.fix_description if hasattr(f, 'fix_description') else str(f)
+                        }
+                        for i, f in enumerate(fix_attempts[:max_fix_attempts])
+                    ]
+                    
+                    if success:
+                        # Re-execute after fixes
+                        logger.info("Re-executing after fixes...")
+                        execution_result = executor.execute_bot(
+                            strategy_file=str(python_file),
+                            save_results=True
+                        )
+                        validation_status = 'passed' if execution_result.success else 'failed'
+                        logger.info(f"[OK] After {len(fix_history)} fix(es), execution {'succeeded' if execution_result.success else 'still failing'}")
+                    else:
+                        validation_status = 'failed'
+                        logger.error(f"Failed to fix errors after {len(fix_history)} attempts")
+                        
+            except ImportError:
+                logger.warning("BotExecutor not available - skipping auto-execution")
+            except Exception as e:
+                logger.error(f"Error during auto-execution: {e}")
+                validation_status = 'error'
+            
             # Update strategy record if strategy_id provided
             if strategy_id:
                 try:
@@ -699,25 +1117,263 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                         strategy.parameters = {}
                     strategy.parameters['generated_code_path'] = str(python_file)
                     strategy.parameters['generated_code_filename'] = python_file.name
+                    strategy.parameters['validation_status'] = validation_status
+                    strategy.parameters['fix_attempts'] = len(fix_history)
                     strategy.save(update_fields=['parameters'])
-                    logger.info(f"Updated strategy {strategy_id} with generated code path")
+                    logger.info(f"Updated strategy {strategy_id} with generated code path and execution status")
                 except Strategy.DoesNotExist:
                     logger.warning(f"Strategy {strategy_id} not found for update")
             
-            return Response({
+            response_data = {
                 'success': True,
                 'strategy_code': strategy_code,
                 'file_path': str(python_file),
                 'file_name': python_file.name,
                 'json_file_path': str(json_file),
                 'strategy_id': strategy_id,
-                'message': 'Executable strategy code generated successfully'
-            })
+                'message': 'Executable strategy code generated successfully',
+                # NEW: Execution and validation details
+                'execution': {
+                    'attempted': execution_result is not None,
+                    'success': execution_result.success if execution_result else False,
+                    'validation_status': validation_status,
+                    'metrics': {
+                        'return_pct': execution_result.return_pct if execution_result and execution_result.success else None,
+                        'num_trades': execution_result.trades if execution_result and execution_result.success else None,
+                        'win_rate': execution_result.win_rate if execution_result and execution_result.success else None,
+                        'sharpe_ratio': execution_result.sharpe_ratio if execution_result and execution_result.success else None,
+                        'max_drawdown': execution_result.max_drawdown if execution_result and execution_result.success else None,
+                    } if execution_result and execution_result.success else None,
+                    'error_message': execution_result.error if execution_result and not execution_result.success else None,
+                },
+                'error_fixing': {
+                    'attempted': len(fix_history) > 0,
+                    'attempts': len(fix_history),
+                    'history': fix_history,
+                    'final_status': 'fixed' if fix_history and execution_result and execution_result.success else 'failed' if fix_history else 'not_needed'
+                }
+            }
+            
+            return Response(response_data)
             
         except Exception as e:
             logger.error(f"Error in generate_executable_code: {e}", exc_info=True)
             return Response({
                 'error': 'Failed to generate executable code',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def generate_with_auto_fix(self, request):
+        """
+        Generate executable strategy code with automatic error fixing.
+        This endpoint:
+        1. Generates initial code from canonical JSON
+        2. Validates the code for safety
+        3. If errors exist, iteratively fixes them using AI
+        4. Returns final working code or detailed error report
+        
+        Request body:
+        {
+            "canonical_json": {...},
+            "strategy_name": "MyStrategy",
+            "strategy_id": 123,  // Optional
+            "max_fix_attempts": 3  // Optional, default 3
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "strategy_code": "...",
+            "file_path": "...",
+            "file_name": "...",
+            "validation_passed": true,
+            "fix_attempts": 2,
+            "fix_history": [...]
+        }
+        """
+        try:
+            data = request.data
+            canonical_json = data.get('canonical_json')
+            strategy_name = data.get('strategy_name', 'GeneratedStrategy')
+            strategy_id = data.get('strategy_id')
+            max_fix_attempts = data.get('max_fix_attempts', 3)
+            
+            if not canonical_json:
+                return Response({
+                    'error': 'canonical_json is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Import required modules
+            try:
+                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                from Backtest.bot_executor import BotExecutor
+            except ImportError as e:
+                return Response({
+                    'error': 'Required modules not available',
+                    'details': str(e)
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # Parse canonical JSON if string
+            if isinstance(canonical_json, str):
+                import json
+                try:
+                    canonical_json = json.loads(canonical_json)
+                except json.JSONDecodeError as e:
+                    return Response({
+                        'error': 'Invalid JSON format',
+                        'details': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Build description from canonical JSON (same as generate_executable_code)
+            description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
+            description += f"{canonical_json.get('description', '')}\n\n"
+            
+            if canonical_json.get('entry_rules'):
+                description += "Entry Rules:\n"
+                for i, rule in enumerate(canonical_json['entry_rules'], 1):
+                    description += f"{i}. {rule.get('description', str(rule))}\n"
+                description += "\n"
+            
+            if canonical_json.get('exit_rules'):
+                description += "Exit Rules:\n"
+                for i, rule in enumerate(canonical_json['exit_rules'], 1):
+                    description += f"{i}. {rule.get('description', str(rule))}\n"
+                description += "\n"
+            
+            if canonical_json.get('risk_management'):
+                description += "Risk Management:\n"
+                risk = canonical_json['risk_management']
+                if risk.get('stop_loss'):
+                    description += f"- Stop Loss: {risk['stop_loss']}\n"
+                if risk.get('take_profit'):
+                    description += f"- Take Profit: {risk['take_profit']}\n"
+                if risk.get('position_sizing'):
+                    description += f"- Position Sizing: {risk['position_sizing']}\n"
+                description += "\n"
+            
+            if canonical_json.get('indicators'):
+                description += "Indicators:\n"
+                for indicator in canonical_json['indicators']:
+                    description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
+                description += "\n"
+            
+            description += "\nIMPORTANT: Strategy should work with ANY symbol (do not hardcode symbols)\n"
+            description += f"Timeframe: {canonical_json.get('timeframe', '1d')}\n"
+            
+            # Generate initial code
+            generator = GeminiStrategyGenerator()
+            logger.info(f"Generating code with auto-fix for: {strategy_name}")
+            
+            strategy_code = generator.generate_strategy(
+                description=description,
+                strategy_name=strategy_name
+            )
+            
+            # Save initial code
+            import re
+            from pathlib import Path
+            
+            safe_name = re.sub(r'[^a-zA-Z0-9\s]', '', strategy_name.lower())
+            words = safe_name.split()[:8]
+            base_filename = "_".join(words) if words else f"strategy_{strategy_id or 'new'}"
+            
+            backtest_codes_dir = Path(__file__).parent.parent / "Backtest" / "codes"
+            backtest_codes_dir.mkdir(parents=True, exist_ok=True)
+            
+            python_file = backtest_codes_dir / f"{base_filename}.py"
+            counter = 1
+            while python_file.exists():
+                python_file = backtest_codes_dir / f"{base_filename}_{counter}.py"
+                counter += 1
+            
+            with open(python_file, 'w', encoding='utf-8') as f:
+                f.write(strategy_code)
+            
+            logger.info(f"Initial code saved to: {python_file}")
+            
+            # Attempt to execute and fix errors if needed
+            fix_history = []
+            executor = BotExecutor()
+            current_attempt = 0
+            success = False
+            
+            while current_attempt < max_fix_attempts and not success:
+                current_attempt += 1
+                logger.info(f"Validation attempt {current_attempt}/{max_fix_attempts}")
+                
+                # Execute the strategy
+                execution_result = executor.execute_bot(strategy_file=str(python_file))
+                
+                if execution_result.success:
+                    success = True
+                    logger.info(f"✅ Strategy executed successfully!")
+                    break
+                
+                # Execution failed, attempt to fix
+                logger.warning(f"Attempt {current_attempt} failed: {execution_result.error}")
+                
+                fix_history.append({
+                    'attempt': current_attempt,
+                    'error_type': 'execution_error',
+                    'success': False,
+                    'error_message': execution_result.error[:200] if execution_result.error else 'Unknown error',
+                    'timestamp': timezone.now().isoformat()
+                })
+                
+                if current_attempt < max_fix_attempts:
+                    # Try to fix the error
+                    logger.info(f"Attempting to fix errors...")
+                    
+                    fix_success, fixed_path, _ = generator.fix_bot_errors_iteratively(
+                        strategy_file=str(python_file),
+                        max_iterations=1  # Fix one error at a time
+                    )
+                    
+                    if fix_success:
+                        python_file = Path(fixed_path)
+                        logger.info(f"Code fixed, saved to: {python_file}")
+                    else:
+                        logger.warning(f"Fix attempt failed")
+            
+            # Save canonical JSON
+            json_file = python_file.with_suffix('.json')
+            with open(json_file, 'w', encoding='utf-8') as f:
+                import json
+                json.dump(canonical_json, f, indent=2)
+            
+            # Update strategy record if strategy_id provided
+            if strategy_id:
+                try:
+                    strategy = Strategy.objects.get(id=strategy_id)
+                    if not strategy.parameters:
+                        strategy.parameters = {}
+                    strategy.parameters['generated_code_path'] = str(python_file)
+                    strategy.parameters['generated_code_filename'] = python_file.name
+                    strategy.parameters['validation_passed'] = success
+                    strategy.parameters['fix_attempts'] = current_attempt
+                    strategy.save(update_fields=['parameters'])
+                    logger.info(f"Updated strategy {strategy_id} with code path and validation status")
+                except Strategy.DoesNotExist:
+                    logger.warning(f"Strategy {strategy_id} not found for update")
+            
+            return Response({
+                'success': success,
+                'strategy_code': strategy_code,
+                'file_path': str(python_file),
+                'file_name': python_file.name,
+                'json_file_path': str(json_file),
+                'strategy_id': strategy_id,
+                'message': f'Code generated and {"validated" if success else "requires manual review"}',
+                'validation_passed': success,
+                'fix_attempts': current_attempt,
+                'fix_history': fix_history
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in generate_with_auto_fix: {e}", exc_info=True)
+            return Response({
+                'error': 'Failed to generate and fix code',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     

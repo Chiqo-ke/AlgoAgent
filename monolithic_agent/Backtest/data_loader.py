@@ -107,6 +107,59 @@ def fetch_market_data(
     return df
 
 
+def validate_indicator_requests(indicators: Dict[str, Optional[Dict[str, Any]]]) -> Tuple[bool, List[str]]:
+    """
+    Validate indicator requests before processing.
+    
+    Checks:
+    1. Indicator names exist in registry
+    2. No duplicate base indicator names (prevents dict key collision)
+    3. Parameter values are valid types
+    
+    Args:
+        indicators: Dict mapping indicator name to parameters
+    
+    Returns:
+        Tuple of (is_valid: bool, errors: List[str])
+    """
+    if not INDICATORS_AVAILABLE:
+        return False, ["Indicator calculator not available"]
+    
+    if not indicators:
+        return True, []
+    
+    errors = []
+    available_indicators = registry.list_indicators()
+    
+    # Check 1: Validate indicator names exist
+    for indicator_name in indicators.keys():
+        if indicator_name.lower() not in [ind.lower() for ind in available_indicators]:
+            errors.append(
+                f"Indicator '{indicator_name}' not found in registry. "
+                f"Available indicators: {', '.join(available_indicators[:10])}..."
+            )
+    
+    # Check 2: Detect duplicate base names (e.g., multiple 'SMA' requests)
+    base_names = [name.split('_')[0].lower() for name in indicators.keys()]
+    duplicates = [name for name in set(base_names) if base_names.count(name) > 1]
+    if duplicates:
+        errors.append(
+            f"Duplicate indicator base names detected: {duplicates}. "
+            f"Python dicts cannot have duplicate keys. "
+            f"Use multi-period format instead: {{'SMA': {{'periods': [20, 50]}}}}"
+        )
+    
+    # Check 3: Validate parameter types
+    for indicator_name, params in indicators.items():
+        if params is not None and not isinstance(params, dict):
+            errors.append(
+                f"Parameters for '{indicator_name}' must be a dict or None, got {type(params).__name__}"
+            )
+    
+    is_valid = len(errors) == 0
+    return is_valid, errors
+
+
 def add_indicators(
     df: pd.DataFrame,
     indicators: Dict[str, Optional[Dict[str, Any]]]
@@ -119,6 +172,7 @@ def add_indicators(
         indicators: Dict mapping indicator name to parameters
                    Example: {'RSI': {'timeperiod': 14}, 'SMA': {'timeperiod': 20}}
                    Use None for default parameters: {'RSI': None}
+                   Multi-period format: {'SMA': {'periods': [20, 50]}}
     
     Returns:
         Tuple of (DataFrame with indicators, metadata dict)
@@ -130,6 +184,13 @@ def add_indicators(
     if not indicators:
         return df.copy(), {}
     
+    # Solution 1: Validate indicator requests BEFORE processing
+    is_valid, validation_errors = validate_indicator_requests(indicators)
+    if not is_valid:
+        error_msg = "Indicator validation failed:\n" + "\n".join(f"  - {err}" for err in validation_errors)
+        logger.error(error_msg)
+        return df.copy(), {'validation_errors': validation_errors}
+    
     # Start with copy of original data
     result_df = df.copy()
     metadata = {}
@@ -139,20 +200,49 @@ def add_indicators(
             # Use empty dict if params is None
             indicator_params = params if params is not None else {}
             
-            # Compute indicator
-            indicator_df, indicator_meta = compute_indicator(
-                name=indicator_name,
-                df=df,
-                params=indicator_params
-            )
-            
-            # Join indicator columns to result
-            result_df = result_df.join(indicator_df, how='left')
-            
-            # Store metadata
-            metadata[indicator_name] = indicator_meta
-            
-            logger.info(f"Added indicator: {indicator_name} with columns {list(indicator_df.columns)}")
+            # Solution 2: Check if multi-period format is requested
+            if 'periods' in indicator_params:
+                # Multi-period support: {'SMA': {'periods': [20, 50]}}
+                periods = indicator_params['periods']
+                if not isinstance(periods, list):
+                    periods = [periods]
+                
+                # Remove 'periods' key and compute for each period
+                base_params = {k: v for k, v in indicator_params.items() if k != 'periods'}
+                
+                for period in periods:
+                    period_params = {**base_params, 'timeperiod': period}
+                    
+                    # Compute indicator for this period
+                    indicator_df, indicator_meta = compute_indicator(
+                        name=indicator_name,
+                        df=df,
+                        params=period_params
+                    )
+                    
+                    # Join indicator columns to result
+                    result_df = result_df.join(indicator_df, how='left')
+                    
+                    # Store metadata with period suffix
+                    metadata[f"{indicator_name}_{period}"] = indicator_meta
+                    
+                    logger.info(f"Added indicator: {indicator_name}_{period} with columns {list(indicator_df.columns)}")
+            else:
+                # Single-period mode (standard)
+                # Compute indicator
+                indicator_df, indicator_meta = compute_indicator(
+                    name=indicator_name,
+                    df=df,
+                    params=indicator_params
+                )
+                
+                # Join indicator columns to result
+                result_df = result_df.join(indicator_df, how='left')
+                
+                # Store metadata
+                metadata[indicator_name] = indicator_meta
+                
+                logger.info(f"Added indicator: {indicator_name} with columns {list(indicator_df.columns)}")
             
         except Exception as e:
             logger.error(f"Failed to compute indicator {indicator_name}: {e}")

@@ -76,7 +76,7 @@ except ImportError:
 
 # Import bot error fixer
 try:
-    from bot_error_fixer import BotErrorFixer
+    from .bot_error_fixer import BotErrorFixer
     BOT_ERROR_FIXER_AVAILABLE = True
 except ImportError:
     try:
@@ -126,7 +126,7 @@ class GeminiStrategyGenerator:
             try:
                 self.key_manager = get_key_manager()
                 key_info = self.key_manager.select_key(
-                    model_preference='gemini-2.5-flash',
+                    model_preference='gemini-2.0-flash',  # Use 2.0-flash (matches keys.json)
                     tokens_needed=5000
                 )
                 if not key_info:
@@ -160,8 +160,8 @@ class GeminiStrategyGenerator:
         # Use gemini-2.0-flash (fast, stable, suitable for code generation)
         self.model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # Framework selection (default to backtesting.py)
-        self.use_backtesting_py = True
+        # Framework selection (default to SimBroker with DataLoader)
+        self.use_backtesting_py = False  # Changed to use SimBroker
         
         # Load system prompt
         self.system_prompt = self._load_system_prompt(use_backtesting_py=self.use_backtesting_py)
@@ -193,28 +193,43 @@ class GeminiStrategyGenerator:
             base_prompt = """
 # MUST NOT EDIT SimBroker
 
-Generate trading strategy code using SimBroker API.
+Generate trading strategy code using SimBroker API with dynamic data loading.
 
-Required imports:
+IMPORTANT FILE STRUCTURE:
+- Generated file location: monolithic_agent/Backtest/codes/strategy_name.py
+- Backtest module location: monolithic_agent/Backtest/
+- Execution working directory: monolithic_agent/
+
+Required imports (EXACTLY as shown):
 ```python
 # Add parent directory to path for imports
 import sys
 from pathlib import Path
-parent_dir = Path(__file__).parent.parent
+# CRITICAL: Go up 3 levels (codes -> Backtest -> monolithic_agent)
+# File is at: monolithic_agent/Backtest/codes/strategy.py
+# We need: monolithic_agent/ in sys.path
+# So: parent (codes) -> parent (Backtest) -> parent (monolithic_agent)
+parent_dir = Path(__file__).parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
+# Now we can import Backtest as a package
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import fetch_market_data
+from Data.indicator_calculator import compute_indicator
 ```
 
 Strategy must:
-1. Use only SimBroker stable API
-2. Emit signals using create_signal()
-3. Call broker.step_to() for each bar
-4. Export results with compute_metrics()
-5. NOT modify SimBroker internals
+1. Use fetch_market_data() to load symbol data dynamically (NOT hardcoded GOOG)
+2. Use add_indicators() to compute technical indicators
+3. Accept symbol, period, timeframe as parameters
+4. Use only SimBroker stable API
+5. Emit signals using create_signal()
+6. Call broker.step_to() for each bar
+7. Export results with compute_metrics()
+8. NOT modify SimBroker internals
 """
         
         # Add indicator registry information if available
@@ -263,15 +278,41 @@ Generate a complete, runnable Python trading strategy with the following require
 
 **Parameters:** {parameters or "Use sensible defaults"}
 
+**🚨 CRITICAL - NO EMOJI/UNICODE CHARACTERS:**
+- NEVER use ✓ ✅ ❌ ⚠️ 🎯 📊 or any emoji/unicode symbols in print() statements
+- Use ONLY plain ASCII: [OK], [ERROR], [WARNING], SUCCESS, FAILED
+- Windows console CANNOT encode these - they cause UnicodeEncodeError crashes
+- Replace: ✓ → [OK] | ❌ → [ERROR] | ⚠️ → [WARNING]
+
 **Requirements:**
-1. Import from sim_broker package (DO NOT modify SimBroker)
-2. Create a strategy class with __init__ and on_bar methods
-3. Use create_signal() to emit trading signals
-4. Include a run_backtest() function
-5. Export results and print metrics
-6. Include complete code with no placeholders
-7. Add docstrings and comments
-8. Handle edge cases (no position, empty data, etc.)
+1. Import from Backtest package (DO NOT modify SimBroker)
+2. Use EXACTLY 3-level path traversal: Path(__file__).parent.parent.parent
+3. Use fetch_market_data() to load data dynamically  
+4. Use compute_indicator() for EACH indicator separately (cannot reuse same key)
+5. Extract indicator PERIODS from description (e.g., "30 and 70" means EMA_30 and EMA_70)
+6. Access indicators with LOWERCASE keys: 'ema_12', 'ema_26', 'rsi_14' (NOT 'EMA_12')
+7. Create a strategy class with __init__ and on_bar methods
+8. Use create_signal() to emit trading signals
+9. Include a run_backtest() function with symbol, period, interval parameters
+10. Use user-specified periods in run_backtest() defaults (NOT hardcoded 12/26)
+11. Export results and print metrics (ASCII text only, NO emojis)
+12. Include complete code with no placeholders
+13. Add docstrings and comments
+14. Handle edge cases (no position, empty data, NaN indicators)
+
+**CRITICAL - INDICATOR NAMING:**
+- Indicator functions create columns like: EMA_{{period}}, SMA_{{period}}, RSI_{{period}}
+- In streaming mode, these become lowercase: ema_12, sma_20, rsi_14
+- Access with: indicators.get('ema_12'), NOT indicators.get('EMA_12')
+- For multiple EMAs: compute_indicator('EMA', df, {{'timeperiod': 30}}) then {{'timeperiod': 70}}
+
+**PERIOD EXTRACTION:**
+If description says "30 and 70 period EMA", use:
+```python
+fast_ema_period=30,
+slow_ema_period=70,
+```
+NOT the default 12/26!
 
 **Code Structure:**
 ```python
@@ -281,35 +322,123 @@ Strategy: {strategy_name}
 Description: {description}
 \"\"\"
 
-# Add parent directory to path for imports
-import sys
-from pathlib import Path
-parent_dir = Path(__file__).parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-
+# Imports - BotExecutor runs from monolithic_agent/ directory, so Backtest module is available
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import fetch_market_data, add_indicators
 from datetime import datetime
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 class {strategy_name}:
-    def __init__(self, broker: SimBroker):
-        # Initialize strategy
+    def __init__(self, broker: SimBroker, symbol: str = "AAPL", **params):
+        self.broker = broker
+        self.symbol = symbol
+        self.params = params
+        self.position_size = 0
+        # Initialize strategy state
         pass
     
     def on_bar(self, timestamp: datetime, data: dict):
         # Strategy logic here
+        # Access indicator values from data[self.symbol]
+        # Use broker.submit_signal() to send trades
         pass
 
-def run_backtest():
-    # Complete backtest runner
-    pass
+def run_backtest(
+    symbol: str = "AAPL",
+    period: str = "1y", 
+    interval: str = "1d",
+    cash: float = 10000,
+    commission: float = 0.002
+):
+    \"\"\"
+    Run backtest with dynamic data loading
+    
+    Args:
+        symbol: Trading symbol (e.g., 'AAPL', 'EURUSD')
+        period: Data period (e.g., '1mo', '3mo', '1y', '2y')
+        interval: Data interval (e.g., '1m', '5m', '1h', '1d')
+        cash: Initial cash
+        commission: Commission rate
+    \"\"\"
+    # 1. Fetch market data using DataLoader
+    df = fetch_market_data(symbol, period=period, interval=interval)
+    
+    # 2. Add required indicators (example with EMA)
+    # Note: add_indicators() takes dict of {{indicator_name: params}}
+    # For multiple indicators of same type, call separately
+    df_with_ema20, _ = add_indicators(df, {{'EMA': {{'timeperiod': 20}}}})
+    df_with_indicators, _ = add_indicators(df_with_ema20, {{'RSI': {{'timeperiod': 14}}}})
+    
+    # Or use this pattern for multiple EMAs:
+    # result_df = df.copy()
+    # for period in [12, 26]:
+    #     temp_df, _ = add_indicators(df, {{'EMA': {{'timeperiod': period}}}})
+    #     result_df = result_df.join(temp_df, rsuffix=f'_{{period}}')
+    # df_with_indicators = result_df
+    
+    # 3. Setup SimBroker
+    config = BacktestConfig(
+        initial_capital=cash,
+        commission_rate=commission
+    )
+    broker = SimBroker(config)
+    
+    # 4. Initialize strategy
+    strategy = {strategy_name}(broker, symbol=symbol)
+    
+    # 5. Run simulation row by row
+    for timestamp, row in df_with_indicators.iterrows():
+        broker.step_to(timestamp)
+        
+        # Prepare data dict
+        data = {{
+            symbol: {{
+                'open': row['Open'],
+                'high': row['High'],
+                'low': row['Low'],
+                'close': row['Close'],
+                'volume': row['Volume'],
+                **{{k: row[k] for k in row.index if k not in ['Open', 'High', 'Low', 'Close', 'Volume']}}
+            }}
+        }}
+        
+        strategy.on_bar(timestamp, data)
+    
+    # 6. Get results
+    metrics = broker.compute_metrics()
+    
+    # 7. Print results
+    print("\\n" + "="*70)
+    print(f"BACKTEST RESULTS: {{symbol}} ({{period}}, {{interval}})")
+    print("="*70)
+    for key, value in metrics.items():
+        print(f"  {{key}}: {{value}}")
+    print("="*70)
+    
+    return metrics
 
 if __name__ == "__main__":
-    run_backtest()
+    # Run with default parameters (can be changed by user)
+    results = run_backtest(
+        symbol="AAPL",  # Change to any symbol
+        period="1y",    # Change period: '1mo', '3mo', '6mo', '1y', '2y', '5y'
+        interval="1d",  # Change interval: '1m', '5m', '15m', '1h', '1d'
+        cash=10000,
+        commission=0.002
+    )
 ```
+
+CRITICAL RULES:
+- ALWAYS use fetch_market_data() - NEVER hardcode data like GOOG
+- ALWAYS accept symbol, period, interval as parameters
+- NEVER import from backtesting.py library
+- ALWAYS use Backtest.sim_broker, Backtest.data_loader
+- Make symbol/period/timeframe user-configurable in run_backtest()
 
 Generate the complete, working code:
 """
@@ -425,7 +554,7 @@ Generate the complete, working code:
                 )
                 
                 if execution_result.success:
-                    logger.info(f"\n✓ Bot executed successfully!")
+                    logger.info(f"\n[OK] Bot executed successfully!")
                     logger.info(f"  Return: {execution_result.return_pct:.2f}%" if execution_result.return_pct else "")
                     logger.info(f"  Trades: {execution_result.trades}" if execution_result.trades else "")
                 else:
@@ -451,12 +580,32 @@ Generate the complete, working code:
         issues = []
         warnings = []
         
-        # Check for required imports
+        # ✅ Check 1: Correct import path depth
+        if "parent.parent.parent" not in code:
+            if "parent.parent" in code and "parent.parent.parent" not in code:
+                issues.append("CRITICAL: Wrong sys.path depth! Use parent.parent.parent (3 levels), not parent.parent (2 levels)")
+        
+        # ✅ Check 2: Required imports
         if "from Backtest.sim_broker import SimBroker" not in code and "from sim_broker import SimBroker" not in code:
             issues.append("Missing import: from Backtest.sim_broker import SimBroker")
         
         if "from Backtest.canonical_schema import" not in code and "from canonical_schema import" not in code:
             issues.append("Missing canonical_schema imports")
+        
+        if "from Data.indicator_calculator import compute_indicator" not in code:
+            warnings.append("Missing compute_indicator import (may cause indicator loading issues)")
+        
+        # ✅ Check 3: Indicator extraction pattern
+        if "startswith(('EMA_'," in code or "startswith(('SMA_'," in code or "startswith(('RSI'" in code:
+            issues.append("CRITICAL: Wrong indicator naming! Use lowercase: 'ema_', 'sma_', 'rsi_' (NOT 'EMA_', 'SMA_', 'RSI')")
+        
+        # ✅ Check 4: Multiple EMAs pattern
+        if code.count("compute_indicator('EMA'") < 2 and ("ema_" in code.lower() and "slow" in code.lower()):
+            warnings.append("Strategy uses multiple EMAs but may not compute them separately")
+        
+        # ✅ Check 5: Indicator column access
+        if ".get('EMA_" in code or ".get('SMA_" in code or ".get('RSI_" in code:
+            issues.append("CRITICAL: Wrong indicator access! Use lowercase: .get('ema_12') NOT .get('EMA_12')")
         
         # Check for header comment
         if "# MUST NOT EDIT SimBroker" not in code:
@@ -494,18 +643,20 @@ Generate the complete, working code:
     def fix_bot_errors_iteratively(
         self,
         strategy_file: str,
-        max_iterations: int = 3,
+        max_iterations: int = 5,
         test_symbol: str = "AAPL",
-        test_period_days: int = 365
+        test_period_days: int = 365,
+        learning_system=None  # NEW: Optional learning system for feedback loop
     ) -> Tuple[bool, Path, List[Dict[str, Any]]]:
         """
         Automatically detect and fix bot execution errors iteratively
         
         Args:
             strategy_file: Path to bot file to fix
-            max_iterations: Maximum error fixing attempts (default: 3)
+            max_iterations: Maximum error fixing attempts (default: 5)
             test_symbol: Symbol for testing (default: AAPL)
             test_period_days: Days of historical data for testing (default: 365)
+            learning_system: Optional ErrorLearningSystem for feedback loop
         
         Returns:
             Tuple of (success, final_file_path, fix_history)
@@ -519,13 +670,19 @@ Generate the complete, working code:
             return False, Path(strategy_file), []
         
         strategy_file = Path(strategy_file)
-        fixer = BotErrorFixer(strategy_generator=self, max_iterations=max_iterations)
+        fixer = BotErrorFixer(
+            strategy_generator=self, 
+            max_iterations=max_iterations,
+            learning_system=learning_system  # Pass learning system to fixer
+        )
         executor = get_bot_executor()
         
         logger.info(f"\n{'='*70}")
         logger.info(f"STARTING ITERATIVE ERROR FIXING")
         logger.info(f"Bot: {strategy_file.name}")
         logger.info(f"Max iterations: {max_iterations}")
+        if learning_system:
+            logger.info(f"Feedback loop: ENABLED")
         logger.info(f"{'='*70}\n")
         
         success, final_code, fix_history = fixer.iterative_fix(
@@ -651,11 +808,11 @@ if __name__ == "__main__":
             if validation['issues']:
                 print("\nIssues:")
                 for issue in validation['issues']:
-                    print(f"  ❌ {issue}")
+                    print(f"  [ERROR] {issue}")
             if validation['warnings']:
                 print("\nWarnings:")
                 for warning in validation['warnings']:
-                    print(f"  ⚠️  {warning}")
+                    print(f"  [WARNING] {warning}")
         
         # Save to codes folder
         codes_dir = Path(__file__).parent / "codes"
@@ -690,7 +847,7 @@ if __name__ == "__main__":
                 print(f"\n{'='*70}")
                 print("EXECUTION RESULTS")
                 print(f"{'='*70}")
-                print(f"Status: {'SUCCESS ✓' if result.success else 'FAILED ✗'}")
+                print(f"Status: {'SUCCESS' if result.success else 'FAILED'}")
                 print(f"Duration: {result.duration_seconds:.2f}s")
                 
                 if result.error:
@@ -709,7 +866,7 @@ if __name__ == "__main__":
                 
                 print(f"\nResults saved to: {result.results_file}")
             else:
-                print("\n⚠️  BotExecutor not available. Skipping execution.")
+                print("\n[WARNING] BotExecutor not available. Skipping execution.")
         else:
             print("\nTo run the strategy:")
             print(f"  python {output_path}")
@@ -717,5 +874,5 @@ if __name__ == "__main__":
             print(f"  python gemini_strategy_generator.py '{args.description}' --execute")
         
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] {e}")
         sys.exit(1)

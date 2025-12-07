@@ -16,7 +16,26 @@ def validate_inputs(df: pd.DataFrame, required_columns: list[str]):
     Raises:
         ValueError: If any of the required columns are missing.
     """
-    missing_columns = [col.lower() for col in required_columns if col.lower() not in [c.lower() for c in df.columns]]
+    df_columns_lower = [c.lower() for c in df.columns]
+    
+    missing_columns = []
+    for col in required_columns:
+        col_lower = col.lower()
+        
+        # For dynamic TALib indicators, map abstract names to actual columns
+        if col_lower in ['price', 'real', 'real0', 'real1']:
+            # Single price series - check for 'close'
+            if 'close' not in df_columns_lower:
+                missing_columns.append(col_lower)
+        elif col_lower in ['prices', 'ohlc']:
+            # OHLC data - check for open, high, low, close
+            required_ohlc = ['open', 'high', 'low', 'close']
+            if not all(c in df_columns_lower for c in required_ohlc):
+                missing_columns.append(col_lower)
+        elif col_lower not in df_columns_lower:
+            # Standard column name check
+            missing_columns.append(col_lower)
+    
     if missing_columns:
         raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
 

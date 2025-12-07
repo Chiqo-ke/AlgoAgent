@@ -451,6 +451,294 @@ class RiskManagedStrategy(Strategy):
 4. **"Indicator out of bounds"**
    - Solution: Check indicator has enough data: `if len(self.sma) > period:`
 
+## CRITICAL: Technical Indicators - Rules & Best Practices
+
+### Available Indicators from TALib
+The system uses **TA-Lib** (Technical Analysis Library) which provides 150+ technical indicators.
+All indicators are accessible through the data loader system.
+
+**Complete TALib Documentation:**
+- Full Function Reference: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func.md
+- Momentum Indicators: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/momentum_indicators.md
+- Volatility Indicators: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/volatility_indicators.md
+- Volume Indicators: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/volume_indicators.md
+- Cycle Indicators: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/cycle_indicators.md
+- Price Transform: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/price_transform.md
+- Pattern Recognition: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/pattern_recognition.md
+- Statistic Functions: https://github.com/TA-Lib/ta-lib-python/blob/master/docs/func_groups/statistic_functions.md
+
+### Indicator Naming Convention ⚠️ CRITICAL
+
+**RULE 1: Uppercase Column Names**
+All TALib indicators output **UPPERCASE** column names. Your code MUST use uppercase when accessing them.
+
+```python
+# ✓ CORRECT:
+if market_data[ticker]['SMA_20'] > market_data[ticker]['SMA_50']:
+    self.enter_long(ticker)
+
+# ❌ WRONG (will cause KeyError):
+if market_data[ticker]['sma_20'] > market_data[ticker]['sma_50']:
+    self.enter_long(ticker)
+```
+
+**RULE 2: Column Name Format**
+- Single-period indicators: `{INDICATOR}_{period}` (e.g., `SMA_20`, `RSI_14`, `EMA_50`)
+- Multi-output indicators: `{INDICATOR}_{OUTPUT}` (e.g., `MACD`, `MACD_SIGNAL`, `MACD_HIST`)
+- No-parameter indicators: `{INDICATOR}` (e.g., `OBV`, `SAR`)
+
+### Multi-Period Support ⚠️ CRITICAL
+
+**RULE 3: Multiple Periods of Same Indicator**
+Python dictionaries CANNOT have duplicate keys. You MUST use the `periods` parameter for multiple periods.
+
+```python
+# ✓ CORRECT - Multi-period format:
+indicators = {
+    'SMA': {'periods': [20, 50, 200]},  # Generates: SMA_20, SMA_50, SMA_200
+    'EMA': {'periods': [12, 26]},       # Generates: EMA_12, EMA_26
+    'RSI': {'timeperiod': 14}           # Standard single period
+}
+
+# ❌ WRONG - This will fail (duplicate keys):
+indicators = {
+    'SMA': {'timeperiod': 20},
+    'SMA': {'timeperiod': 50},  # ❌ Overwrites the previous 'SMA' entry!
+}
+
+# ❌ WRONG - Custom names don't exist in registry:
+indicators = {
+    'SMA_FAST': {'timeperiod': 20},  # ❌ 'SMA_FAST' not recognized
+    'SMA_SLOW': {'timeperiod': 50}   # ❌ 'SMA_SLOW' not recognized
+}
+```
+
+### Common Indicators & Parameters
+
+**Trend Indicators:**
+```python
+# Simple Moving Average
+'SMA': {'periods': [20, 50, 200]}  # Multiple periods
+'SMA': {'timeperiod': 20}          # Single period
+
+# Exponential Moving Average
+'EMA': {'periods': [12, 26, 50]}
+'EMA': {'timeperiod': 12}
+
+# Moving Average Convergence Divergence
+'MACD': {'fastperiod': 12, 'slowperiod': 26, 'signalperiod': 9}
+# Outputs: MACD, MACD_SIGNAL, MACD_HIST
+
+# Parabolic SAR
+'SAR': {'acceleration': 0.02, 'maximum': 0.2}
+# Output: SAR
+
+# Average Directional Movement Index
+'ADX': {'timeperiod': 14}
+# Output: ADX_{timeperiod}
+```
+
+**Momentum Indicators:**
+```python
+# Relative Strength Index
+'RSI': {'periods': [14, 21]}  # Or single: {'timeperiod': 14}
+# Output: RSI_{timeperiod}
+
+# Stochastic Oscillator
+'STOCH': {
+    'fastk_period': 5,
+    'slowk_period': 3,
+    'slowk_matype': 0,
+    'slowd_period': 3,
+    'slowd_matype': 0
+}
+# Outputs: STOCH_SLOWK, STOCH_SLOWD
+
+# Commodity Channel Index
+'CCI': {'timeperiod': 14}
+# Output: CCI_{timeperiod}
+
+# Williams %R
+'WILLR': {'timeperiod': 14}
+# Output: WILLR_{timeperiod}
+
+# Rate of Change
+'ROC': {'timeperiod': 10}
+# Output: ROC_{timeperiod}
+```
+
+**Volatility Indicators:**
+```python
+# Bollinger Bands
+'BOLLINGER': {
+    'timeperiod': 20,
+    'nbdevup': 2,
+    'nbdevdn': 2,
+    'matype': 0  # 0=SMA
+}
+# Outputs: BB_UPPER_{timeperiod}, BB_MIDDLE_{timeperiod}, BB_LOWER_{timeperiod}
+
+# Average True Range
+'ATR': {'timeperiod': 14}
+# Output: ATR_{timeperiod}
+
+# Normalized Average True Range
+'NATR': {'timeperiod': 14}
+# Output: NATR_{timeperiod}
+```
+
+**Volume Indicators:**
+```python
+# On Balance Volume
+'OBV': {}  # No parameters
+# Output: OBV
+
+# Chaikin A/D Line
+'AD': {}  # No parameters
+# Output: AD
+
+# Chaikin A/D Oscillator
+'ADOSC': {'fastperiod': 3, 'slowperiod': 10}
+# Output: ADOSC
+```
+
+### Indicator Usage in Strategies
+
+**Step 1: Request indicators in data loader configuration**
+```python
+def get_indicators(self) -> Dict[str, Optional[Dict[str, Any]]]:
+    """
+    Define which indicators to load with market data.
+    
+    Returns:
+        Dict mapping indicator name to parameters
+    """
+    return {
+        'SMA': {'periods': [20, 50]},     # Multiple SMAs
+        'RSI': {'timeperiod': 14},        # Single RSI
+        'MACD': {                         # MACD with custom params
+            'fastperiod': 12,
+            'slowperiod': 26,
+            'signalperiod': 9
+        },
+        'ATR': {'timeperiod': 14},        # ATR for stops
+        'BOLLINGER': {'timeperiod': 20}   # Bollinger Bands
+    }
+```
+
+**Step 2: Access indicators in on_bar() method**
+```python
+def on_bar(self, timestamp: pd.Timestamp, market_data: Dict[str, Dict[str, Any]]):
+    """
+    Process each bar of market data.
+    
+    Args:
+        timestamp: Current bar timestamp
+        market_data: Dict with structure:
+            {
+                'AAPL': {
+                    'open': 150.0,
+                    'high': 151.0,
+                    'low': 149.5,
+                    'close': 150.5,
+                    'volume': 1000000,
+                    'SMA_20': 149.0,     # ← Uppercase!
+                    'SMA_50': 148.0,     # ← Uppercase!
+                    'RSI_14': 65.5,      # ← Uppercase!
+                    'MACD': 0.5,         # ← Uppercase!
+                    'MACD_SIGNAL': 0.3,
+                    'MACD_HIST': 0.2,
+                    'ATR_14': 2.5,
+                    'BB_UPPER_20': 152.0,
+                    'BB_MIDDLE_20': 150.0,
+                    'BB_LOWER_20': 148.0
+                }
+            }
+    """
+    ticker = self.ticker
+    
+    # ✓ CORRECT: Access with uppercase column names
+    close = market_data[ticker]['close']
+    sma_20 = market_data[ticker].get('SMA_20')
+    sma_50 = market_data[ticker].get('SMA_50')
+    rsi = market_data[ticker].get('RSI_14')
+    
+    # Check if indicators are available (None during warmup period)
+    if sma_20 is None or sma_50 is None or rsi is None:
+        return  # Skip until indicators are ready
+    
+    # Strategy logic using indicators
+    if sma_20 > sma_50 and rsi < 30:
+        # Golden cross + oversold = buy signal
+        if not self.in_position:
+            self.enter_long(ticker, size=100, comment="Golden cross + oversold")
+    
+    elif sma_20 < sma_50 and rsi > 70:
+        # Death cross + overbought = sell signal
+        if self.in_position:
+            self.exit_position(ticker, comment="Death cross + overbought")
+```
+
+**Step 3: Handle missing values gracefully**
+```python
+# Always use .get() with fallback for safety
+sma_20 = market_data[ticker].get('SMA_20')
+
+if sma_20 is None:
+    # Indicator not ready yet (warmup period)
+    return
+
+# Or check explicitly
+if 'SMA_20' not in market_data[ticker]:
+    self.log(f"⚠️ SMA_20 not available yet")
+    return
+```
+
+### Validation & Error Prevention
+
+The data loader now includes **automatic validation** that will catch:
+1. ❌ Invalid indicator names (not in registry)
+2. ❌ Duplicate indicator requests (dict key collision)
+3. ❌ Invalid parameter types
+
+**If validation fails**, you'll see detailed error messages in logs:
+```
+ERROR: Indicator validation failed:
+  - Indicator 'SMA_SLOW' not found in registry. Available indicators: SMA, EMA, RSI...
+  - Duplicate indicator base names detected: ['sma']. Use multi-period format instead.
+```
+
+### Manual Calculation Fallback (If Needed)
+
+If you need custom logic or the data loader isn't working, you can calculate indicators manually:
+
+```python
+def __init__(self, broker, ticker: str, **kwargs):
+    super().__init__(broker, ticker, **kwargs)
+    # Buffer to store recent prices for manual calculation
+    self.price_buffer = []
+    self.sma_fast_period = 20
+    self.sma_slow_period = 50
+
+def on_bar(self, timestamp: pd.Timestamp, market_data: Dict[str, Dict[str, Any]]):
+    ticker = self.ticker
+    close = market_data[ticker]['close']
+    
+    # Add to rolling window
+    self.price_buffer.append(close)
+    if len(self.price_buffer) > self.sma_slow_period:
+        self.price_buffer.pop(0)
+    
+    # Calculate SMAs manually if needed
+    if len(self.price_buffer) >= self.sma_slow_period:
+        sma_fast = sum(self.price_buffer[-self.sma_fast_period:]) / self.sma_fast_period
+        sma_slow = sum(self.price_buffer[-self.sma_slow_period:]) / self.sma_slow_period
+        
+        # Use calculated values
+        if sma_fast > sma_slow and not self.in_position:
+            self.enter_long(ticker, size=100)
+```
+
 ## Available Modules & Resources in monolithic_agent/
 
 ### Data Module

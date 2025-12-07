@@ -56,6 +56,7 @@ class BotExecutionResult:
     
     # Execution details
     output_log: Optional[str] = None
+    stderr_log: Optional[str] = None
     results_file: Optional[str] = None
     json_results: Optional[Dict[str, Any]] = None
     
@@ -175,6 +176,17 @@ class BotExecutor:
         logger.info(f"File: {strategy_file}")
         logger.info(f"{'='*70}")
         
+        # Store test parameters for CLI argument passing
+        self.test_symbol = test_symbol
+        # Convert days to period string if parameters not provided
+        if parameters and 'test_period' in parameters:
+            self.test_period = parameters['test_period']
+        else:
+            # Map days to period string
+            period_map = {30: '1mo', 90: '3mo', 180: '6mo', 365: '1y', 730: '2y', 1825: '5y'}
+            self.test_period = period_map.get(test_period_days, f'{test_period_days}d')
+        self.test_interval = parameters.get('test_interval', '1d') if parameters else '1d'
+        
         result = BotExecutionResult(
             strategy_name=strategy_name,
             file_path=str(strategy_file),
@@ -210,13 +222,14 @@ class BotExecutor:
             result.max_drawdown = parsed_results.get('max_drawdown')
             result.sharpe_ratio = parsed_results.get('sharpe_ratio')
             result.output_log = output
+            result.stderr_log = stderr
             result.json_results = parsed_results.get('json_results')
             
             if not result.success:
                 result.error = parsed_results.get('error', 'Unknown error during execution')
                 logger.warning(f"Execution completed with errors: {result.error}")
             else:
-                logger.info(f"✓ Execution completed successfully")
+                logger.info(f"[OK] Execution completed successfully")
                 logger.info(f"  Return: {result.return_pct:.2f}%" if result.return_pct else "")
                 logger.info(f"  Trades: {result.trades}" if result.trades else "")
                 logger.info(f"  Win Rate: {result.win_rate:.1%}" if result.win_rate else "")
@@ -251,17 +264,40 @@ class BotExecutor:
             Tuple of (stdout, stderr)
         """
         try:
-            # Run with Python subprocess
+            # Find the monolithic_agent root directory (where manage.py exists)
+            # This ensures Backtest module can be imported correctly
+            current_dir = Path(__file__).resolve().parent
+            while current_dir.parent != current_dir:
+                if (current_dir / "manage.py").exists():
+                    monolithic_root = current_dir
+                    break
+                current_dir = current_dir.parent
+            else:
+                # Fallback: use current file's parent's parent (Backtest -> monolithic_agent)
+                monolithic_root = Path(__file__).resolve().parent.parent
+            
+            # Build command with CLI arguments for symbol, period, interval
             cmd = [sys.executable, str(strategy_file)]
             
+            # Add test parameters as CLI arguments if provided
+            if self.test_symbol and self.test_symbol != "AAPL":
+                cmd.extend(['--symbol', self.test_symbol])
+            if self.test_period:
+                cmd.extend(['--period', self.test_period])
+            if self.test_interval:
+                cmd.extend(['--interval', self.test_interval])
+            
             logger.debug(f"Running: {' '.join(cmd)}")
+            logger.debug(f"Working directory: {monolithic_root}")
             
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=strategy_file.parent
+                encoding='utf-8',
+                errors='replace',  # Replace unencodable characters instead of crashing
+                cwd=str(monolithic_root)
             )
             
             try:
@@ -300,6 +336,11 @@ class BotExecutor:
         try:
             # Check for errors first
             combined_output = stdout + stderr
+            
+            # Special handling for encoding errors (charmap_encode)
+            if "charmap_encode" in stderr or "UnicodeEncodeError" in stderr:
+                result['error'] = stderr if stderr else "Encoding error: Unicode characters in output"
+                return result
             
             if "error" in combined_output.lower() or "exception" in combined_output.lower():
                 # Try to extract meaningful error message

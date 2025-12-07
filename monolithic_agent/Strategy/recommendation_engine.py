@@ -132,18 +132,28 @@ class RecommendationEngine:
         for step in steps:
             exit_rule = step.get("exit", {})
             risk_controls = step.get("risk_controls", {})
+            action = step.get("action", {})
             
+            # Check exit rules (dict format)
             if isinstance(exit_rule, dict):
                 if exit_rule.get("stop_loss"):
                     has_stop_loss = True
                 if exit_rule.get("take_profit"):
                     has_take_profit = True
+            
+            # Check exit rules (string format)
             elif isinstance(exit_rule, str):
-                if "stop" in exit_rule.lower():
+                lower_exit = exit_rule.lower()
+                if any(word in lower_exit for word in ["stop", "sl", "stop loss", "pips from entry"]):
                     has_stop_loss = True
-                if "profit" in exit_rule.lower() or "target" in exit_rule.lower():
+                if any(word in lower_exit for word in ["profit", "target", "tp", "take profit"]):
                     has_take_profit = True
             
+            # Check risk_controls
+            if risk_controls.get("stop_loss"):
+                has_stop_loss = True
+            if risk_controls.get("take_profit"):
+                has_take_profit = True
             if risk_controls.get("max_positions"):
                 has_max_positions = True
         
@@ -156,7 +166,8 @@ class RecommendationEngine:
                 category="risk",
                 test_params={
                     "stop_loss_pct": "0.5-3%",
-                    "atr_multiple": "1-3x ATR"
+                    "atr_multiple": "1-3x ATR",
+                    "fixed_pips": "5-20 pips"
                 }
             ))
         
@@ -169,7 +180,8 @@ class RecommendationEngine:
                 category="risk",
                 test_params={
                     "take_profit_pct": "1-5%",
-                    "risk_reward_ratio": "1.5-3.0"
+                    "risk_reward_ratio": "1.5-3.0",
+                    "fixed_pips": "10-50 pips"
                 }
             ))
         
