@@ -35,10 +35,11 @@ from dotenv import load_dotenv
 
 # Import key rotation module
 try:
-    from key_rotation import get_key_manager, KeyRotationError
+    from .key_rotation import get_key_manager, KeyRotationError
     KEY_ROTATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     KEY_ROTATION_AVAILABLE = False
+    logger.debug(f"Key rotation not available: {e}")
 
 # Import bot executor module
 try:
@@ -470,7 +471,7 @@ Generate the complete, working code:
                 # Try to select another key
                 try:
                     key_info = self.key_manager.select_key(
-                        model_preference='gemini-2.5-flash',
+                        model_preference='gemini-2.0-flash',
                         tokens_needed=5000,
                         exclude_keys=[self.selected_key_id]
                     )
