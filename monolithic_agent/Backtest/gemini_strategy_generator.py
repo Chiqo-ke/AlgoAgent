@@ -76,7 +76,7 @@ except ImportError:
 
 # Import bot error fixer
 try:
-    from bot_error_fixer import BotErrorFixer
+    from .bot_error_fixer import BotErrorFixer
     BOT_ERROR_FIXER_AVAILABLE = True
 except ImportError:
     try:

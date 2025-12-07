@@ -48,10 +48,13 @@ import inspect
 try:
     from . import talib_adapters
     from . import ta_fallback_adapters
+    # Import dynamic TALib wrapper for full indicator coverage
+    from . import talib_dynamic_wrapper
 except ImportError:
     # Fallback for when run as script
     import talib_adapters
     import ta_fallback_adapters
+    import talib_dynamic_wrapper
 
 def _parse_docstring(doc: str) -> dict:
     """Parses a structured docstring to extract metadata."""
@@ -92,6 +95,44 @@ def _register_adapters(adapter_module, source_hint: str):
 
 if talib_adapters.HAS_TALIB:
     _register_adapters(talib_adapters, "talib")
+    
+    # Auto-register ALL TALib functions dynamically
+    print("[TALib] Auto-discovering all TALib indicators...")
+    if talib_dynamic_wrapper.HAS_TALIB:
+        all_talib_functions = talib_dynamic_wrapper.get_all_talib_functions()
+        registered_count = 0
+        
+        for func_name, metadata in all_talib_functions.items():
+            # Skip if already registered manually (prefer manual adapters)
+            if func_name.lower() in REGISTRY:
+                continue
+            
+            # Create dynamic adapter
+            adapter_func = talib_dynamic_wrapper.create_dynamic_adapter(func_name, metadata)
+            
+            # Parse outputs for registration
+            outputs = metadata['output_names']
+            if len(outputs) == 1 and 'timeperiod' in metadata['parameters']:
+                # Single output with period parameter
+                outputs = [f"{func_name}_{{{metadata['parameters']['timeperiod']}}}"]
+            elif len(outputs) > 1:
+                # Multiple outputs (e.g., MACD)
+                outputs = [f"{func_name}_{out}" if out.lower() != func_name.lower() else out 
+                          for out in outputs]
+            
+            # Register the function
+            register(
+                name=func_name,
+                callable=adapter_func,
+                inputs=metadata['inputs'],
+                outputs=outputs,
+                defaults=metadata['parameters'],
+                source_hint="talib_dynamic"
+            )
+            registered_count += 1
+        
+        print(f"[TALib] Registered {registered_count} additional TALib indicators dynamically")
+        print(f"[TALib] Total indicators available: {len(REGISTRY)}")
 else:
     _register_adapters(ta_fallback_adapters, "ta")
     # The custom VWAP in ta_fallback_adapters will be registered automatically

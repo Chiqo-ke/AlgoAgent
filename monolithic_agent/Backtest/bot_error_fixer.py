@@ -9,6 +9,8 @@ This module handles:
 4. Re-running the bot to verify fixes
 5. Tracking error resolution history
 6. Learning from execution failures (feedback loop)
+7. Detecting framework vs bot code errors (NEW)
+8. Pre-execution validation (NEW)
 
 Features:
 - Automatic error detection and classification
@@ -17,9 +19,11 @@ Features:
 - Error history and pattern tracking
 - Detailed fix reports
 - Feedback loop integration
+- Framework error detection and escalation (NEW)
+- Pre-execution validation for encoding, case sensitivity, filters (NEW)
 
-Last updated: 2025-12-05
-Version: 2.0.0
+Last updated: 2025-12-07
+Version: 3.0.0
 """
 
 import os
@@ -34,6 +38,26 @@ import re
 import time
 
 logger = logging.getLogger(__name__)
+
+# Import enhanced error detection
+try:
+    from .enhanced_error_detector import (
+        EnhancedErrorDetector,
+        ValidationIssue,
+        ErrorSource,
+        format_validation_report
+    )
+    ENHANCED_DETECTION_AVAILABLE = True
+except ImportError:
+    ENHANCED_DETECTION_AVAILABLE = False
+    logger.warning("Enhanced error detection not available - using basic mode")
+    
+    # Create dummy types for compatibility
+    class ValidationIssue:
+        pass
+    
+    class ErrorSource:
+        pass
 
 
 @dataclass
@@ -159,7 +183,7 @@ class ErrorAnalyzer:
 
 
 class BotErrorFixer:
-    """Automatically fix bot execution errors using AI"""
+    """Automatically fix bot execution errors using AI with enhanced detection"""
     
     def __init__(self, strategy_generator=None, max_iterations: int = 5, learning_system=None):
         """
@@ -174,11 +198,245 @@ class BotErrorFixer:
         self.max_iterations = max_iterations
         self.fix_history: List[ErrorFixAttempt] = []
         self.learning_system = learning_system
+        self.use_enhanced_detection = ENHANCED_DETECTION_AVAILABLE
         
         if self.learning_system:
             logger.info("Error learning system enabled (feedback loop active)")
         else:
             logger.debug("Error learning system not provided (feedback loop disabled)")
+        
+        if self.use_enhanced_detection:
+            logger.info("✅ Enhanced error detection enabled (framework error detection, pre-validation)")
+        else:
+            logger.warning("⚠️  Enhanced error detection disabled (basic mode only)")
+    
+    def fix_bot_error_intelligently(
+        self,
+        bot_file: Path,
+        error_output: str,
+        original_code: str,
+        execution_context: Optional[Dict[str, Any]] = None
+    ) -> Tuple[bool, str, Optional[ErrorFixAttempt]]:
+        """
+        Intelligently fix errors with enhanced detection
+        
+        Uses:
+        1. Framework vs bot error detection
+        2. Pre-execution validation
+        3. Error source analysis
+        4. Targeted fixing strategies
+        
+        Args:
+            bot_file: Path to bot file
+            error_output: Error message from execution
+            original_code: Original bot code
+            execution_context: Additional context (indicators, params, etc.)
+        
+        Returns:
+            Tuple of (success, fixed_code, fix_attempt_record)
+        """
+        if not self.use_enhanced_detection:
+            # Fall back to standard fix method
+            return self.fix_bot_error(bot_file, error_output, original_code, execution_context)
+        
+        # Step 1: Detect error source
+        error_source = EnhancedErrorDetector.detect_error_source(error_output)
+        error_type, error_desc, severity = ErrorAnalyzer.classify_error(error_output)
+        
+        logger.info(f"\n{'='*70}")
+        logger.info(f"ERROR DETECTED: {error_type} (Severity: {severity})")
+        logger.info(f"Error Location: {error_source.error_location}")
+        logger.info(f"File: {error_source.file_path}:{error_source.line_number or '?'}")
+        logger.info(f"{'='*70}")
+        
+        # Step 2: Check if error is in framework (not bot code)
+        if error_source.error_location == 'framework':
+            logger.error("❌ ERROR IS IN FRAMEWORK CODE, NOT BOT CODE!")
+            logger.error(f"   Framework Component: {error_source.framework_component}")
+            logger.error(f"   File: {error_source.file_path}")
+            logger.error(f"   Line: {error_source.line_number}")
+            logger.error("")
+            logger.error("This error CANNOT be fixed by modifying bot code.")
+            logger.error("Framework file must be fixed manually.")
+            logger.error("")
+            
+            # Generate framework fix suggestion
+            fix_suggestion = self._suggest_framework_fix(
+                error_output,
+                error_source,
+                error_type
+            )
+            
+            logger.error("SUGGESTED FRAMEWORK FIX:")
+            logger.error(fix_suggestion)
+            
+            # Record as failed attempt
+            fix_attempt = ErrorFixAttempt(
+                attempt_number=len(self.fix_history) + 1,
+                original_error=error_output,
+                error_type=f"{error_type} (framework)",
+                fix_description="Framework error - cannot fix bot code",
+                success=False
+            )
+            self.fix_history.append(fix_attempt)
+            
+            return False, original_code, fix_attempt
+        
+        # Step 3: Run pre-execution validation
+        indicator_requests = execution_context.get('indicator_requests', {}) if execution_context else {}
+        
+        validation_issues, summary = EnhancedErrorDetector.comprehensive_validation(
+            original_code,
+            indicator_requests,
+            bot_file
+        )
+        
+        if validation_issues:
+            logger.warning(f"\n⚠️  PRE-VALIDATION FOUND {len(validation_issues)} ISSUES:")
+            logger.warning(format_validation_report(validation_issues, summary))
+            
+            # Attempt to auto-fix validation issues
+            fixed_code = self._auto_fix_validation_issues(original_code, validation_issues)
+            
+            if fixed_code != original_code:
+                logger.info("✅ Auto-fixed validation issues")
+                
+                fix_attempt = ErrorFixAttempt(
+                    attempt_number=len(self.fix_history) + 1,
+                    original_error=error_output,
+                    error_type=error_type,
+                    fix_description=f"Auto-fixed {len(validation_issues)} validation issues",
+                    success=True,
+                    fixed_code=fixed_code
+                )
+                self.fix_history.append(fix_attempt)
+                
+                return True, fixed_code, fix_attempt
+        
+        # Step 4: Use standard AI fix for bot code errors
+        return self.fix_bot_error(bot_file, error_output, original_code, execution_context)
+    
+    def _suggest_framework_fix(
+        self,
+        error_output: str,
+        error_source: ErrorSource,
+        error_type: str
+    ) -> str:
+        """Generate framework fix suggestion"""
+        
+        fix_suggestions = {
+            'encoding_error': """
+Framework Fix Required:
+1. Open file: {file_path}
+2. Go to line: {line_number}
+3. Remove all emoji/unicode characters from print() statements
+4. Replace with ASCII alternatives:
+   - 🔄 → [TALib] or [INFO]
+   - ✅ → [OK] or [SUCCESS]
+   - ❌ → [ERROR] or [FAILED]
+   - ⚠️ → [WARNING]
+
+Example:
+  Before: print("🔄 Auto-discovering all TALib indicators...")
+  After:  print("[TALib] Auto-discovering all TALib indicators...")
+""",
+            'import_error': """
+Framework Fix Required:
+1. Check if required module is installed
+2. Verify import path is correct in framework
+3. May need to install missing dependency
+4. Check for circular import issues
+""",
+            'default': """
+Framework Fix Required:
+1. Open file: {file_path}
+2. Go to line: {line_number}
+3. Investigate error cause in framework code
+4. Apply appropriate fix to framework
+"""
+        }
+        
+        template = fix_suggestions.get(error_type, fix_suggestions['default'])
+        
+        return template.format(
+            file_path=error_source.file_path,
+            line_number=error_source.line_number or '?'
+        )
+    
+    def _auto_fix_validation_issues(
+        self,
+        code: str,
+        issues: List[ValidationIssue]
+    ) -> str:
+        """Attempt to automatically fix validation issues"""
+        
+        fixed_code = code
+        
+        for issue in issues:
+            if not issue.auto_fixable or not issue.suggested_fix:
+                continue
+            
+            # Try to apply fix
+            try:
+                if issue.category == 'encoding':
+                    # Fix encoding issues
+                    fixed_code = self._fix_encoding_issue(fixed_code, issue)
+                elif issue.category == 'case_sensitivity':
+                    # Fix case sensitivity
+                    fixed_code = self._fix_case_sensitivity(fixed_code, issue)
+                elif issue.category == 'filter':
+                    # Fix indicator filter
+                    fixed_code = self._fix_indicator_filter(fixed_code, issue)
+            except Exception as e:
+                logger.warning(f"Could not auto-fix issue: {issue.message} - {e}")
+        
+        return fixed_code
+    
+    def _fix_encoding_issue(self, code: str, issue: ValidationIssue) -> str:
+        """Fix encoding issue by replacing non-ASCII characters"""
+        lines = code.split('\n')
+        
+        if issue.line_number and issue.suggested_fix:
+            # Extract replacement from suggested fix
+            if 'Replace:' in issue.suggested_fix and 'With:' in issue.suggested_fix:
+                parts = issue.suggested_fix.split('With:')
+                if len(parts) == 2:
+                    old_line = parts[0].replace('Replace:', '').strip()
+                    new_line = parts[1].strip()
+                    
+                    # Replace the line
+                    line_idx = issue.line_number - 1
+                    if 0 <= line_idx < len(lines):
+                        lines[line_idx] = lines[line_idx].replace(old_line, new_line)
+        
+        return '\n'.join(lines)
+    
+    def _fix_case_sensitivity(self, code: str, issue: ValidationIssue) -> str:
+        """Fix case sensitivity issue"""
+        if issue.suggested_fix:
+            # Extract old and new names from suggestion
+            match = re.search(r"Change '([^']+)' to '([^']+)'", issue.suggested_fix)
+            if match:
+                old_name, new_name = match.groups()
+                # Replace all occurrences
+                code = code.replace(f"'{old_name}'", f"'{new_name}'")
+                code = code.replace(f'"{old_name}"', f'"{new_name}"')
+        
+        return code
+    
+    def _fix_indicator_filter(self, code: str, issue: ValidationIssue) -> str:
+        """Fix indicator filter to include missing prefixes"""
+        if issue.suggested_fix and 'Suggested:' in issue.suggested_fix:
+            # Extract suggested filter
+            parts = issue.suggested_fix.split('Suggested:')
+            if len(parts) == 2:
+                suggested_filter = parts[1].strip()
+                
+                # Find and replace filter in code
+                old_filter_pattern = r"k\.startswith\(\([^)]+\)\)"
+                code = re.sub(old_filter_pattern, f"k.startswith({suggested_filter})", code, count=1)
+        
+        return code
     
     def fix_bot_error(
         self,
