@@ -468,18 +468,22 @@ Generate the complete, working code:
                 self.key_manager.report_error(self.selected_key_id, error_type=error_type)
                 logger.warning(f"Reported error for key {self.selected_key_id}")
                 
-                # Try to select another key
+                # Try to select another key (allow cross-model fallback by not restricting model)
                 try:
                     key_info = self.key_manager.select_key(
-                        model_preference='gemini-2.0-flash',
+                        model_preference=None,  # Allow any model for fallback
                         tokens_needed=5000,
                         exclude_keys=[self.selected_key_id]
                     )
                     if key_info:
-                        logger.info(f"Retrying with key {key_info['key_id']}")
+                        logger.info(f"Retrying with key {key_info['key_id']} (model: {key_info['model']})")
                         self.api_key = key_info['secret']
                         self.selected_key_id = key_info['key_id']
+                        
+                        # Reconfigure genai with new key and model
                         genai.configure(api_key=self.api_key)
+                        self.model = genai.GenerativeModel(key_info['model'])
+                        
                         return self.generate_strategy(description, strategy_name, parameters)
                 except Exception as retry_error:
                     logger.error(f"Failed to retry with alternate key: {retry_error}")

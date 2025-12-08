@@ -98,10 +98,10 @@ class KeyManager:
         # Model compatibility mapping for cross-model fallback
         # When a model is exhausted, try compatible models in order
         self.model_compatibility = {
-            'gemini-2.0-flash': ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-            'gemini-2.0-flash-exp': ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-            'gemini-1.5-pro': ['gemini-2.0-flash-exp', 'gemini-2.0-flash', 'gemini-1.5-flash'],
-            'gemini-1.5-flash': ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-pro'],
+            'gemini-2.0-flash': ['gemini-2.0-flash-exp', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+            'gemini-2.0-flash-exp': ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+            'gemini-2.5-pro': ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'],
+            'gemini-2.5-flash': ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.5-pro'],
         }
         
         if self.enabled:
