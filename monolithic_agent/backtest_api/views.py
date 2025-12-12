@@ -19,6 +19,8 @@ import traceback
 import uuid
 from decimal import Decimal
 import math
+import pandas as pd
+from datetime import datetime
 
 from .models import BacktestConfig, BacktestRun, BacktestResult, Trade, BacktestAlert
 from .serializers import (
@@ -461,12 +463,301 @@ class BacktestAPIViewSet(viewsets.ViewSet):
                         'details': str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # If Python code, try to load and execute
+            # If Python code, execute it directly
             else:
-                return Response({
-                    'error': 'Direct Python code execution not yet implemented',
-                    'details': 'Please provide canonical JSON format or use strategy_id'
-                }, status=status.HTTP_501_NOT_IMPLEMENTED)
+                try:
+                    import tempfile
+                    import importlib.util
+                    import os
+                    
+                    logger.info("Executing Python strategy code")
+                    
+                    # Create temporary file with Python code
+                    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
+                        f.write(strategy_code)
+                        strategy_file = f.name
+                    
+                    try:
+                        # Load strategy module
+                        spec = importlib.util.spec_from_file_location("strategy_module", strategy_file)
+                        if not spec or not spec.loader:
+                            raise ValueError("Failed to load strategy module")
+                        
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules['strategy_module'] = module
+                        spec.loader.exec_module(module)
+                        
+                        # Try to find Strategy class (for backtesting.py framework)
+                        strategy_class = None
+                        uses_backtesting_py = False
+                        
+                        try:
+                            from backtesting import Backtest, Strategy as BacktestStrategy
+                            
+                            for attr_name in dir(module):
+                                attr = getattr(module, attr_name)
+                                if (isinstance(attr, type) and 
+                                    issubclass(attr, BacktestStrategy) and 
+                                    attr is not BacktestStrategy):
+                                    strategy_class = attr
+                                    uses_backtesting_py = True
+                                    logger.info(f"Found backtesting.py strategy class: {attr_name}")
+                                    break
+                        except ImportError:
+                            logger.info("backtesting.py not available, trying SimBroker")
+                        
+                        # If not backtesting.py, try SimBroker framework
+                        if not strategy_class:
+                            # Look for any class that could be a strategy
+                            for attr_name in dir(module):
+                                if attr_name.startswith('_'):
+                                    continue
+                                attr = getattr(module, attr_name)
+                                if isinstance(attr, type) and hasattr(attr, '__init__'):
+                                    # Check if it looks like a strategy (has broker/symbol params)
+                                    import inspect
+                                    sig = inspect.signature(attr.__init__)
+                                    params = list(sig.parameters.keys())
+                                    if 'broker' in params or 'symbol' in params:
+                                        strategy_class = attr
+                                        logger.info(f"Found SimBroker strategy class: {attr_name}")
+                                        break
+                        
+                        if not strategy_class:
+                            raise ValueError("No Strategy class found in code. Strategy must inherit from backtesting.Strategy or have a broker-based interface")
+                        
+                        # Execute based on framework
+                        if uses_backtesting_py:
+                            # Use backtesting.py framework
+                            df = fetch_and_prepare_data(
+                                symbol=symbol,
+                                start_date=start_date,
+                                end_date=end_date,
+                                interval=timeframe
+                            )
+                            
+                            if df is None or len(df) == 0:
+                                raise ValueError(f"No data available for {symbol}")
+                            
+                            logger.info(f"Running backtest with backtesting.py ({len(df)} bars)")
+                            
+                            bt = Backtest(
+                                df,
+                                strategy_class,
+                                cash=initial_balance,
+                                commission=commission,
+                                exclusive_orders=True
+                            )
+                            
+                            stats = bt.run()
+                            trades_df = stats._trades if hasattr(stats, '_trades') else None
+                            
+                            # Convert results to response format
+                            return Response({
+                                'status': 'completed',
+                                'summary': {
+                                    'total_return': sanitize_float(stats['Return [%]']),
+                                    'total_trades': int(stats['# Trades']),
+                                    'win_rate': sanitize_float(stats['Win Rate [%]']),
+                                    'sharpe_ratio': sanitize_float(stats.get('Sharpe Ratio', 0)),
+                                    'max_drawdown': sanitize_float(stats['Max. Drawdown [%]']),
+                                    'final_equity': sanitize_float(stats['Equity Final [$]']),
+                                },
+                                'metrics': {
+                                    'start_date': str(stats['Start']),
+                                    'end_date': str(stats['End']),
+                                    'duration': str(stats['Duration']),
+                                    'exposure_time': sanitize_float(stats['Exposure Time [%]']),
+                                    'equity_final': sanitize_float(stats['Equity Final [$]']),
+                                    'equity_peak': sanitize_float(stats['Equity Peak [$]']),
+                                    'return_pct': sanitize_float(stats['Return [%]']),
+                                    'buy_hold_return': sanitize_float(stats['Buy & Hold Return [%]']),
+                                    'return_ann': sanitize_float(stats['Return (Ann.) [%]']),
+                                    'volatility_ann': sanitize_float(stats['Volatility (Ann.) [%]']),
+                                    'sharpe_ratio': sanitize_float(stats.get('Sharpe Ratio', 0)),
+                                    'sortino_ratio': sanitize_float(stats.get('Sortino Ratio', 0)),
+                                    'calmar_ratio': sanitize_float(stats.get('Calmar Ratio', 0)),
+                                    'max_drawdown': sanitize_float(stats['Max. Drawdown [%]']),
+                                    'avg_drawdown': sanitize_float(stats['Avg. Drawdown [%]']),
+                                    'total_trades': int(stats['# Trades']),
+                                    'win_rate': sanitize_float(stats['Win Rate [%]']),
+                                    'best_trade': sanitize_float(stats.get('Best Trade [%]', 0)),
+                                    'worst_trade': sanitize_float(stats.get('Worst Trade [%]', 0)),
+                                    'avg_trade': sanitize_float(stats.get('Avg. Trade [%]', 0)),
+                                    'profit_factor': sanitize_float(stats.get('Profit Factor', 0)),
+                                },
+                                'trades': trades_df.to_dict('records') if trades_df is not None and len(trades_df) > 0 else [],
+                                'daily_stats': [],
+                                'symbol_stats': [{
+                                    'symbol': symbol,
+                                    'trades': int(stats['# Trades']),
+                                    'profit': sanitize_float(stats['Equity Final [$]']) - initial_balance,
+                                }]
+                            })
+                        else:
+                            # Use SimBroker framework
+                            from Backtest.sim_broker import SimBroker
+                            from Backtest.config import BacktestConfig
+                            from Backtest.data_loader import load_market_data
+                            
+                            logger.info(f"Running backtest with SimBroker framework")
+                            
+                            # Create broker with correct BacktestConfig parameters
+                            config = BacktestConfig()
+                            config.start_cash = initial_balance
+                            config.fee_pct = commission
+                            config.slippage_pct = data.get('slippage', 0.0005)
+                            
+                            broker = SimBroker(config)
+                            
+                            # Load data using correct parameters
+                            # Convert date range to period string
+                            from datetime import datetime as dt
+                            if isinstance(start_date, str):
+                                start_dt = dt.fromisoformat(start_date)
+                            else:
+                                start_dt = start_date
+                            
+                            if isinstance(end_date, str):
+                                end_dt = dt.fromisoformat(end_date)
+                            else:
+                                end_dt = end_date
+                            
+                            # Calculate days difference
+                            days_diff = (end_dt - start_dt).days
+                            
+                            # Map to period string
+                            if days_diff <= 7:
+                                period = '1wk'
+                            elif days_diff <= 30:
+                                period = '1mo'
+                            elif days_diff <= 90:
+                                period = '3mo'
+                            elif days_diff <= 180:
+                                period = '6mo'
+                            elif days_diff <= 365:
+                                period = '1y'
+                            elif days_diff <= 730:
+                                period = '2y'
+                            else:
+                                period = '5y'
+                            
+                            logger.info(f"Loading data for {symbol}, period={period}, interval={timeframe}")
+                            
+                            result = load_market_data(
+                                ticker=symbol,
+                                period=period,
+                                interval=timeframe
+                            )
+                            
+                            # load_market_data returns (df, metadata) tuple
+                            if isinstance(result, tuple):
+                                df, metadata = result
+                            else:
+                                df = result
+                                metadata = {}
+                            
+                            if df is None or len(df) == 0:
+                                raise ValueError(f"No data available for {symbol}")
+                            
+                            logger.info(f"Loaded {len(df)} bars for {symbol}")
+                            
+                            # Initialize strategy
+                            strategy = strategy_class(broker=broker, symbol=symbol)
+                            
+                            # Run backtest - SimBroker uses step_to() method
+                            for idx, row in df.iterrows():
+                                # Prepare market data dict
+                                market_data = {
+                                    symbol: {
+                                        'open': float(row.get('Open', row.get('open', 0))),
+                                        'high': float(row.get('High', row.get('high', 0))),
+                                        'low': float(row.get('Low', row.get('low', 0))),
+                                        'close': float(row.get('Close', row.get('close', 0))),
+                                        'volume': float(row.get('Volume', row.get('volume', 0)))
+                                    }
+                                }
+                                
+                                # Get timestamp from index
+                                timestamp = idx if isinstance(idx, datetime) else pd.to_datetime(idx)
+                                
+                                # Advance broker to this timestamp
+                                broker.step_to(timestamp, market_data)
+                                
+                                # Call strategy's on_data method if it exists
+                                if hasattr(strategy, 'on_data'):
+                                    strategy.on_data(row, timestamp)
+                            
+                            # Get results from broker using correct SimBroker API
+                            snapshot = broker.get_account_snapshot()
+                            final_equity = snapshot['equity']
+                            # Get trades from broker's all_fills list
+                            trades = [fill.to_dict() if hasattr(fill, 'to_dict') else fill for fill in broker.all_fills]
+                            total_return = ((final_equity - initial_balance) / initial_balance) * 100
+                            
+                            winning_trades = [t for t in trades if t.get('pnl', 0) > 0]
+                            total_trades = len(trades)
+                            win_rate = (len(winning_trades) / total_trades * 100) if total_trades > 0 else 0
+                            
+                            return Response({
+                                'status': 'completed',
+                                'summary': {
+                                    'total_return': sanitize_float(total_return),
+                                    'total_trades': total_trades,
+                                    'win_rate': sanitize_float(win_rate),
+                                    'sharpe_ratio': 0.0,  # Not calculated yet
+                                    'max_drawdown': 0.0,  # Not calculated yet
+                                    'final_equity': sanitize_float(final_equity),
+                                },
+                                'metrics': {
+                                    'start_date': start_date,
+                                    'end_date': end_date,
+                                    'duration': f"{len(df)} bars",
+                                    'exposure_time': 0.0,
+                                    'equity_final': sanitize_float(final_equity),
+                                    'equity_peak': sanitize_float(final_equity),
+                                    'return_pct': sanitize_float(total_return),
+                                    'buy_hold_return': 0.0,
+                                    'return_ann': 0.0,
+                                    'volatility_ann': 0.0,
+                                    'sharpe_ratio': 0.0,
+                                    'sortino_ratio': 0.0,
+                                    'calmar_ratio': 0.0,
+                                    'max_drawdown': 0.0,
+                                    'avg_drawdown': 0.0,
+                                    'total_trades': total_trades,
+                                    'win_rate': sanitize_float(win_rate),
+                                    'best_trade': 0.0,
+                                    'worst_trade': 0.0,
+                                    'avg_trade': 0.0,
+                                    'profit_factor': 0.0,
+                                },
+                                'trades': trades,
+                                'daily_stats': [],
+                                'symbol_stats': [{
+                                    'symbol': symbol,
+                                    'trades': total_trades,
+                                    'profit': sanitize_float(final_equity - initial_balance),
+                                }]
+                            })
+                        
+                    finally:
+                        # Clean up temporary file
+                        try:
+                            os.unlink(strategy_file)
+                            if 'strategy_module' in sys.modules:
+                                del sys.modules['strategy_module']
+                        except Exception as cleanup_error:
+                            logger.warning(f"Failed to cleanup temp file: {cleanup_error}")
+                    
+                except Exception as e:
+                    logger.error(f"Python strategy execution failed: {e}")
+                    logger.error(traceback.format_exc())
+                    return Response({
+                        'error': 'Python strategy execution failed',
+                        'details': str(e),
+                        'traceback': traceback.format_exc()
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
             logger.error(f"Error in quick_run: {e}")

@@ -137,21 +137,45 @@ class BotVerificationService:
         
         # Find bot script in codes directory
         codes_dir = BACKTEST_DIR / 'codes'
-        bot_files = list(codes_dir.glob(f'{strategy.name.lower().replace(" ", "")[:20]}*.py'))
+        bot_file = None
         
-        if not bot_files:
-            # Try to find by strategy ID or algo prefix
+        # First, check if strategy has file_path specified
+        if hasattr(strategy, 'file_path') and strategy.file_path:
+            bot_file_path = BACKTEST_DIR.parent / strategy.file_path
+            if bot_file_path.exists():
+                bot_file = bot_file_path
+                logger.info(f"Found bot file from strategy.file_path: {bot_file}")
+        
+        # If not found, try to find by strategy name
+        if not bot_file:
+            bot_files = list(codes_dir.glob(f'{strategy.name.lower().replace(" ", "")[:20]}*.py'))
+            if bot_files:
+                bot_file = bot_files[0]
+        
+        # Try by strategy ID or algo prefix
+        if not bot_file:
             bot_files = list(codes_dir.glob(f'algo*{strategy.id}*.py'))
+            if bot_files:
+                bot_file = bot_files[0]
         
-        if not bot_files:
+        # Try extracting bot name from strategy name or tags
+        if not bot_file:
+            # Look for algo numbers in strategy name
+            import re
+            match = re.search(r'(algo\d+)', strategy.name.lower())
+            if match:
+                bot_name = match.group(1)
+                bot_files = list(codes_dir.glob(f'{bot_name}*.py'))
+                if bot_files:
+                    bot_file = bot_files[0]
+        
+        if not bot_file:
             logger.warning(f"No bot script found for strategy: {strategy.name}")
             performance.verification_status = 'failed'
             performance.verification_notes = "No bot script file found in codes directory"
             performance.save()
             return performance
         
-        # Use first matching file
-        bot_file = bot_files[0]
         logger.info(f"Testing bot script: {bot_file}")
         
         # Run test

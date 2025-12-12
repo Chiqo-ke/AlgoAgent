@@ -20,7 +20,8 @@ import traceback
 
 from .models import (
     StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
-    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage
+    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage,
+    LatestBacktestResult
 )
 from .serializers import (
     StrategyTemplateSerializer, StrategySerializer, StrategyValidationSerializer,
@@ -29,7 +30,8 @@ from .serializers import (
     StrategyCodeGenerationRequestSerializer, StrategySearchSerializer, StrategyListSerializer,
     StrategyAIValidationRequestSerializer, StrategyAIValidationResponseSerializer,
     StrategyCreateWithAIRequestSerializer, StrategyChatSerializer, StrategyChatMessageSerializer,
-    StrategyChatListSerializer, ChatMessageRequestSerializer, ChatResponseSerializer
+    StrategyChatListSerializer, ChatMessageRequestSerializer, ChatResponseSerializer,
+    LatestBacktestResultSerializer
 )
 
 # Add parent directory to path for imports
@@ -2545,6 +2547,101 @@ class BotPerformanceViewSet(viewsets.ModelViewSet):
             logger.error(f"Error getting test history: {e}")
             return Response({
                 'error': 'Failed to get test history',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LatestBacktestResultViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for retrieving the latest backtest results for strategies.
+    
+    This provides:
+    - GET /api/backtest-results/ - List all latest results
+    - GET /api/backtest-results/{strategy_id}/ - Get result for specific strategy
+    - GET /api/backtest-results/by_strategy/?strategy_id=X - Get by strategy ID
+    """
+    queryset = LatestBacktestResult.objects.all()
+    serializer_class = LatestBacktestResultSerializer
+    permission_classes = [AllowAny]
+    lookup_field = 'strategy_id'
+    
+    @action(detail=False, methods=['get'])
+    def by_strategy(self, request):
+        """
+        Get the latest backtest result for a specific strategy by ID.
+        
+        Query params:
+            strategy_id: The ID of the strategy
+        
+        Returns:
+            The latest backtest result or 404 if not found
+        """
+        strategy_id = request.query_params.get('strategy_id')
+        
+        if not strategy_id:
+            return Response({
+                'error': 'strategy_id query parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            result = LatestBacktestResult.objects.get(strategy_id=strategy_id)
+            serializer = self.get_serializer(result)
+            return Response(serializer.data)
+        except LatestBacktestResult.DoesNotExist:
+            return Response({
+                'error': 'No backtest result found for this strategy',
+                'strategy_id': strategy_id
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error fetching backtest result: {e}")
+            return Response({
+                'error': 'Failed to fetch backtest result',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def save_result(self, request):
+        """
+        Save or update the latest backtest result for a strategy.
+        
+        This replaces any existing result for the same strategy.
+        
+        Request body:
+            strategy_id: The ID of the strategy
+            ... other result fields
+        
+        Returns:
+            The saved backtest result
+        """
+        strategy_id = request.data.get('strategy_id')
+        
+        if not strategy_id:
+            return Response({
+                'error': 'strategy_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Verify strategy exists
+            strategy = get_object_or_404(Strategy, id=strategy_id)
+            
+            # Save/update the result
+            result = LatestBacktestResult.save_result(
+                strategy_id=strategy_id,
+                result_data=request.data
+            )
+            
+            serializer = self.get_serializer(result)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Strategy.DoesNotExist:
+            return Response({
+                'error': 'Strategy not found',
+                'strategy_id': strategy_id
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error saving backtest result: {e}")
+            return Response({
+                'error': 'Failed to save backtest result',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

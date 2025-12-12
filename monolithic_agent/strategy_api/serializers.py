@@ -8,7 +8,8 @@ Django REST Framework serializers for the strategy API.
 from rest_framework import serializers
 from .models import (
     StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
-    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage
+    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage,
+    LatestBacktestResult
 )
 
 
@@ -334,4 +335,36 @@ class ChatResponseSerializer(serializers.Serializer):
     message = serializers.CharField(help_text="AI's response")
     message_count = serializers.IntegerField(help_text="Total messages in session")
     context_used = serializers.BooleanField(help_text="Whether conversation context was used")
+
+
+class LatestBacktestResultSerializer(serializers.ModelSerializer):
+    """Serializer for LatestBacktestResult model"""
+    strategy_name = serializers.CharField(source='strategy.name', read_only=True)
+    strategy_id = serializers.IntegerField(source='strategy.id', read_only=True)
+    
+    class Meta:
+        model = LatestBacktestResult
+        fields = [
+            'strategy_id',
+            'strategy_name',
+            'symbol',
+            'timeframe',
+            'period',
+            'initial_balance',
+            'commission',
+            'total_trades',
+            'winning_trades',
+            'losing_trades',
+            'win_rate',
+            'net_profit',
+            'total_return_pct',
+            'final_equity',
+            'max_drawdown',
+            'sharpe_ratio',
+            'trades',
+            'equity_curve',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ('created_at', 'updated_at')
     

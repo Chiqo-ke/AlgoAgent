@@ -21,6 +21,7 @@ router.register(r'tags', views.StrategyTagViewSet)
 router.register(r'chat', views.StrategyChatViewSet, basename='chat')
 router.register(r'api', views.StrategyAPIViewSet, basename='strategy-api')
 router.register(r'bot-performance', views.BotPerformanceViewSet, basename='bot-performance')
+router.register(r'backtest-results', views.LatestBacktestResultViewSet, basename='backtest-results')
 
 app_name = 'strategy_api'
 
