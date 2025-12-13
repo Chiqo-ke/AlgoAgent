@@ -239,6 +239,9 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                 "end_date": "2024-10-31",
                 "timeframe": "1d",
                 "initial_balance": 10000,
+                "lot_size": 1.0,
+                "commission": 0.001,
+                "slippage": 0.0005,
                 "indicators": {
                     "RSI": {"timeperiod": 14},
                     "SMA": {"timeperiod": 20}
@@ -319,6 +322,7 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             
             # Convert to proper types (frontend may send as strings)
             initial_balance = float(config.get("initial_balance", 10000))
+            lot_size = float(config.get("lot_size", 1.0))
             commission = float(config.get("commission", 0.002))
             slippage = float(config.get("slippage", 0.0005))
             
@@ -385,7 +389,8 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                             data=data_df,
                             strategy_class=strategy_class,
                             cash=initial_balance,
-                            commission=commission
+                            commission=commission,
+                            trade_on_close=True
                         )
                         
                         backtest_results = adapter.run()
@@ -414,6 +419,7 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                             data_df=data_df,
                             symbol=symbol,
                             initial_balance=initial_balance,
+                            lot_size=lot_size,
                             commission=commission
                         )
                         print(f"✅ Backtest complete (Python strategy): {len(trades_list)} trades")
@@ -551,6 +557,8 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             final_equity = initial_balance + actual_pnl
             total_return_pct = (actual_pnl / initial_balance) * 100 if initial_balance > 0 else 0
             
+            print(f"📤 Sending complete message with {len(trades_list)} trades")
+            
             # Send final completion message with ACTUAL stats (not visualization-matched)
             await self.safe_send({
                 "type": "complete",
@@ -565,7 +573,8 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                     "final_equity": final_equity,
                     "max_drawdown": backtest_results.get("Max. Drawdown [%]", 0) if backtest_results is not None else 0,
                     "sharpe_ratio": backtest_results.get("Sharpe Ratio", 0) if backtest_results is not None else 0,
-                }
+                },
+                "trades": trades_list,  # Include trades for visualization
             })
             
             # Also send final stats message so frontend updates
@@ -589,6 +598,7 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                         'timeframe': interval,
                         'period': period,
                         'initial_balance': initial_balance,
+                        'lot_size': lot_size,
                         'commission': commission,
                         'total_trades': actual_total_trades,
                         'winning_trades': actual_winning,
@@ -637,6 +647,7 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
         data_df,
         symbol: str,
         initial_balance: float,
+        lot_size: float,
         commission: float
     ) -> tuple:
         """
@@ -647,6 +658,7 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             data_df: Market data DataFrame
             symbol: Trading symbol
             initial_balance: Starting cash
+            lot_size: Position size for trades
             commission: Commission rate
             
         Returns:
@@ -763,8 +775,14 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                 
                 broker = SimBroker(config)
                 
-                # Initialize strategy
-                strategy = strategy_class(broker=broker, symbol=symbol)
+                # Initialize strategy with lot_size if it accepts it
+                strategy_sig = inspect.signature(strategy_class.__init__)
+                strategy_params = list(strategy_sig.parameters.keys())
+                
+                if 'lot_size' in strategy_params:
+                    strategy = strategy_class(broker=broker, symbol=symbol, lot_size=lot_size)
+                else:
+                    strategy = strategy_class(broker=broker, symbol=symbol)
                 
                 # Run backtest bar by bar
                 for idx, row in data_df.iterrows():

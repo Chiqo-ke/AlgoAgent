@@ -12,7 +12,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     UserRegistrationView, UserLoginView, logout_view, current_user_view,
     UserProfileViewSet, AIContextViewSet, ChatSessionViewSet,
-    ai_chat_view, health_check
+    ai_chat_view, health_check, change_password_view
 )
 
 # Create router for viewsets
@@ -28,6 +28,7 @@ urlpatterns = [
     path('logout/', logout_view, name='logout'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('user/me/', current_user_view, name='current-user'),
+    path('change-password/', change_password_view, name='change-password'),
     
     # AI Chat endpoint
     path('chat/', ai_chat_view, name='ai-chat'),
