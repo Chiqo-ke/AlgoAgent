@@ -16,6 +16,8 @@ Version: 1.0.0
 
 import os
 import sys
+import time
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 import logging
@@ -102,7 +104,12 @@ class GeminiStrategyGenerator:
     Supports:
     - Single API key mode (GEMINI_API_KEY environment variable)
     - Multi-key rotation mode (ENABLE_KEY_ROTATION=true with keys.json)
+    - Request throttling to avoid rate limits
     """
+    
+    # Class-level throttling to limit requests across all instances
+    _last_request_time = 0
+    _request_lock = threading.Lock()
     
     def __init__(self, api_key: Optional[str] = None, use_key_rotation: Optional[bool] = None):
         """
@@ -445,9 +452,23 @@ Generate the complete, working code:
 """
         
         try:
-            # Generate strategy
-            logger.info(f"Generating strategy: {strategy_name} (key: {self.selected_key_id})")
-            response = self.model.generate_content(prompt)
+            # Apply throttling to avoid rate limits
+            delay = int(os.getenv('GEMINI_REQUEST_DELAY', '5'))
+            max_concurrent = int(os.getenv('MAX_CONCURRENT_REQUESTS', '1'))
+            
+            with self._request_lock:
+                elapsed = time.time() - GeminiStrategyGenerator._last_request_time
+                if elapsed < delay:
+                    wait_time = delay - elapsed
+                    logger.info(f"⏱️  Throttling: waiting {wait_time:.1f}s before next request")
+                    time.sleep(wait_time)
+                
+                # Generate strategy
+                logger.info(f"Generating strategy: {strategy_name} (key: {self.selected_key_id})")
+                response = self.model.generate_content(prompt)
+                
+                # Update last request time
+                GeminiStrategyGenerator._last_request_time = time.time()
             
             # Extract code from response
             code = self._extract_code(response.text)
