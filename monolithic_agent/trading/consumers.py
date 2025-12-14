@@ -326,6 +326,12 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             commission = float(config.get("commission", 0.002))
             slippage = float(config.get("slippage", 0.0005))
             
+            print(f"💰 Backtest Configuration:")
+            print(f"   Initial Balance: ${initial_balance:,.2f}")
+            print(f"   Lot Size: {lot_size}")
+            print(f"   Commission: {commission}")
+            print(f"   Slippage: {slippage}")
+            
             # Send initial metadata
             if not await self.safe_send({
                 "type": "metadata",
@@ -398,16 +404,20 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                         # Extract trades
                         if hasattr(adapter.results, '_trades') and adapter.results._trades is not None:
                             trades_df = adapter.results._trades
+                            print(f"📋 Extracting {len(trades_df)} trades from backtesting.py results")
                             for _, trade in trades_df.iterrows():
+                                trade_pnl = float(trade.get('PnL', 0))
                                 trades_list.append({
                                     'entry_time': str(trade.get('EntryTime', '')),
                                     'exit_time': str(trade.get('ExitTime', '')),
                                     'entry_price': float(trade.get('EntryPrice', 0)),
                                     'exit_price': float(trade.get('ExitPrice', 0)),
                                     'size': float(trade.get('Size', 0)),
-                                    'pnl': float(trade.get('PnL', 0)),
+                                    'pnl': trade_pnl,
                                     'return_pct': float(trade.get('ReturnPct', 0))
                                 })
+                            total_pnl_from_trades = sum(t['pnl'] for t in trades_list)
+                            print(f"💰 Total PnL from trades: ${total_pnl_from_trades:.2f}")
                         
                         print(f"✅ Backtest complete (JSON strategy): {len(trades_list)} trades")
                     
@@ -558,6 +568,11 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
             total_return_pct = (actual_pnl / initial_balance) * 100 if initial_balance > 0 else 0
             
             print(f"📤 Sending complete message with {len(trades_list)} trades")
+            print(f"💰 Final Results:")
+            print(f"   Initial Balance: ${initial_balance:,.2f}")
+            print(f"   Total PnL: ${actual_pnl:.2f}")
+            print(f"   Final Equity: ${final_equity:.2f}")
+            print(f"   Return: {total_return_pct:.2f}%")
             
             # Send final completion message with ACTUAL stats (not visualization-matched)
             await self.safe_send({
@@ -826,7 +841,11 @@ class BacktestStreamConsumer(AsyncWebsocketConsumer):
                 final_equity = snapshot.get('equity', initial_balance)
                 fills = broker.get_trade_log()
                 
-                print(f"📈 SimBroker results: Equity=${final_equity:.2f}, Fills={len(fills)}")
+                print(f"📈 SimBroker results:")
+                print(f"   Starting Balance: ${initial_balance:,.2f}")
+                print(f"   Final Equity: ${final_equity:,.2f}")
+                print(f"   Total Fills: {len(fills)}")
+                print(f"   P&L: ${final_equity - initial_balance:,.2f}")
                 
                 total_return = ((final_equity - initial_balance) / initial_balance) * 100
                 winning = [t for t in fills if t.get('pnl', t.get('realized_pnl', 0)) > 0]
