@@ -16,6 +16,8 @@ Version: 1.0.0
 
 import os
 import sys
+import time
+import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 import logging
@@ -35,10 +37,11 @@ from dotenv import load_dotenv
 
 # Import key rotation module
 try:
-    from key_rotation import get_key_manager, KeyRotationError
+    from .key_rotation import get_key_manager, KeyRotationError
     KEY_ROTATION_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     KEY_ROTATION_AVAILABLE = False
+    logger.debug(f"Key rotation not available: {e}")
 
 # Import bot executor module
 try:
@@ -101,7 +104,12 @@ class GeminiStrategyGenerator:
     Supports:
     - Single API key mode (GEMINI_API_KEY environment variable)
     - Multi-key rotation mode (ENABLE_KEY_ROTATION=true with keys.json)
+    - Request throttling to avoid rate limits
     """
+    
+    # Class-level throttling to limit requests across all instances
+    _last_request_time = 0
+    _request_lock = threading.Lock()
     
     def __init__(self, api_key: Optional[str] = None, use_key_rotation: Optional[bool] = None):
         """
@@ -444,9 +452,23 @@ Generate the complete, working code:
 """
         
         try:
-            # Generate strategy
-            logger.info(f"Generating strategy: {strategy_name} (key: {self.selected_key_id})")
-            response = self.model.generate_content(prompt)
+            # Apply throttling to avoid rate limits
+            delay = int(os.getenv('GEMINI_REQUEST_DELAY', '5'))
+            max_concurrent = int(os.getenv('MAX_CONCURRENT_REQUESTS', '1'))
+            
+            with self._request_lock:
+                elapsed = time.time() - GeminiStrategyGenerator._last_request_time
+                if elapsed < delay:
+                    wait_time = delay - elapsed
+                    logger.info(f"⏱️  Throttling: waiting {wait_time:.1f}s before next request")
+                    time.sleep(wait_time)
+                
+                # Generate strategy
+                logger.info(f"Generating strategy: {strategy_name} (key: {self.selected_key_id})")
+                response = self.model.generate_content(prompt)
+                
+                # Update last request time
+                GeminiStrategyGenerator._last_request_time = time.time()
             
             # Extract code from response
             code = self._extract_code(response.text)
@@ -467,18 +489,22 @@ Generate the complete, working code:
                 self.key_manager.report_error(self.selected_key_id, error_type=error_type)
                 logger.warning(f"Reported error for key {self.selected_key_id}")
                 
-                # Try to select another key
+                # Try to select another key (allow cross-model fallback by not restricting model)
                 try:
                     key_info = self.key_manager.select_key(
-                        model_preference='gemini-2.5-flash',
+                        model_preference=None,  # Allow any model for fallback
                         tokens_needed=5000,
                         exclude_keys=[self.selected_key_id]
                     )
                     if key_info:
-                        logger.info(f"Retrying with key {key_info['key_id']}")
+                        logger.info(f"Retrying with key {key_info['key_id']} (model: {key_info['model']})")
                         self.api_key = key_info['secret']
                         self.selected_key_id = key_info['key_id']
+                        
+                        # Reconfigure genai with new key and model
                         genai.configure(api_key=self.api_key)
+                        self.model = genai.GenerativeModel(key_info['model'])
+                        
                         return self.generate_strategy(description, strategy_name, parameters)
                 except Exception as retry_error:
                     logger.error(f"Failed to retry with alternate key: {retry_error}")

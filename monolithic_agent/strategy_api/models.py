@@ -290,3 +290,98 @@ class StrategyChatMessage(models.Model):
     def __str__(self):
         preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
         return f"{self.role}: {preview}"
+
+
+class LatestBacktestResult(models.Model):
+    """
+    Model for storing the LATEST backtest result per strategy.
+    This replaces the previous result whenever a new backtest is run.
+    One-to-one relationship with Strategy.
+    """
+    strategy = models.OneToOneField(
+        Strategy, 
+        on_delete=models.CASCADE, 
+        related_name='latest_backtest',
+        primary_key=True
+    )
+    
+    # Backtest configuration used
+    symbol = models.CharField(max_length=20, default='AAPL')
+    timeframe = models.CharField(max_length=20, default='1d')
+    period = models.CharField(max_length=20, default='1y', help_text="e.g., 1y, 6mo, 3mo")
+    initial_balance = models.DecimalField(max_digits=20, decimal_places=2, default=10000)
+    commission = models.DecimalField(max_digits=10, decimal_places=6, default=0.001)
+    
+    # Performance metrics
+    total_trades = models.IntegerField(default=0)
+    winning_trades = models.IntegerField(default=0)
+    losing_trades = models.IntegerField(default=0)
+    win_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Win rate percentage")
+    
+    # Financial results
+    net_profit = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    total_return_pct = models.DecimalField(max_digits=15, decimal_places=6, default=0)
+    final_equity = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    max_drawdown = models.DecimalField(max_digits=15, decimal_places=6, default=0)
+    sharpe_ratio = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    
+    # Trade list (JSON for flexibility)
+    trades = models.JSONField(default=list, help_text="List of all trades with entry/exit details")
+    
+    # Equity curve for charting (JSON)
+    equity_curve = models.JSONField(default=list, help_text="Equity over time for chart")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Latest Backtest Result"
+        verbose_name_plural = "Latest Backtest Results"
+    
+    def __str__(self):
+        return f"{self.strategy.name} - {self.symbol} ({self.total_trades} trades, {self.win_rate}% WR)"
+    
+    @classmethod
+    def save_result(cls, strategy_id: int, result_data: dict):
+        """
+        Save or update the latest backtest result for a strategy.
+        Replaces any existing result for the same strategy.
+        
+        Args:
+            strategy_id: The ID of the strategy
+            result_data: Dictionary containing backtest results
+        
+        Returns:
+            The created/updated LatestBacktestResult instance
+        """
+        from decimal import Decimal
+        
+        defaults = {
+            'symbol': result_data.get('symbol', 'AAPL'),
+            'timeframe': result_data.get('timeframe', '1d'),
+            'period': result_data.get('period', '1y'),
+            'initial_balance': Decimal(str(result_data.get('initial_balance', 10000))),
+            'commission': Decimal(str(result_data.get('commission', 0.001))),
+            'total_trades': result_data.get('total_trades', 0),
+            'winning_trades': result_data.get('winning_trades', 0),
+            'losing_trades': result_data.get('losing_trades', 0),
+            'win_rate': Decimal(str(result_data.get('win_rate', 0))),
+            'net_profit': Decimal(str(result_data.get('net_profit', 0))),
+            'total_return_pct': Decimal(str(result_data.get('total_return_pct', 0))),
+            'final_equity': Decimal(str(result_data.get('final_equity', 0))) if result_data.get('final_equity') else None,
+            'max_drawdown': Decimal(str(result_data.get('max_drawdown', 0))),
+            'sharpe_ratio': Decimal(str(result_data.get('sharpe_ratio', 0))) if result_data.get('sharpe_ratio') else None,
+            'trades': result_data.get('trades', []),
+            'equity_curve': result_data.get('equity_curve', []),
+        }
+        
+        obj, created = cls.objects.update_or_create(
+            strategy_id=strategy_id,
+            defaults=defaults
+        )
+        
+        action = "Created" if created else "Updated"
+        print(f"💾 {action} LatestBacktestResult for strategy {strategy_id}")
+        
+        return obj

@@ -16,7 +16,6 @@ import os
 import json
 import logging
 import time
-import random
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
@@ -92,11 +91,48 @@ class KeyManager:
         self.key_health: Dict[str, Dict[str, Any]] = {}
         self.redis_limiter = None
         
+        # Round-robin rotation tracking
+        self.key_rotation_queues: Dict[str, List[str]] = {}  # Per-model queues
+        self.last_used_key: Optional[str] = None
+        
+        # Model compatibility mapping for cross-model fallback
+        # When a model is exhausted, try compatible models in order
+        self.model_compatibility = {
+            'gemini-2.0-flash': ['gemini-2.0-flash-exp', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+            'gemini-2.0-flash-exp': ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+            'gemini-2.5-pro': ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'],
+            'gemini-2.5-flash': ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.5-pro'],
+        }
+        
         if self.enabled:
             self._init_redis()
         
         self._load_keys()
+        self._init_rotation_queues()
         logger.info(f"KeyManager initialized (rotation: {'enabled' if self.enabled else 'disabled'})")
+    
+    def _init_rotation_queues(self):
+        """Initialize round-robin queues for each model type."""
+        # Group keys by model
+        model_keys = {}
+        for key_id, metadata in self.keys.items():
+            if not metadata.active:
+                continue
+            model = metadata.model_name
+            if model not in model_keys:
+                model_keys[model] = []
+            model_keys[model].append(key_id)
+        
+        # Create rotation queue for each model (sorted by priority)
+        for model, key_ids in model_keys.items():
+            # Sort by priority (lower number = higher priority)
+            sorted_keys = sorted(
+                key_ids,
+                key=lambda kid: (self.keys[kid].priority or 999, kid)
+            )
+            self.key_rotation_queues[model] = sorted_keys.copy()
+        
+        logger.info(f"Initialized rotation queues for {len(self.key_rotation_queues)} models")
     
     def _init_redis(self):
         """Initialize Redis for rate limiting"""
@@ -279,6 +315,7 @@ class KeyManager:
         3. If using Redis, check RPM/TPM capacity
         4. Shuffle for load distribution
         5. Return first available key
+        6. If no keys found, try compatible models (cross-model fallback)
         
         Args:
             model_preference: Preferred model (e.g., "gemini-2.5-flash")
@@ -296,57 +333,103 @@ class KeyManager:
         """
         exclude_keys = exclude_keys or []
         
-        # Get candidates
-        candidates = []
-        for key_id, metadata in self.keys.items():
-            if key_id in exclude_keys:
-                continue
-            if not metadata.active:
-                continue
-            if model_preference and metadata.model_name != model_preference:
-                continue
+        # Build list of models to try (preferred model + compatible fallbacks)
+        models_to_try = [model_preference] if model_preference else [None]
+        if model_preference and model_preference in self.model_compatibility:
+            models_to_try.extend(self.model_compatibility[model_preference])
+        
+        # Try each model in order
+        for attempt_idx, current_model in enumerate(models_to_try):
+            if attempt_idx > 0 and current_model:
+                logger.info(f"Cross-model fallback: Trying {current_model} (preferred: {model_preference})")
             
-            # Check cooldown
-            health = self.key_health.get(key_id, {})
-            cooldown_until = health.get('cooldown_until')
-            if cooldown_until and datetime.fromisoformat(cooldown_until) > datetime.utcnow():
-                logger.debug(f"Key {key_id} is in cooldown")
-                continue
-            
-            candidates.append((key_id, metadata))
-        
-        if not candidates:
-            logger.warning(f"No suitable keys found (excluded: {exclude_keys})")
-            return None
-        
-        # Shuffle for load distribution
-        random.shuffle(candidates)
-        
-        # Try each candidate
-        for key_id, metadata in candidates:
-            # Check capacity if Redis is enabled
-            if self.enabled and self.redis_limiter:
-                if not self._check_capacity(key_id, metadata, tokens_needed):
+            # Get candidates for this model
+            candidates = []
+            for key_id, metadata in self.keys.items():
+                if key_id in exclude_keys:
                     continue
+                if not metadata.active:
+                    continue
+                if current_model and metadata.model_name != current_model:
+                    continue
+                
+                # Check cooldown
+                health = self.key_health.get(key_id, {})
+                cooldown_until = health.get('cooldown_until')
+                if cooldown_until and datetime.fromisoformat(cooldown_until) > datetime.utcnow():
+                    logger.debug(f"Key {key_id} is in cooldown")
+                    continue
+                
+                candidates.append((key_id, metadata))
             
-            # Get secret
-            secret = self.key_secrets.get(key_id)
-            if not secret:
-                logger.warning(f"No secret found for key {key_id}")
-                continue
+            if not candidates:
+                continue  # Try next model
             
-            # Update usage
-            self._update_usage(key_id)
+            # Use round-robin queue for load distribution (not random)
+            # Get queue for this model
+            queue = self.key_rotation_queues.get(current_model, [])
+            if queue:
+                # Reorder candidates to match queue order
+                # This ensures we always pick the next key in rotation
+                queue_order = {key_id: idx for idx, key_id in enumerate(queue)}
+                candidates.sort(key=lambda x: queue_order.get(x[0], 999))
             
-            return {
-                'key_id': key_id,
-                'secret': secret,
-                'model': metadata.model_name,
-                'provider': metadata.provider
-            }
+            # Try each candidate
+            for key_id, metadata in candidates:
+                # Check capacity if Redis is enabled
+                if self.enabled and self.redis_limiter:
+                    if not self._check_capacity(key_id, metadata, tokens_needed):
+                        continue
+                
+                # Get secret
+                secret = self.key_secrets.get(key_id)
+                if not secret:
+                    logger.warning(f"No secret found for key {key_id}")
+                    continue
+                
+                # Update usage
+                self._update_usage(key_id)
+                
+                # Rotate queue to prevent using same key consecutively
+                self._rotate_key_queue(current_model, key_id)
+                
+                # Log if using fallback model
+                if current_model != model_preference and current_model:
+                    logger.warning(f"Using fallback model {current_model} instead of {model_preference} (key: {key_id})")
+                
+                return {
+                    'key_id': key_id,
+                    'secret': secret,
+                    'model': metadata.model_name,
+                    'provider': metadata.provider
+                }
         
-        logger.error("No keys available with sufficient capacity")
+        # No suitable keys found across all models
+        logger.error(f"No keys available with sufficient capacity (tried models: {models_to_try}, excluded: {exclude_keys})")
         return None
+    
+    def _rotate_key_queue(self, model: str, used_key_id: str):
+        """Rotate the key queue to move the used key to the end.
+        
+        This ensures round-robin distribution and prevents consecutive reuse.
+        
+        Args:
+            model: Model name for the queue
+            used_key_id: Key ID that was just used
+        """
+        queue = self.key_rotation_queues.get(model)
+        if not queue:
+            return
+        
+        # If used key is at front of queue, rotate it to back
+        if queue and queue[0] == used_key_id:
+            queue.append(queue.pop(0))
+            logger.debug(f"Rotated {model} queue: {used_key_id} moved to end")
+        # If used key is elsewhere in queue, move it to back
+        elif used_key_id in queue:
+            queue.remove(used_key_id)
+            queue.append(used_key_id)
+            logger.debug(f"Rotated {model} queue: {used_key_id} moved to end")
     
     def _check_capacity(self, key_id: str, metadata: APIKeyMetadata, tokens: int) -> bool:
         """Check if key has available RPM/TPM capacity"""

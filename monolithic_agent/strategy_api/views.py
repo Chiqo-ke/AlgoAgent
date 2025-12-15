@@ -20,7 +20,8 @@ import traceback
 
 from .models import (
     StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
-    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage
+    StrategyComment, StrategyTag, StrategyChat, StrategyChatMessage,
+    LatestBacktestResult
 )
 from .serializers import (
     StrategyTemplateSerializer, StrategySerializer, StrategyValidationSerializer,
@@ -29,7 +30,8 @@ from .serializers import (
     StrategyCodeGenerationRequestSerializer, StrategySearchSerializer, StrategyListSerializer,
     StrategyAIValidationRequestSerializer, StrategyAIValidationResponseSerializer,
     StrategyCreateWithAIRequestSerializer, StrategyChatSerializer, StrategyChatMessageSerializer,
-    StrategyChatListSerializer, ChatMessageRequestSerializer, ChatResponseSerializer
+    StrategyChatListSerializer, ChatMessageRequestSerializer, ChatResponseSerializer,
+    LatestBacktestResultSerializer
 )
 
 # Add parent directory to path for imports
@@ -2342,4 +2344,304 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(session)
         return Response(serializer.data)
+
+
+class BotPerformanceViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing bot performance tracking"""
+    permission_classes = [AllowAny]
+    
+    def get_queryset(self):
+        from .bot_performance import BotPerformance
+        return BotPerformance.objects.all().select_related('strategy')
+    
+    def get_serializer_class(self):
+        from .bot_serializers import BotPerformanceSerializer
+        return BotPerformanceSerializer
+    
+    @action(detail=False, methods=['post'])
+    def verify_bot(self, request):
+        """
+        Verify a single bot by running a test backtest
+        
+        POST /api/strategies/bot-performance/verify_bot/
+        {
+            "strategy_id": 123,
+            "symbol": "AAPL",  // optional
+            "start_date": "2024-01-01",  // optional
+            "end_date": "2024-12-31",  // optional
+            "timeframe": "1d",  // optional
+            "initial_balance": 10000,  // optional
+            "commission": 0.002  // optional
+        }
+        """
+        from .bot_serializers import BotVerificationRequestSerializer
+        from .bot_verification_service import BotVerificationService
+        
+        serializer = BotVerificationRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            service = BotVerificationService()
+            
+            # Build test config
+            test_config = {
+                'symbol': data.get('symbol', 'AAPL'),
+                'timeframe': data.get('timeframe', '1d'),
+                'initial_balance': float(data.get('initial_balance', 10000)),
+                'commission': float(data.get('commission', 0.002))
+            }
+            
+            if 'start_date' in data:
+                test_config['start_date'] = data['start_date'].strftime('%Y-%m-%d')
+            if 'end_date' in data:
+                test_config['end_date'] = data['end_date'].strftime('%Y-%m-%d')
+            
+            # Run verification
+            performance = service.verify_strategy(data['strategy_id'], test_config)
+            
+            if not performance:
+                return Response({
+                    'error': 'Failed to verify bot',
+                    'details': 'Strategy not found or no bot script available'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Return performance data
+            from .bot_serializers import BotPerformanceSerializer
+            serializer = BotPerformanceSerializer(performance)
+            
+            return Response({
+                'status': 'completed',
+                'performance': serializer.data,
+                'message': performance.verification_notes
+            })
+            
+        except Exception as e:
+            logger.error(f"Error verifying bot: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Bot verification failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def verify_all(self, request):
+        """
+        Verify all bots in the system
+        
+        POST /api/strategies/bot-performance/verify_all/
+        {
+            "force_retest": false,  // optional
+            "strategy_ids": [1, 2, 3]  // optional, verify specific strategies
+        }
+        """
+        from .bot_serializers import BulkVerificationSerializer
+        from .bot_verification_service import BotVerificationService
+        
+        serializer = BulkVerificationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            data = serializer.validated_data
+            service = BotVerificationService()
+            
+            # If specific strategies provided, verify those
+            if 'strategy_ids' in data and data['strategy_ids']:
+                results = {
+                    'total': len(data['strategy_ids']),
+                    'verified': 0,
+                    'failed': 0,
+                    'testing': 0,
+                    'errors': []
+                }
+                
+                for strategy_id in data['strategy_ids']:
+                    try:
+                        performance = service.verify_strategy(strategy_id)
+                        if performance:
+                            if performance.is_verified:
+                                results['verified'] += 1
+                            elif performance.verification_status == 'failed':
+                                results['failed'] += 1
+                            else:
+                                results['testing'] += 1
+                        else:
+                            results['errors'].append(f"Strategy {strategy_id}: Not found")
+                    except Exception as e:
+                        results['errors'].append(f"Strategy {strategy_id}: {str(e)}")
+            else:
+                # Verify all bots
+                results = service.verify_all_bots(
+                    force_retest=data.get('force_retest', False)
+                )
+            
+            return Response({
+                'status': 'completed',
+                'summary': results
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in bulk verification: {e}")
+            logger.error(traceback.format_exc())
+            return Response({
+                'error': 'Bulk verification failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def verified_bots(self, request):
+        """
+        Get list of all verified bots
+        
+        GET /api/strategies/bot-performance/verified_bots/
+        """
+        from .bot_performance import BotPerformance
+        from .bot_serializers import BotPerformanceSerializer
+        
+        try:
+            verified = BotPerformance.objects.filter(
+                is_verified=True
+            ).select_related('strategy').order_by('-total_return')
+            
+            serializer = BotPerformanceSerializer(verified, many=True)
+            
+            return Response({
+                'count': verified.count(),
+                'verified_bots': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting verified bots: {e}")
+            return Response({
+                'error': 'Failed to get verified bots',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['get'])
+    def test_history(self, request, pk=None):
+        """
+        Get test history for a bot performance record
+        
+        GET /api/strategies/bot-performance/{id}/test_history/
+        """
+        from .bot_performance import BotTestRun
+        from .bot_serializers import BotTestRunSerializer
+        
+        try:
+            performance = self.get_object()
+            test_runs = BotTestRun.objects.filter(
+                performance=performance
+            ).order_by('-tested_at')
+            
+            serializer = BotTestRunSerializer(test_runs, many=True)
+            
+            return Response({
+                'strategy_name': performance.strategy.name,
+                'is_verified': performance.is_verified,
+                'test_runs': serializer.data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting test history: {e}")
+            return Response({
+                'error': 'Failed to get test history',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LatestBacktestResultViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for retrieving the latest backtest results for strategies.
+    
+    This provides:
+    - GET /api/backtest-results/ - List all latest results
+    - GET /api/backtest-results/{strategy_id}/ - Get result for specific strategy
+    - GET /api/backtest-results/by_strategy/?strategy_id=X - Get by strategy ID
+    """
+    queryset = LatestBacktestResult.objects.all()
+    serializer_class = LatestBacktestResultSerializer
+    permission_classes = [AllowAny]
+    lookup_field = 'strategy_id'
+    
+    @action(detail=False, methods=['get'])
+    def by_strategy(self, request):
+        """
+        Get the latest backtest result for a specific strategy by ID.
+        
+        Query params:
+            strategy_id: The ID of the strategy
+        
+        Returns:
+            The latest backtest result or 404 if not found
+        """
+        strategy_id = request.query_params.get('strategy_id')
+        
+        if not strategy_id:
+            return Response({
+                'error': 'strategy_id query parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            result = LatestBacktestResult.objects.get(strategy_id=strategy_id)
+            serializer = self.get_serializer(result)
+            return Response(serializer.data)
+        except LatestBacktestResult.DoesNotExist:
+            return Response({
+                'error': 'No backtest result found for this strategy',
+                'strategy_id': strategy_id
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error fetching backtest result: {e}")
+            return Response({
+                'error': 'Failed to fetch backtest result',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['post'])
+    def save_result(self, request):
+        """
+        Save or update the latest backtest result for a strategy.
+        
+        This replaces any existing result for the same strategy.
+        
+        Request body:
+            strategy_id: The ID of the strategy
+            ... other result fields
+        
+        Returns:
+            The saved backtest result
+        """
+        strategy_id = request.data.get('strategy_id')
+        
+        if not strategy_id:
+            return Response({
+                'error': 'strategy_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Verify strategy exists
+            strategy = get_object_or_404(Strategy, id=strategy_id)
+            
+            # Save/update the result
+            result = LatestBacktestResult.save_result(
+                strategy_id=strategy_id,
+                result_data=request.data
+            )
+            
+            serializer = self.get_serializer(result)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        except Strategy.DoesNotExist:
+            return Response({
+                'error': 'Strategy not found',
+                'strategy_id': strategy_id
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error saving backtest result: {e}")
+            return Response({
+                'error': 'Failed to save backtest result',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

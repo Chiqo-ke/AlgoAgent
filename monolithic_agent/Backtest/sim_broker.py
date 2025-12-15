@@ -415,6 +415,38 @@ class SimBroker:
         
         logger.info("SimBroker reset")
 
+    # =========================================================================
+    # CONVENIENCE METHODS (for backwards compatibility)
+    # =========================================================================
+    
+    def get_equity(self) -> float:
+        """
+        Convenience method to get current equity value.
+        
+        Returns:
+            Current equity as float
+        """
+        snapshot = self.get_account_snapshot()
+        return snapshot.get('equity', self.config.start_cash)
+    
+    def get_trade_log(self) -> List[dict]:
+        """
+        Convenience method to get all executed trades.
+        
+        Returns:
+            List of trade dictionaries
+        """
+        return [fill.to_dict() if hasattr(fill, 'to_dict') else fill for fill in self.all_fills]
+    
+    def get_fills(self) -> List[dict]:
+        """
+        Alias for get_trade_log() for compatibility.
+        
+        Returns:
+            List of fill dictionaries
+        """
+        return self.get_trade_log()
+
 
 # Export stable API version
 __version__ = SimBroker.API_VERSION
