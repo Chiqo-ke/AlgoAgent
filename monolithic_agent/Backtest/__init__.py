@@ -9,6 +9,10 @@ Version: 1.0.0
 License: MIT
 """
 
+# Initialize global RequestRouter for key rotation
+from .request_router import get_request_router
+request_router = get_request_router()
+
 # Core API exports
 from .sim_broker import SimBroker, __version__
 from .config import (

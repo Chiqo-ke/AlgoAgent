@@ -12,9 +12,25 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import sys
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file BEFORE any other imports
+# This ensures keys are available when other modules initialize
+try:
+    from dotenv import load_dotenv
+    # Look for .env in monolithic_agent parent (AlgoAgent/)
+    dotenv_path = BASE_DIR.parent / '.env'
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path=dotenv_path, override=True)
+        print(f"[Settings] Loaded .env from: {dotenv_path}")
+    else:
+        load_dotenv(override=True)
+        print("[Settings] Loaded .env from default search")
+except ImportError:
+    print("[Settings] WARNING: python-dotenv not installed, .env not loaded")
 
 # Add Strategy directory to Python path for imports
 sys.path.insert(0, str(BASE_DIR / 'Strategy'))

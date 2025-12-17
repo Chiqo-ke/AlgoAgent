@@ -339,17 +339,19 @@ class StrategyViewSet(viewsets.ModelViewSet):
             execute_after = request.data.get('execute_after_generation', False)
             max_fix_attempts = request.data.get('max_fix_attempts', 3)
             
-            # Import the generator with key rotation
+            # Import the generator and RequestRouter
             try:
                 from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                from Backtest import request_router
             except ImportError:
                 return Response({
                     'error': 'Strategy generator not available',
                     'details': 'GeminiStrategyGenerator module not found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Initialize generator with key rotation enabled
-            generator = GeminiStrategyGenerator(use_key_rotation=True)
+            # Get model from RequestRouter and initialize generator
+            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
+            generator = GeminiStrategyGenerator(model=model)
             
             # Generate strategy
             output_file, execution_result = generator.generate_and_save(
@@ -443,13 +445,15 @@ class StrategyViewSet(viewsets.ModelViewSet):
             # Import the generator
             try:
                 from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                from Backtest import request_router
             except ImportError:
                 return Response({
                     'error': 'Error fixer not available',
                     'details': 'GeminiStrategyGenerator module not found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            generator = GeminiStrategyGenerator(use_key_rotation=True)
+            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
+            generator = GeminiStrategyGenerator(model=model)
             
             # Fix errors iteratively
             success, final_path, fix_history = generator.fix_bot_errors_iteratively(
@@ -836,8 +840,10 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             # Try to import strategy generator
             try:
                 from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                from Backtest import request_router
                 
-                generator = GeminiStrategyGenerator()
+                model = request_router.get_generative_model(model_name='gemini-2.0-flash')
+                generator = GeminiStrategyGenerator(model=model)
                 
                 # Get template if specified
                 template_code = None
@@ -980,12 +986,10 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
             description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
             
-            # Generate the code with key rotation from .env configuration
-            import os
-            from dotenv import load_dotenv
-            load_dotenv()
-            use_key_rotation = os.getenv('ENABLE_KEY_ROTATION', 'false').lower() == 'true'
-            generator = GeminiStrategyGenerator(use_key_rotation=use_key_rotation)
+            # Generate the code using RequestRouter for key management
+            from Backtest import request_router
+            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
+            generator = GeminiStrategyGenerator(model=model)
             
             # Initialize error learning system for feedback loop
             try:
@@ -996,7 +1000,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 learning_system = None
                 logger.warning(f"Error learning system not available: {e}")
             
-            logger.info(f"Generating executable code for: {strategy_name} (Key Rotation: {generator.use_key_rotation})")
+            logger.info(f"Generating executable code for: {strategy_name}")
             
             strategy_code = generator.generate_strategy(
                 description=description,
@@ -1263,8 +1267,10 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             description += "\nIMPORTANT: Strategy should work with ANY symbol (do not hardcode symbols)\n"
             description += f"Timeframe: {canonical_json.get('timeframe', '1d')}\n"
             
-            # Generate initial code
-            generator = GeminiStrategyGenerator()
+            # Generate initial code using RequestRouter
+            from Backtest import request_router
+            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
+            generator = GeminiStrategyGenerator(model=model)
             logger.info(f"Generating code with auto-fix for: {strategy_name}")
             
             strategy_code = generator.generate_strategy(

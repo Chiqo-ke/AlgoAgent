@@ -41,22 +41,35 @@ Step-by-step guides for common tasks and workflows.
 - **[BOT_EXECUTION_QUICK_REFERENCE.md](guides/BOT_EXECUTION_QUICK_REFERENCE.md)** - Bot execution guide
 - **[BOT_CREATION_WITH_KEY_ROTATION_QUICKSTART.md](guides/BOT_CREATION_WITH_KEY_ROTATION_QUICKSTART.md)** - Key rotation setup
 - **[E2E_QUICK_REFERENCE.md](guides/E2E_QUICK_REFERENCE.md)** - End-to-end workflow
+- **[BOT_VERIFICATION_STATUS.md](guides/BOT_VERIFICATION_STATUS.md)** - Bot verification guide
 
 ### `/implementation` - Implementation Details
 Deep dives into specific features and their implementation.
 
 - **[KEY_ROTATION_IMPLEMENTATION_SUMMARY.md](implementation/KEY_ROTATION_IMPLEMENTATION_SUMMARY.md)** - Key rotation system
 - **[KEY_ROTATION_INTEGRATION.md](implementation/KEY_ROTATION_INTEGRATION.md)** - Integration guide
+- **[KEY_ROTATION_FIX_COMPLETE.md](implementation/KEY_ROTATION_FIX_COMPLETE.md)** - Key rotation fixes
+- **[KEY_ROTATION_INTEGRATION_STATUS.md](implementation/KEY_ROTATION_INTEGRATION_STATUS.md)** - Integration status
 - **[BOT_EXECUTION_IMPLEMENTATION_SUMMARY.md](implementation/BOT_EXECUTION_IMPLEMENTATION_SUMMARY.md)** - Bot execution internals
 - **[BOT_EXECUTION_INTEGRATION_GUIDE.md](implementation/BOT_EXECUTION_INTEGRATION_GUIDE.md)** - Integration details
 - **[SETUP_AND_INTEGRATION.md](implementation/SETUP_AND_INTEGRATION.md)** - System setup
+- **[API_KEY_ROOT_CAUSE_ANALYSIS.md](implementation/API_KEY_ROOT_CAUSE_ANALYSIS.md)** - API key troubleshooting
+- **[ENCODING_ERROR_FIX.md](implementation/ENCODING_ERROR_FIX.md)** - Encoding error fixes
+- **[INDICATOR_SYSTEM_ENHANCEMENT_COMPLETE.md](implementation/INDICATOR_SYSTEM_ENHANCEMENT_COMPLETE.md)** - Indicator system
+- **[MULTI_TIMEFRAME_ANALYSIS.md](implementation/MULTI_TIMEFRAME_ANALYSIS.md)** - Multi-timeframe analysis
+- **[MULTI_TIMEFRAME_IMPLEMENTATION_COMPLETE.md](implementation/MULTI_TIMEFRAME_IMPLEMENTATION_COMPLETE.md)** - Multi-timeframe implementation
+- **[THROTTLING_IMPLEMENTATION_COMPLETE.md](implementation/THROTTLING_IMPLEMENTATION_COMPLETE.md)** - Throttling system
+- **[ZERO_TRADES_VALIDATION_FIX.md](implementation/ZERO_TRADES_VALIDATION_FIX.md)** - Zero trades validation
 
 ### `/testing` - Testing Documentation
-Testing guides, methodologies, and best practices (not test reports).
+Testing guides, methodologies, and best practices.
 
 - **[E2E_TESTING_GUIDE.md](testing/E2E_TESTING_GUIDE.md)** - End-to-end testing guide
 - **[E2E_TESTING_COMPLETE.md](testing/E2E_TESTING_COMPLETE.md)** - Testing completion status
 - **[E2E_TEST_INDEX.md](testing/E2E_TEST_INDEX.md)** - Test documentation index
+- **[STATUS.md](testing/STATUS.md)** - Current system status and test results
+
+**Note:** All test scripts (38 files) are located in [../tests/](../tests/) directory.
 
 ---
 

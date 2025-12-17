@@ -101,61 +101,19 @@ class GeminiStrategyGenerator:
     """
     Generates SimBroker-compatible trading strategies using Gemini AI
     
-    Supports:
-    - Single API key mode (GEMINI_API_KEY environment variable)
-    - Multi-key rotation mode (ENABLE_KEY_ROTATION=true with keys.json)
-    - Request throttling to avoid rate limits
+    Now uses centralized RequestRouter for automatic key rotation and failover.
     """
     
-    # Class-level throttling to limit requests across all instances
-    _last_request_time = 0
-    _request_lock = threading.Lock()
-    
-    def __init__(self, api_key: Optional[str] = None, use_key_rotation: Optional[bool] = None):
+    def __init__(self, model: Optional[genai.GenerativeModel] = None, model_name: str = 'gemini-2.0-flash'):
         """
         Initialize Gemini Strategy Generator
         
         Args:
-            api_key: Gemini API key (if None, loads from environment)
-            use_key_rotation: Enable key rotation (if None, auto-detect from env)
+            model: Pre-configured GenerativeModel instance (from RequestRouter)
+            model_name: Model name to use if model is not provided
         """
         # Load environment variables
         load_dotenv()
-        
-        # Determine if we should use key rotation
-        if use_key_rotation is None:
-            use_key_rotation = os.getenv('ENABLE_KEY_ROTATION', 'false').lower() == 'true'
-        
-        self.use_key_rotation = use_key_rotation and KEY_ROTATION_AVAILABLE
-        self.key_manager = None
-        
-        # Get API key
-        if self.use_key_rotation:
-            try:
-                self.key_manager = get_key_manager()
-                key_info = self.key_manager.select_key(
-                    model_preference='gemini-2.0-flash',  # Use 2.0-flash (matches keys.json)
-                    tokens_needed=5000
-                )
-                if not key_info:
-                    raise ValueError("No API keys available for selection")
-                self.api_key = key_info['secret']
-                self.selected_key_id = key_info['key_id']
-                logger.info(f"Using key rotation (selected key: {self.selected_key_id})")
-            except Exception as e:
-                logger.warning(f"Key rotation failed, falling back to single key: {e}")
-                self.use_key_rotation = False
-                self.api_key = api_key or os.getenv('GEMINI_API_KEY')
-                self.selected_key_id = 'default'
-        else:
-            self.api_key = api_key or os.getenv('GEMINI_API_KEY')
-            self.selected_key_id = 'default'
-        
-        if not self.api_key:
-            raise ValueError(
-                "Gemini API key not found. Set GEMINI_API_KEY environment variable "
-                "or enable key rotation with ENABLE_KEY_ROTATION=true and configure keys.json"
-            )
         
         if not GEMINI_AVAILABLE:
             raise ImportError(
@@ -163,10 +121,18 @@ class GeminiStrategyGenerator:
                 "Run: pip install google-generativeai"
             )
         
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        # Use gemini-2.0-flash (fast, stable, suitable for code generation)
-        self.model = genai.GenerativeModel('gemini-2.0-flash')
+        # Store model and get RequestRouter for retry logic
+        self.model = model
+        self.model_name = model_name
+        
+        # Get RequestRouter for execute_with_retry
+        try:
+            from . import request_router
+            self.request_router = request_router
+            logger.info(f"GeminiStrategyGenerator initialized (model: {model_name})")
+        except Exception as e:
+            logger.warning(f"RequestRouter not available: {e}")
+            self.request_router = None
         
         # Framework selection (default to SimBroker with DataLoader)
         self.use_backtesting_py = False  # Changed to use SimBroker
@@ -176,8 +142,7 @@ class GeminiStrategyGenerator:
         
         logger.info(
             f"GeminiStrategyGenerator initialized "
-            f"(Framework: {'backtesting.py' if self.use_backtesting_py else 'SimBroker'}, "
-            f"Key Rotation: {'enabled' if self.use_key_rotation else 'disabled'})"
+            f"(Framework: {'backtesting.py' if self.use_backtesting_py else 'SimBroker'})"
         )
     
     def _load_system_prompt(self, use_backtesting_py: bool = True) -> str:
@@ -452,63 +417,28 @@ Generate the complete, working code:
 """
         
         try:
-            # Apply throttling to avoid rate limits
-            delay = int(os.getenv('GEMINI_REQUEST_DELAY', '5'))
-            max_concurrent = int(os.getenv('MAX_CONCURRENT_REQUESTS', '1'))
-            
-            with self._request_lock:
-                elapsed = time.time() - GeminiStrategyGenerator._last_request_time
-                if elapsed < delay:
-                    wait_time = delay - elapsed
-                    logger.info(f"⏱️  Throttling: waiting {wait_time:.1f}s before next request")
-                    time.sleep(wait_time)
-                
-                # Generate strategy
-                logger.info(f"Generating strategy: {strategy_name} (key: {self.selected_key_id})")
+            # Use RequestRouter's retry mechanism for automatic failover
+            if self.request_router:
+                logger.info(f"Generating strategy with automatic failover: {strategy_name}")
+                response_text = self.request_router.execute_with_retry(
+                    model_name=self.model_name,
+                    prompt=prompt
+                )
+            elif self.model:
+                # Fallback to direct model call (no retry)
+                logger.info(f"Generating strategy (no retry): {strategy_name}")
                 response = self.model.generate_content(prompt)
-                
-                # Update last request time
-                GeminiStrategyGenerator._last_request_time = time.time()
+                response_text = response.text
+            else:
+                raise ValueError("No model or RequestRouter available")
             
             # Extract code from response
-            code = self._extract_code(response.text)
+            code = self._extract_code(response_text)
             
             logger.info("Strategy generated successfully")
-            
-            # Report success to key manager if using rotation
-            if self.use_key_rotation and self.key_manager:
-                # Update usage stats
-                self.key_manager._update_usage(self.selected_key_id)
-            
             return code
             
         except Exception as e:
-            # Report error to key manager if using rotation
-            if self.use_key_rotation and self.key_manager:
-                error_type = 'api_error' if 'API' in str(e) else 'generation_error'
-                self.key_manager.report_error(self.selected_key_id, error_type=error_type)
-                logger.warning(f"Reported error for key {self.selected_key_id}")
-                
-                # Try to select another key (allow cross-model fallback by not restricting model)
-                try:
-                    key_info = self.key_manager.select_key(
-                        model_preference=None,  # Allow any model for fallback
-                        tokens_needed=5000,
-                        exclude_keys=[self.selected_key_id]
-                    )
-                    if key_info:
-                        logger.info(f"Retrying with key {key_info['key_id']} (model: {key_info['model']})")
-                        self.api_key = key_info['secret']
-                        self.selected_key_id = key_info['key_id']
-                        
-                        # Reconfigure genai with new key and model
-                        genai.configure(api_key=self.api_key)
-                        self.model = genai.GenerativeModel(key_info['model'])
-                        
-                        return self.generate_strategy(description, strategy_name, parameters)
-                except Exception as retry_error:
-                    logger.error(f"Failed to retry with alternate key: {retry_error}")
-            
             logger.error(f"Failed to generate strategy: {e}")
             raise
     

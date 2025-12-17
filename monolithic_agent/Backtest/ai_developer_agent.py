@@ -50,34 +50,41 @@ class AIDeveloperAgent:
     
     def __init__(
         self,
-        api_key: Optional[str] = None,
         memory_type: str = "buffer",  # "buffer" or "summary"
-        max_iterations: int = 5
+        max_iterations: int = 5,
+        model_name: str = "gemini-2.0-flash"
     ):
         """
         Initialize AI Developer Agent
         
         Args:
-            api_key: Gemini API key (if None, loads from .env)
             memory_type: Type of memory ("buffer" or "summary")
             max_iterations: Max iterations for test-fix loops
+            model_name: Gemini model name to use
         """
         load_dotenv()
         
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY')
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment")
+        # Initialize components using RequestRouter
+        try:
+            from . import request_router
+            
+            # Get models from RequestRouter
+            generative_model = request_router.get_generative_model(model_name=model_name)
+            chat_model = request_router.get_chat_model(model_name=model_name, temperature=0.7)
+            
+            # Initialize strategy generator with the model
+            self.strategy_generator = GeminiStrategyGenerator(model=generative_model, model_name=model_name)
+            
+            # Initialize LangChain LLM
+            self.llm = chat_model
+            
+            logger.info(f"AIDeveloperAgent initialized with RequestRouter (model: {model_name})")
+            
+        except Exception as e:
+            raise ValueError(f"Failed to initialize AIDeveloperAgent with RequestRouter: {e}")
         
         # Initialize components
         self.terminal = TerminalExecutor()
-        self.strategy_generator = GeminiStrategyGenerator(api_key=self.api_key)
-        
-        # Initialize LangChain LLM
-        self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=self.api_key,
-            temperature=0.7
-        )
         
         # Initialize chat history (simplified for LangChain 1.0+)
         self.chat_history = ChatMessageHistory()

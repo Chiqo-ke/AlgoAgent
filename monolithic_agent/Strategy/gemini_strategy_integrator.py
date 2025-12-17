@@ -24,11 +24,34 @@ class GeminiStrategyIntegrator:
         Initialize Gemini integrator with API key and optional conversation session.
         
         Args:
-            api_key: Gemini API key (defaults to environment variable)
+            api_key: Gemini API key (defaults to environment variable or key rotation)
             session_id: Optional chat session ID for conversation memory
             user: Optional Django user object
         """
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY')
+        # Try key rotation first if enabled
+        self.api_key = None
+        self.selected_key_id = 'default'
+        
+        if not api_key and os.getenv('ENABLE_KEY_ROTATION', 'false').lower() == 'true':
+            try:
+                from Backtest.key_rotation import get_key_manager
+                key_manager = get_key_manager()
+                if key_manager.enabled:
+                    key_info = key_manager.select_key(
+                        model_preference='gemini-2.0-flash',
+                        tokens_needed=5000
+                    )
+                    if key_info:
+                        self.api_key = key_info['secret']
+                        self.selected_key_id = key_info['key_id']
+                        print(f"✓ Using key rotation (selected key: {self.selected_key_id})")
+            except Exception as e:
+                print(f"⚠ Key rotation failed: {e}")
+        
+        # Fallback to single API key
+        if not self.api_key:
+            self.api_key = api_key or os.getenv('GEMINI_API_KEY')
+        
         self.client = None
         self.model = None
         self.use_mock = False
