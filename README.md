@@ -11,15 +11,16 @@ AlgoAgent is a **dual-architecture autonomous trading strategy system** featurin
 
 ### System Comparison
 
-| Feature | Monolithic Agent | Multi-Agent System |
-|---------|------------------|-------------------|
-| **Architecture** | Single Django service | Distributed agent architecture |
-| **Best For** | Production trading, API integration | Research, advanced workflows |
-| **API** | Full Django REST API | CLI-based interface |
-| **Agents** | Unified generator | Planner, Architect, Coder, Tester, Debugger |
-| **Execution** | Direct bot execution | Sandbox isolation with Docker |
-| **Error Fixing** | Integrated AI fixing | Debugger agent with failure analysis |
-| **Status** | ✅ Production Ready | ✅ CLI Ready |
+| Feature | Monolithic Agent | Multi-Agent System | Frontend |
+|---------|------------------|-------------------|----------|
+| **Architecture** | Single Django service | Distributed agent architecture | React + TypeScript SPA |
+| **Best For** | Production trading, API integration | Research, advanced workflows | Web interface, user-friendly |
+| **API** | Full Django REST API | CLI-based interface | REST client (connects to Monolithic) |
+| **Interface** | REST endpoints | CLI REPL | Web dashboard with AI chat |
+| **Agents** | Unified generator | Planner, Architect, Coder, Tester, Debugger | N/A (consumes Monolithic API) |
+| **Execution** | Direct bot execution | Sandbox isolation with Docker | Visualizes execution from backend |
+| **Error Fixing** | Integrated AI fixing | Debugger agent with failure analysis | UI for error viewing |
+| **Status** | ✅ Production Ready | ✅ CLI Ready | ✅ Production Ready |
 
 ### Key Capabilities
 
@@ -42,6 +43,16 @@ AlgoAgent is a **dual-architecture autonomous trading strategy system** featurin
 - Template fallback for reliability
 - Event-driven message bus with correlation tracking
 - Deterministic testing with fixture generation
+
+#### ✅ Frontend Application (Algo)
+- Modern React 18 + TypeScript + Vite
+- Full Monolithic Agent API integration (90/90 endpoints, 100%)
+- AI-powered dashboard with conversational interface
+- Real-time backtesting with WebSocket streams
+- Type-safe service layer (19 modules, 123+ methods)
+- JWT authentication & protected routes
+- Comprehensive logging system
+- Mobile-responsive design with shadcn/ui components
 
 ---
 
@@ -128,6 +139,41 @@ AlgoAgent/
 │       ├── guides/                                ← User guides
 │       └── api/                                   ← API documentation
 │
+├── Algo/                                           ← Frontend Application
+│   ├── 📄 FRONTEND_README.md                       ← Complete frontend docs
+│   ├── 📄 README.md                                ← Quick start
+│   ├── package.json                                ← Dependencies
+│   ├── vite.config.ts                              ← Vite configuration
+│   │
+│   ├── src/
+│   │   ├── components/                            ← React components
+│   │   │   ├── AIAssistantPanel.tsx              ← AI chat interface
+│   │   │   ├── BacktestConfigDialog.tsx          ← Backtest config
+│   │   │   ├── RealtimeBacktestChart.tsx         ← Live charts
+│   │   │   └── ui/                               ← shadcn/ui components
+│   │   │
+│   │   ├── pages/                                 ← Route pages
+│   │   │   ├── Dashboard.tsx                     ← Main dashboard
+│   │   │   ├── StrategyBuilder.tsx               ← Strategy creation
+│   │   │   ├── Backtesting.tsx                   ← Backtest interface
+│   │   │   └── Login.tsx                         ← Authentication
+│   │   │
+│   │   ├── lib/                                   ← Core libraries
+│   │   │   ├── api.ts                            ← API client (90 endpoints)
+│   │   │   ├── services.ts                       ← Service layer (123 methods)
+│   │   │   ├── types.ts                          ← TypeScript types (50+ interfaces)
+│   │   │   └── logger.ts                         ← Logging utility
+│   │   │
+│   │   └── hooks/                                 ← Custom React hooks
+│   │       ├── useAuth.tsx                       ← Authentication
+│   │       └── use-toast.ts                      ← Notifications
+│   │
+│   └── docs/                                      ← Frontend documentation
+│       ├── README.md                              ← Docs index
+│       ├── api/                                   ← API integration (7 files)
+│       ├── guides/                                ← User guides (4 files)
+│       └── implementation/                        ← Technical details (18 files)
+│
 └── *.md                                           ← Documentation files
 ```
 
@@ -136,6 +182,18 @@ AlgoAgent/
 ## 🎯 Quick Start
 
 ### Choose Your System
+
+#### For Web Interface → **Frontend Application**
+```bash
+cd Algo
+npm install
+npm run dev
+
+# Access at http://localhost:5173
+# Requires backend running at http://localhost:8000
+```
+
+See [Algo/FRONTEND_README.md](Algo/FRONTEND_README.md) for complete documentation.
 
 #### For Production Trading & API Integration → **Monolithic Agent**
 ```powershell
