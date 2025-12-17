@@ -74,7 +74,36 @@ The AlgoAgent is a **fully autonomous system** that generates, executes, tests, 
 
 ---
 
+## **Testing**
+
+All test scripts are organized in the [tests/](tests/) directory (38 test files):
+
+```powershell
+cd tests
+
+# E2E autonomous workflow
+python test_e2e_autonomous.py
+
+# API integration tests
+python test_api_backend_integration.py
+python test_backtest_api.py
+
+# Key rotation tests
+python test_key_rotation.py
+python test_generator_rotation.py
+
+# Bot execution tests
+python test_autonomous_bot_fix.py
+python test_bot_verification.py
+```
+
+See [docs/testing/](docs/testing/) for detailed test reports and strategies.
+
+---
+
 ## **Test Results**
+
+**Test Suite:** 38 test files in [tests/](tests/) directory
 
 ### **E2E Autonomous System Tests**
 **Status:** ✅ 90% Pass Rate (18/20 tests passing)

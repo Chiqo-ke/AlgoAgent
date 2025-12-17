@@ -16,6 +16,7 @@ import os
 import json
 import logging
 import time
+import threading
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 from datetime import datetime, timedelta
@@ -91,9 +92,17 @@ class KeyManager:
         self.key_health: Dict[str, Dict[str, Any]] = {}
         self.redis_limiter = None
         
+        # Thread safety
+        self._lock = threading.Lock()
+        self._health_lock = threading.Lock()
+        
         # Round-robin rotation tracking
         self.key_rotation_queues: Dict[str, List[str]] = {}  # Per-model queues
         self.last_used_key: Optional[str] = None
+        self.current_index = 0  # Global round-robin index
+        
+        # Cooldown configuration
+        self.cooldown_duration = int(os.getenv('KEY_COOLDOWN_DURATION', '60'))  # seconds
         
         # Model compatibility mapping for cross-model fallback
         # When a model is exhausted, try compatible models in order
@@ -205,27 +214,57 @@ class KeyManager:
     
     def _load_from_env(self):
         """Load secrets from environment variables"""
-        # Format: GEMINI_KEY_{key_id} or API_KEY_{key_id}
-        for key_id in self.keys.keys():
-            # Try different formats
-            env_var_underscore = f"GEMINI_KEY_{key_id.replace('-', '_')}"
-            env_var_hyphen = f"GEMINI_KEY_{key_id}"
-            env_var_alt = f"API_KEY_{key_id.replace('-', '_')}"
+        # New format: GEMINI_API_KEYS (comma-separated)
+        gemini_keys_str = os.getenv('GEMINI_API_KEYS', '')
+        if gemini_keys_str:
+            api_keys = [k.strip() for k in gemini_keys_str.split(',') if k.strip()]
+            logger.info(f"Loaded {len(api_keys)} API keys from GEMINI_API_KEYS")
             
-            secret = (
-                os.getenv(env_var_underscore) or
-                os.getenv(env_var_hyphen) or
-                os.getenv(env_var_alt)
-            )
-            
-            if secret:
-                self.key_secrets[key_id] = secret
-                logger.info(f"Loaded secret for key {key_id}")
+            # Create metadata for each key if keys.json doesn't exist
+            if not self.keys:
+                for idx, key in enumerate(api_keys):
+                    key_id = f"key_{idx + 1:02d}"
+                    self.keys[key_id] = APIKeyMetadata(
+                        key_id=key_id,
+                        model_name='gemini-2.0-flash',  # Default, but can be used with any model
+                        provider='gemini',
+                        rpm=60,
+                        tpm=1000000,
+                        priority=idx + 1
+                    )
+                    self.key_secrets[key_id] = key
+                    self.key_health[key_id] = {
+                        'last_used': None,
+                        'error_count': 0,
+                        'cooldown_until': None,
+                        'success_count': 0
+                    }
+            else:
+                # Map keys to existing metadata (by priority order)
+                sorted_key_ids = sorted(self.keys.keys(), key=lambda k: self.keys[k].priority or 999)
+                for key_id, key in zip(sorted_key_ids, api_keys):
+                    self.key_secrets[key_id] = key
+        else:
+            # Fallback: Try old format for backward compatibility
+            for key_id in self.keys.keys():
+                env_var_underscore = f"GEMINI_KEY_{key_id.replace('-', '_')}"
+                env_var_hyphen = f"GEMINI_KEY_{key_id}"
+                env_var_alt = f"API_KEY_{key_id.replace('-', '_')}"
+                
+                secret = (
+                    os.getenv(env_var_underscore) or
+                    os.getenv(env_var_hyphen) or
+                    os.getenv(env_var_alt)
+                )
+                
+                if secret:
+                    self.key_secrets[key_id] = secret
+                    logger.info(f"Loaded secret for key {key_id}")
     
     def _load_from_vault(self):
         """Load secrets from HashiCorp Vault"""
         try:
-            import hvac
+            import hvac  # type: ignore
             vault_addr = os.getenv('VAULT_ADDR')
             vault_token = os.getenv('VAULT_TOKEN')
             vault_path = os.getenv('VAULT_SECRET_PATH', 'secret/algoagent')
@@ -254,7 +293,7 @@ class KeyManager:
     def _load_from_aws(self):
         """Load secrets from AWS Secrets Manager"""
         try:
-            import boto3
+            import boto3  # type: ignore
             region = os.getenv('AWS_REGION', 'us-east-1')
             prefix = os.getenv('AWS_SECRET_PREFIX', 'algoagent/')
             
@@ -277,8 +316,8 @@ class KeyManager:
     def _load_from_azure(self):
         """Load secrets from Azure Key Vault"""
         try:
-            from azure.identity import DefaultAzureCredential
-            from azure.keyvault.secrets import SecretClient
+            from azure.identity import DefaultAzureCredential  # type: ignore
+            from azure.keyvault.secrets import SecretClient  # type: ignore
             
             vault_url = os.getenv('AZURE_VAULT_URL')
             if not vault_url:
@@ -307,15 +346,13 @@ class KeyManager:
         exclude_keys: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Select an API key with available capacity.
+        Select an API key with available capacity (thread-safe).
         
         Selection algorithm:
-        1. Filter by model preference
-        2. Check if key is in cooldown
-        3. If using Redis, check RPM/TPM capacity
-        4. Shuffle for load distribution
-        5. Return first available key
-        6. If no keys found, try compatible models (cross-model fallback)
+        1. Get all available keys (not in cooldown, not excluded)
+        2. Use round-robin to ensure load balancing
+        3. Check capacity if Redis is enabled
+        4. Return first suitable key
         
         Args:
             model_preference: Preferred model (e.g., "gemini-2.5-flash")
@@ -331,51 +368,42 @@ class KeyManager:
             }
             or None if no suitable key found
         """
-        exclude_keys = exclude_keys or []
-        
-        # Build list of models to try (preferred model + compatible fallbacks)
-        models_to_try = [model_preference] if model_preference else [None]
-        if model_preference and model_preference in self.model_compatibility:
-            models_to_try.extend(self.model_compatibility[model_preference])
-        
-        # Try each model in order
-        for attempt_idx, current_model in enumerate(models_to_try):
-            if attempt_idx > 0 and current_model:
-                logger.info(f"Cross-model fallback: Trying {current_model} (preferred: {model_preference})")
+        with self._lock:
+            exclude_keys = exclude_keys or []
             
-            # Get candidates for this model
+            # Get all available candidates
             candidates = []
             for key_id, metadata in self.keys.items():
                 if key_id in exclude_keys:
                     continue
                 if not metadata.active:
                     continue
-                if current_model and metadata.model_name != current_model:
-                    continue
                 
                 # Check cooldown
-                health = self.key_health.get(key_id, {})
-                cooldown_until = health.get('cooldown_until')
-                if cooldown_until and datetime.fromisoformat(cooldown_until) > datetime.utcnow():
-                    logger.debug(f"Key {key_id} is in cooldown")
-                    continue
+                with self._health_lock:
+                    health = self.key_health.get(key_id, {})
+                    cooldown_until = health.get('cooldown_until')
+                    if cooldown_until and datetime.fromisoformat(cooldown_until) > datetime.utcnow():
+                        logger.debug(f"Key {key_id} is in cooldown")
+                        continue
                 
                 candidates.append((key_id, metadata))
             
             if not candidates:
-                continue  # Try next model
+                logger.error(f"No keys available (all in cooldown or excluded)")
+                return None
             
-            # Use round-robin queue for load distribution (not random)
-            # Get queue for this model
-            queue = self.key_rotation_queues.get(current_model, [])
-            if queue:
-                # Reorder candidates to match queue order
-                # This ensures we always pick the next key in rotation
-                queue_order = {key_id: idx for idx, key_id in enumerate(queue)}
-                candidates.sort(key=lambda x: queue_order.get(x[0], 999))
+            # Sort by priority for round-robin
+            candidates.sort(key=lambda x: (x[1].priority or 999, x[0]))
             
-            # Try each candidate
-            for key_id, metadata in candidates:
+            # Use round-robin to select next key
+            start_index = self.current_index % len(candidates)
+            
+            # Try each candidate starting from current index
+            for i in range(len(candidates)):
+                idx = (start_index + i) % len(candidates)
+                key_id, metadata = candidates[idx]
+                
                 # Check capacity if Redis is enabled
                 if self.enabled and self.redis_limiter:
                     if not self._check_capacity(key_id, metadata, tokens_needed):
@@ -390,23 +418,21 @@ class KeyManager:
                 # Update usage
                 self._update_usage(key_id)
                 
-                # Rotate queue to prevent using same key consecutively
-                self._rotate_key_queue(current_model, key_id)
+                # Move to next key for next request
+                self.current_index = (idx + 1) % len(candidates)
                 
-                # Log if using fallback model
-                if current_model != model_preference and current_model:
-                    logger.warning(f"Using fallback model {current_model} instead of {model_preference} (key: {key_id})")
+                logger.debug(f"Selected key {key_id} (round-robin index: {idx})")
                 
                 return {
                     'key_id': key_id,
                     'secret': secret,
-                    'model': metadata.model_name,
+                    'model': model_preference or metadata.model_name,
                     'provider': metadata.provider
                 }
-        
-        # No suitable keys found across all models
-        logger.error(f"No keys available with sufficient capacity (tried models: {models_to_try}, excluded: {exclude_keys})")
-        return None
+            
+            # No suitable keys found
+            logger.error(f"No keys available with sufficient capacity (checked {len(candidates)} candidates)")
+            return None
     
     def _rotate_key_queue(self, model: str, used_key_id: str):
         """Rotate the key queue to move the used key to the end.
@@ -482,32 +508,45 @@ class KeyManager:
     
     def report_error(self, key_id: str, error_type: str = 'generic'):
         """
-        Report an error for a key and implement cooldown if needed.
+        Report an error for a key and implement immediate cooldown (thread-safe).
         
         Args:
             key_id: Key that had the error
             error_type: Type of error (rate_limit, auth, network, etc.)
         """
-        if key_id not in self.key_health:
-            self.key_health[key_id] = {
-                'last_used': None,
-                'error_count': 0,
-                'cooldown_until': None,
-                'success_count': 0
-            }
-        
-        error_count = self.key_health[key_id].get('error_count', 0) + 1
-        self.key_health[key_id]['error_count'] = error_count
-        
-        # Implement exponential backoff cooldown
-        if error_count >= 3:
-            cooldown_seconds = min(300, 30 * (2 ** (error_count - 3)))
-            cooldown_until = datetime.utcnow() + timedelta(seconds=cooldown_seconds)
+        with self._health_lock:
+            if key_id not in self.key_health:
+                self.key_health[key_id] = {
+                    'last_used': None,
+                    'error_count': 0,
+                    'cooldown_until': None,
+                    'success_count': 0
+                }
+            
+            error_count = self.key_health[key_id].get('error_count', 0) + 1
+            self.key_health[key_id]['error_count'] = error_count
+            
+            # Immediate cooldown on first error (for rate limits especially)
+            cooldown_until = datetime.utcnow() + timedelta(seconds=self.cooldown_duration)
             self.key_health[key_id]['cooldown_until'] = cooldown_until.isoformat()
+            
             logger.warning(
-                f"Key {key_id} entered cooldown for {cooldown_seconds}s "
-                f"({error_count} errors)"
+                f"Key {key_id} entered {self.cooldown_duration}s cooldown after {error_type} error "
+                f"(total errors: {error_count})"
             )
+    
+    def report_success(self, key_id: str):
+        """
+        Report successful API call for a key (resets error count).
+        
+        Args:
+            key_id: Key that succeeded
+        """
+        with self._health_lock:
+            if key_id in self.key_health:
+                self.key_health[key_id]['error_count'] = 0
+                self.key_health[key_id]['success_count'] = self.key_health[key_id].get('success_count', 0) + 1
+                logger.debug(f"Key {key_id} reported success (total: {self.key_health[key_id]['success_count']})")
     
     def get_health_status(self) -> Dict[str, Any]:
         """Get health status of all keys"""
