@@ -45,7 +45,7 @@ SECRET_KEY = 'django-insecure-ic)b377zj54kad&)o__t(#)8l&i-4n664+nw3j8_u&-q00ux12
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver', 'ps283t0p-8000.uks1.devtunnels.ms']
 
 
 # Application definition
@@ -196,6 +196,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8080",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
+    "https://algo-rho.vercel.app",  # Production frontend
 ]
 
 CORS_ALLOW_ALL_ORIGINS = False  # Set to True for development only
