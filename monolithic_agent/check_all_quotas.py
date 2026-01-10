@@ -31,7 +31,7 @@ for key_id, api_key in keys_to_test.items():
     genai.configure(api_key=api_key)
     
     # Try gemini-2.0-flash for flash keys
-    model_name = 'gemini-2.0-flash' if 'flash' in key_id else 'gemini-2.5-pro'
+    model_name = 'gemini-2.0-flash' if 'flash' in key_id else 'gemini-1.5-pro'
     
     try:
         model = genai.GenerativeModel(model_name)

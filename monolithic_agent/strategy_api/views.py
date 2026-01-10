@@ -349,9 +349,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'details': 'GeminiStrategyGenerator module not found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Get model from RequestRouter and initialize generator
-            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
-            generator = GeminiStrategyGenerator(model=model)
+            # Initialize generator (RequestRouter is used internally)
+            generator = GeminiStrategyGenerator()
             
             # Generate strategy
             output_file, execution_result = generator.generate_and_save(
@@ -452,8 +451,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'details': 'GeminiStrategyGenerator module not found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
-            generator = GeminiStrategyGenerator(model=model)
+            generator = GeminiStrategyGenerator()
             
             # Fix errors iteratively
             success, final_path, fix_history = generator.fix_bot_errors_iteratively(
@@ -840,10 +838,19 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             # Try to import strategy generator
             try:
                 from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-                from Backtest import request_router
+                from Backtest import get_key_manager, KEY_ROTATION_AVAILABLE
+                import google.generativeai as genai
                 
-                model = request_router.get_generative_model(model_name='gemini-2.0-flash')
-                generator = GeminiStrategyGenerator(model=model)
+                # Get API key using KeyManager if available
+                if KEY_ROTATION_AVAILABLE:
+                    key_manager = get_key_manager()
+                    key_info = key_manager.select_key(model_preference='gemini-2.0-flash')
+                    if key_info:
+                        genai.configure(api_key=key_info['secret'])
+                    else:
+                        raise Exception("No API keys available")
+                
+                generator = GeminiStrategyGenerator()
                 
                 # Get template if specified
                 template_code = None
@@ -986,10 +993,20 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
             description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
             
-            # Generate the code using RequestRouter for key management
-            from Backtest import request_router
-            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
-            generator = GeminiStrategyGenerator(model=model)
+            # Generate the code using KeyManager for key management
+            from Backtest import get_key_manager, KEY_ROTATION_AVAILABLE
+            import google.generativeai as genai
+            
+            # Get API key using KeyManager if available
+            if KEY_ROTATION_AVAILABLE:
+                key_manager = get_key_manager()
+                key_info = key_manager.select_key(model_preference='gemini-2.0-flash')
+                if key_info:
+                    genai.configure(api_key=key_info['secret'])
+                else:
+                    raise Exception("No API keys available")
+            
+            generator = GeminiStrategyGenerator()
             
             # Initialize error learning system for feedback loop
             try:
@@ -1269,8 +1286,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             # Generate initial code using RequestRouter
             from Backtest import request_router
-            model = request_router.get_generative_model(model_name='gemini-2.0-flash')
-            generator = GeminiStrategyGenerator(model=model)
+            generator = GeminiStrategyGenerator()
             logger.info(f"Generating code with auto-fix for: {strategy_name}")
             
             strategy_code = generator.generate_strategy(

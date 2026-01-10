@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     'strategy_api',
     'auth_api',
     'trading',  # Trading app with WebSocket consumers
+    'workflows_api',
 ]
 
 MIDDLEWARE = [

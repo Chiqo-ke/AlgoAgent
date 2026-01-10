@@ -481,6 +481,15 @@ class MinimalOrchestrator:
             "error": workflow.error
         }
     
+    def get_all_workflows(self) -> List[WorkflowState]:
+        """
+        Get all workflow states.
+        
+        Returns:
+            List of all WorkflowState objects
+        """
+        return list(self.workflows.values())
+    
     def _handle_test_failure(
         self,
         workflow_id: str,

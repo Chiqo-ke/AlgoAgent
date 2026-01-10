@@ -1,0 +1,44 @@
+{
+  "metrics": {
+    "total_trades": 2,
+    "winning_trades": 1,
+    "losing_trades": 1,
+    "win_rate": 0.5,
+    "avg_profit": 2147.859999999996,
+    "avg_loss": -1147.3400000000124,
+    "expectancy": 500.2599999999918,
+    "total_gross_pnl": 1000.7999999999836,
+    "total_commissions": 0.28,
+    "total_net_pnl": 1000.5199999999836,
+    "return_pct": 0.10005199999999836,
+    "max_drawdown": 1147.2700000000186,
+    "max_drawdown_pct": 0.11472700000000186,
+    "sharpe_ratio": 0.7866959601202257,
+    "profit_factor": 1.8720344448898956
+  },
+  "config": {
+    "starting_balance": 1000000.0,
+    "leverage": 1.0,
+    "lot_size": 100000.0,
+    "point": 0.0001,
+    "slippage": {
+      "type": "fixed",
+      "value": 2
+    },
+    "commission": {
+      "type": "per_lot",
+      "value": 7.0
+    },
+    "margin_call_level": 50.0,
+    "stop_out_level": 20.0,
+    "allow_hedging": false,
+    "rng_seed": 12345,
+    "debug": false
+  },
+  "summary": {
+    "starting_balance": 1000000.0,
+    "ending_balance": 1001000.66,
+    "total_return": 1000.6600000000326,
+    "return_pct": 0.10006600000000325
+  }
+}

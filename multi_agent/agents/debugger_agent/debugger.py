@@ -20,6 +20,15 @@ import traceback
 from contracts.event_types import EventType, Event
 from contracts.message_bus import MessageBus, Channels
 
+# Learning system imports
+try:
+    from learning.knowledge_base import KnowledgeBase
+    from learning.context_injector import ContextInjector
+    LEARNING_ENABLED = True
+except ImportError:
+    LEARNING_ENABLED = False
+    print("[Debugger] Warning: Learning system not available")
+
 
 @dataclass
 class FailureAnalysis:
@@ -49,6 +58,15 @@ class DebuggerAgent:
         self.message_bus = message_bus
         self.agent_id = "debugger-001"
         self.running = False
+        
+        # Initialize learning system
+        if LEARNING_ENABLED:
+            self.kb = KnowledgeBase()
+            self.context_injector = ContextInjector(self.kb)
+            print(f"[Debugger] Learning system enabled ({self.kb.get_stats()['total_patterns']} patterns loaded)")
+        else:
+            self.kb = None
+            self.context_injector = None
         
     async def start(self):
         """Start listening for failure events"""
@@ -88,6 +106,18 @@ class DebuggerAgent:
         
         # Analyze the failure
         analysis = await self._analyze_failure(test_result, payload)
+        
+        # Inject learning context if available
+        if self.context_injector and analysis:
+            learning_context = self.context_injector.get_debugging_context(
+                error_message=test_result.get("error_message", ""),
+                target_file=payload.get("target_file", ""),
+                workflow_id=payload.get("workflow_id", "")
+            )
+            if learning_context:
+                print(f"[Debugger] 💡 Injected learning context ({len(learning_context)} chars)")
+                # Add learning context to suggested fixes
+                analysis.suggested_fixes.insert(0, f"PAST LEARNINGS:\n{learning_context}")
         
         # Create branch todo
         branch_todo = await self._create_branch_todo(

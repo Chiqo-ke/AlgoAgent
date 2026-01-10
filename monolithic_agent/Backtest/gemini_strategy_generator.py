@@ -22,6 +22,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 import logging
 
+# Configure logging early
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)
+
+# Configure logging early
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)
+
 # Add parent directories to path
 sys.path.append(str(Path(__file__).parent.parent))
 sys.path.append(str(Path(__file__).parent.parent / "Strategy"))
@@ -37,7 +45,7 @@ from dotenv import load_dotenv
 
 # Import key rotation module
 try:
-    from .key_rotation import get_key_manager, KeyRotationError
+    from .key_rotation import get_key_manager, KeyRotationError, select_api_key
     KEY_ROTATION_AVAILABLE = True
 except ImportError as e:
     KEY_ROTATION_AVAILABLE = False
@@ -104,46 +112,25 @@ class GeminiStrategyGenerator:
     Now uses centralized RequestRouter for automatic key rotation and failover.
     """
     
-    def __init__(self, model: Optional[genai.GenerativeModel] = None, model_name: str = 'gemini-2.0-flash'):
+    def __init__(self, model_name: str = 'gemini-1.5-pro'):
         """
         Initialize Gemini Strategy Generator
         
         Args:
-            model: Pre-configured GenerativeModel instance (from RequestRouter)
-            model_name: Model name to use if model is not provided
+            model_name: Model name to use for generation
         """
-        # Load environment variables
         load_dotenv()
         
         if not GEMINI_AVAILABLE:
-            raise ImportError(
-                "google-generativeai package not installed. "
-                "Run: pip install google-generativeai"
-            )
+            raise ImportError("google-generativeai package not installed. Run: pip install google-generativeai")
         
-        # Store model and get RequestRouter for retry logic
-        self.model = model
         self.model_name = model_name
+        self.key_manager = get_key_manager()
         
-        # Get RequestRouter for execute_with_retry
-        try:
-            from . import request_router
-            self.request_router = request_router
-            logger.info(f"GeminiStrategyGenerator initialized (model: {model_name})")
-        except Exception as e:
-            logger.warning(f"RequestRouter not available: {e}")
-            self.request_router = None
-        
-        # Framework selection (default to SimBroker with DataLoader)
-        self.use_backtesting_py = False  # Changed to use SimBroker
-        
-        # Load system prompt
+        self.use_backtesting_py = False
         self.system_prompt = self._load_system_prompt(use_backtesting_py=self.use_backtesting_py)
         
-        logger.info(
-            f"GeminiStrategyGenerator initialized "
-            f"(Framework: {'backtesting.py' if self.use_backtesting_py else 'SimBroker'})"
-        )
+        logger.info(f"GeminiStrategyGenerator initialized (Model: {self.model_name}, Framework: SimBroker)")
     
     def _load_system_prompt(self, use_backtesting_py: bool = True) -> str:
         """
@@ -417,28 +404,30 @@ Generate the complete, working code:
 """
         
         try:
-            # Use RequestRouter's retry mechanism for automatic failover
-            if self.request_router:
-                logger.info(f"Generating strategy with automatic failover: {strategy_name}")
-                response_text = self.request_router.execute_with_retry(
-                    model_name=self.model_name,
-                    prompt=prompt
-                )
-            elif self.model:
-                # Fallback to direct model call (no retry)
-                logger.info(f"Generating strategy (no retry): {strategy_name}")
-                response = self.model.generate_content(prompt)
-                response_text = response.text
-            else:
-                raise ValueError("No model or RequestRouter available")
+            # Select a key and configure the model for this specific request
+            key_info = self.key_manager.select_key(model_preference=self.model_name)
+            if not key_info:
+                raise KeyRotationError("Failed to select an available API key.")
+
+            genai.configure(api_key=key_info['secret'])
+            model = genai.GenerativeModel(self.model_name)
             
-            # Extract code from response
-            code = self._extract_code(response_text)
+            logger.info(f"Generating strategy '{strategy_name}' with key '{key_info['key_id']}'")
             
+            response = model.generate_content(prompt)
+            
+            # Report success to reset error counters for the key
+            self.key_manager.report_success(key_info['key_id'])
+            
+            code = self._extract_code(response.text)
             logger.info("Strategy generated successfully")
             return code
             
         except Exception as e:
+            # If a key was selected, report the error against it
+            if 'key_info' in locals() and key_info:
+                self.key_manager.report_error(key_info['key_id'], error_type=type(e).__name__)
+            
             logger.error(f"Failed to generate strategy: {e}")
             raise
     

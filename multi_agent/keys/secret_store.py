@@ -54,12 +54,17 @@ def _fetch_from_env(key_id: str) -> str:
     Fetch secret from environment variable.
     
     Development/testing only - not for production use.
-    Environment variable format: API_KEY_{key_id}
+    Environment variable format: API_KEY_{key_id} or GEMINI_KEY_{key_id}
     Note: Converts hyphens to underscores since env vars can't contain hyphens
     """
-    # Try with underscores first (standard env var format)
+    # Try API_KEY format first (multi_agent standard)
     env_var_underscore = f"API_KEY_{key_id.replace('-', '_')}"
     secret = os.environ.get(env_var_underscore)
+    
+    if not secret:
+        # Try GEMINI_KEY format (monolithic_agent standard)
+        gemini_var = f"GEMINI_KEY_{key_id.replace('-', '_')}"
+        secret = os.environ.get(gemini_var)
     
     if not secret:
         # Fallback: try with hyphens (non-standard but may be set)
@@ -67,7 +72,7 @@ def _fetch_from_env(key_id: str) -> str:
         secret = os.environ.get(env_var_hyphen)
     
     if not secret:
-        raise SecretStoreError(f"Environment variable {env_var_underscore} not set")
+        raise SecretStoreError(f"Environment variable {env_var_underscore} or GEMINI_KEY_{key_id.replace('-', '_')} not set")
     
     logger.debug(f"Fetched secret for {key_id} from environment")
     return secret

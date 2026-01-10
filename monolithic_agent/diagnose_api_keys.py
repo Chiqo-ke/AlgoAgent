@@ -63,10 +63,11 @@ if keys_json_path.exists():
         rpm = key.get('rpm', 'N/A')
         
         # Check if secret is available
-        secret_name = f"GEMINI_KEY_{key_id}" or f"API_KEY_gemini_{key_id}"
-        has_secret = os.getenv(f"GEMINI_KEY_{key_id}") or os.getenv(f"API_KEY_gemini_{key_id}")
+        # Corrected format: API_KEY_{key_id}
+        secret_name_to_check = f"API_KEY_{key_id}"
+        has_secret = os.getenv(secret_name_to_check)
         
-        status = "✅ SECRET FOUND" if has_secret else "❌ SECRET MISSING"
+        status = "✅ SECRET FOUND" if has_secret else f"❌ SECRET MISSING (expected: {secret_name_to_check})"
         print(f"   - {key_id} ({model}, {rpm} RPM): {status}")
 else:
     print("4. keys.json: NOT FOUND")
@@ -77,10 +78,10 @@ print("5. Testing Key Rotation System:")
 try:
     # Add Backtest directory to path
     backtest_dir = Path(__file__).parent / "Backtest"
-    if backtest_dir not in sys.path:
+    if str(backtest_dir) not in sys.path:
         sys.path.insert(0, str(backtest_dir))
     
-    from Backtest.key_rotation import get_key_manager
+    from key_rotation import get_key_manager
     
     manager = get_key_manager()
     print("   ✅ KeyManager initialized successfully")
@@ -110,13 +111,18 @@ try:
     if str(backtest_dir) not in sys.path:
         sys.path.insert(0, str(backtest_dir))
     
-    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+    from gemini_strategy_generator import GeminiStrategyGenerator
+    import google.generativeai as genai
     
-    generator = GeminiStrategyGenerator(use_key_rotation=enable_rotation)
-    print(f"   ✅ Generator initialized")
-    print(f"   - use_key_rotation: {generator.use_key_rotation}")
-    print(f"   - selected_key_id: {generator.selected_key_id}")
-    print(f"   - key_manager: {'Enabled' if generator.key_manager else 'Disabled'}")
+    key_manager = get_key_manager()
+    key_info = key_manager.select_key(model_preference='gemini-2.0-flash')
+    if key_info:
+        genai.configure(api_key=key_info['secret'])
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        generator = GeminiStrategyGenerator(model=model)
+        print(f"   ✅ Generator initialized")
+    else:
+        print("   ❌ Generator initialization failed: No key available")
     
 except Exception as e:
     print(f"   ❌ Generator initialization error: {e}")

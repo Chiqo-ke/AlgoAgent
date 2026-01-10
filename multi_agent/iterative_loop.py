@@ -7,12 +7,27 @@ Flow:
 3. If failed → Debugger analyzes + creates fix tasks
 4. Coder/Architect implement fixes
 5. Repeat until tests pass or max iterations reached
+
+Learning System:
+- Records all iterations with error details
+- Stores successful fixes in SQL database
+- Retrieves similar fixes from past errors
+- Provides analytics on error patterns
 """
 import json
 import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+
+# SQL-backed learning system
+try:
+    from learning.sql_knowledge_base import get_knowledge_base, SQLKnowledgeBase
+    SQL_LEARNING_SYSTEM = get_knowledge_base()
+    print("[IterativeLoop] ✅ SQL Learning System enabled")
+except ImportError as e:
+    SQL_LEARNING_SYSTEM = None
+    print(f"[IterativeLoop] ⚠️  SQL Learning System disabled: {e}")
 
 
 class IterativeLoop:
@@ -114,6 +129,17 @@ class IterativeLoop:
                 print(f"\n{'='*70}")
                 print(f"✅ SUCCESS! All tests passed in iteration {iteration}")
                 print(f"{'='*70}\n")
+                
+                # Record successful fixes in SQL learning system
+                if SQL_LEARNING_SYSTEM and iteration > 1:
+                    # This iteration fixed previous errors - record the learnings
+                    self._record_successful_fixes_sql(
+                        workflow_id=workflow_id,
+                        iteration=iteration,
+                        test_result=test_result,
+                        duration=iteration_duration
+                    )
+                
                 break
             
             print(f"\n📊 Test Results:")
@@ -164,13 +190,56 @@ class IterativeLoop:
         status: str,
         data: Dict[str, Any]
     ):
-        """Record iteration results for history."""
-        self.iteration_history.append({
+        """Record iteration results for history and SQL learning system."""
+        iteration_record = {
             'iteration': iteration,
             'status': status,
             'timestamp': datetime.now().isoformat(),
             'data': data
-        })
+        }
+        self.iteration_history.append(iteration_record)
+        
+        # Also record in SQL learning system if available
+        if SQL_LEARNING_SYSTEM and status == 'completed':
+            test_result = data.get('tests', {})
+            results = test_result.get('results', [])
+            
+            # Record each failed test as an iteration log
+            for result in results:
+                if result.get('status') != 'ready':
+                    errors = result.get('errors', [])
+                    error_msg = result.get('error', 'Unknown error')
+                    
+                    if errors:
+                        error_text = errors[0].get('message', error_msg)
+                    else:
+                        error_text = error_msg
+                    
+                    error_type = self._classify_error(error_text)
+                    strategy_name = result.get('strategy', 'unknown')
+                    
+                    try:
+                        SQL_LEARNING_SYSTEM.record_iteration(
+                            workflow_id=f"workflow_{iteration}",
+                            iteration_number=iteration,
+                            error_type=error_type,
+                            error_message=error_text,
+                            fix_attempted=f"Iteration {iteration} - {strategy_name}",
+                            success=False,
+                            duration=data.get('duration', 0.0),
+                            error_details={
+                                'strategy': strategy_name,
+                                'full_output': result.get('full_output', ''),
+                                'errors': errors
+                            },
+                            fix_details={
+                                'iteration': iteration,
+                                'status': status
+                            }
+                        )
+                    except Exception as e:
+                        print(f"[Learning] ⚠️  Failed to record iteration: {e}")
+
     
     def _analyze_and_create_fixes(
         self,
@@ -223,14 +292,43 @@ class IterativeLoop:
             print(f"   📝 {strategy_name}")
             print(f"      Type: {error_type}")
             print(f"      Error: {error_text[:150]}..." if len(error_text) > 150 else f"      Error: {error_text}")
+            
+            # Check if we have a similar error fix in knowledge base
+            similar_fixes = []
+            if SQL_LEARNING_SYSTEM:
+                try:
+                    similar_fixes = SQL_LEARNING_SYSTEM.search_similar_errors(
+                        error_message=error_text,
+                        error_type=error_type,
+                        limit=3,
+                        min_confidence=0.5
+                    )
+                    if similar_fixes:
+                        print(f"      🔍 Found {len(similar_fixes)} similar error(s) in knowledge base")
+                        for i, fix in enumerate(similar_fixes, 1):
+                            fix_dict = fix.to_dict()
+                            print(f"         {i}. {fix_dict['error_type']} (confidence: {fix_dict['confidence_score']:.0%})")
+                except Exception as e:
+                    print(f"      ⚠️  Error searching knowledge base: {e}")
                 
             
             # Create appropriate fix task with clean, sanitized instructions
+            # If we have similar fixes, include them as hints
+            learned_hints = ""
+            if similar_fixes:
+                learned_hints = "\n\n**💡 Knowledge Base Suggestions:**\n"
+                for i, fix in enumerate(similar_fixes, 1):
+                    fix_dict = fix.to_dict()
+                    learned_hints += f"\n{i}. **{fix_dict['error_type']}** (used {fix_dict['success_count']} times, {fix_dict['confidence_score']:.0%} success rate):\n"
+                    learned_hints += f"   - {fix_dict['fix_description']}\n"
+                    if fix_dict.get('fix_code_snippet'):
+                        learned_hints += f"   - Code example: ```python\n{fix_dict['fix_code_snippet'][:200]}...\n```\n"
+            
             if error_type == 'syntax_error':
                 fix_task = {
                     'id': f"fix_syntax_{strategy_name}_iter{iteration}",
                     'title': f"Fix syntax error in {strategy_name}",
-                    'description': """Fix syntax error in the strategy code.
+                    'description': f"""Fix syntax error in the strategy code.
 
 **Task:** Review and correct Python syntax errors
 
@@ -243,6 +341,7 @@ class IterativeLoop:
 2. Fix the syntax error while preserving the original logic
 3. Ensure code follows Python 3.11+ syntax
 4. Validate all function definitions and classes are properly structured
+{learned_hints}
 """,
                     'agent_role': 'coder',
                     'priority': 1,
@@ -390,27 +489,36 @@ Ensure these imports are at the top of the file:
         return fix_tasks
     
     def _classify_error(self, error_message: str) -> str:
-        """Classify error type based on error message."""
-        error_lower = error_message.lower()
+        """
+        Classify error type using advanced pattern matching.
         
-        # Syntax errors
-        if any(keyword in error_lower for keyword in ['syntaxerror', 'invalid syntax', 'indentationerror', 'unexpected indent']):
-            return 'syntax_error'
-        
-        # Import errors
-        elif any(keyword in error_lower for keyword in ['importerror', 'modulenotfounderror', 'no module named', 'cannot import']):
-            return 'import_error'
-        
-        # Contract/interface violations (test assertions)
-        elif any(keyword in error_lower for keyword in ['assertionerror', 'assert ', 'expected', 'should be', 'must be']):
-            return 'contract_mismatch'
-        
-        # Logic errors (runtime exceptions)
-        elif any(keyword in error_lower for keyword in ['attributeerror', 'typeerror', 'keyerror', 'valueerror', 'nameerror', 'indexerror']):
-            return 'logic_error'
-        
+        Uses SQL knowledge base's classification if available,
+        otherwise falls back to basic classification.
+        """
+        if SQL_LEARNING_SYSTEM:
+            return SQL_LEARNING_SYSTEM.classify_error_advanced(error_message)
         else:
-            return 'unknown_error'
+            # Fallback to basic classification
+            error_lower = error_message.lower()
+            
+            # Syntax errors
+            if any(keyword in error_lower for keyword in ['syntaxerror', 'invalid syntax', 'indentationerror', 'unexpected indent']):
+                return 'syntax_error'
+            
+            # Import errors
+            elif any(keyword in error_lower for keyword in ['importerror', 'modulenotfounderror', 'no module named', 'cannot import']):
+                return 'import_error'
+            
+            # Contract/interface violations (test assertions)
+            elif any(keyword in error_lower for keyword in ['assertionerror', 'assert ', 'expected', 'should be', 'must be']):
+                return 'contract_mismatch'
+            
+            # Logic errors (runtime exceptions)
+            elif any(keyword in error_lower for keyword in ['attributeerror', 'typeerror', 'keyerror', 'valueerror', 'nameerror', 'indexerror']):
+                return 'logic_error'
+            
+            else:
+                return 'general_error'
     
     def _add_fix_tasks_to_workflow(
         self,
@@ -487,6 +595,213 @@ Ensure these imports are at the top of the file:
         return pending
         
         return pending
+    
+    def _record_successful_fixes(
+        self,
+        workflow_id: str,
+        iteration: int,
+        test_result: Dict[str, Any]
+    ):
+        """
+        Record successful fixes in the learning system.
+        
+        When tests pass after previous failures, extract what worked
+        and save it to the knowledge base.
+        """
+        if not LEARNING_SYSTEM:
+            return
+        
+        # Look at previous iteration to find what errors were fixed
+        if len(self.iteration_history) < 2:
+            return
+        
+        previous_iteration = self.iteration_history[-2]
+        previous_tests = previous_iteration.get('result', {}).get('tests', {})
+        previous_results = previous_tests.get('results', [])
+        
+        # Find errors that were in previous iteration
+        for prev_result in previous_results:
+            if prev_result.get('status') != 'ready':
+                # This test failed before
+                strategy_name = prev_result.get('strategy', 'unknown')
+                error_msg = prev_result.get('error', 'Unknown error')
+                errors = prev_result.get('errors', [])
+                
+                # Get error details
+                if errors:
+                    error_text = errors[0].get('message', error_msg)
+                else:
+                    error_text = error_msg
+                
+                # Classify error type
+                error_type = self._classify_error(error_text)
+                
+                # Try to extract the fix description from recent tasks
+                fix_description = self._extract_fix_description(
+                    workflow_id,
+                    strategy_name,
+                    iteration
+                )
+                
+                # Record the successful fix
+                print(f"   💡 Recording successful fix for {error_type}")
+                LEARNING_SYSTEM.record_fix(
+                    error_type=error_type,
+                    error_message=error_text,
+                    fix_description=fix_description,
+                    workflow_id=workflow_id,
+                    tags=[strategy_name.split('_')[-1]] if '_' in strategy_name else []
+                )
+    
+    def _record_successful_fixes_sql(
+        self,
+        workflow_id: str,
+        iteration: int,
+        test_result: Dict[str, Any],
+        duration: float
+    ):
+        """
+        Record successful fixes in the SQL learning system.
+        
+        When tests pass after previous failures, extract what worked
+        and save it to the database.
+        """
+        if not SQL_LEARNING_SYSTEM:
+            return
+        
+        # Look at previous iteration to find what errors were fixed
+        if len(self.iteration_history) < 2:
+            return
+        
+        print(f"\n   🧠 Learning from successful fixes...")
+        
+        previous_iteration = self.iteration_history[-2]
+        previous_tests = previous_iteration.get('data', {}).get('tests', {})
+        previous_results = previous_tests.get('results', [])
+        
+        fixes_recorded = 0
+        
+        # Find errors that were in previous iteration
+        for prev_result in previous_results:
+            if prev_result.get('status') != 'ready':
+                # This test failed before but now passes
+                strategy_name = prev_result.get('strategy', 'unknown')
+                error_msg = prev_result.get('error', 'Unknown error')
+                errors = prev_result.get('errors', [])
+                
+                # Get error details
+                if errors:
+                    error_text = errors[0].get('message', error_msg)
+                    full_traceback = errors[0].get('full_traceback', '')
+                else:
+                    error_text = error_msg
+                    full_traceback = prev_result.get('full_output', '')
+                
+                # Classify error type
+                error_type = self._classify_error(error_text)
+                
+                # Try to extract the fix description from recent tasks
+                fix_description = self._extract_fix_description(
+                    workflow_id,
+                    strategy_name,
+                    iteration
+                )
+                
+                # Get fix code snippet if available
+                fix_code = self._extract_fix_code(workflow_id, strategy_name)
+                
+                # Record the successful fix
+                try:
+                    SQL_LEARNING_SYSTEM.record_successful_fix(
+                        error_type=error_type,
+                        error_message=error_text,
+                        fix_description=fix_description,
+                        fix_code_snippet=fix_code,
+                        workflow_id=workflow_id,
+                        tags=[strategy_name, error_type, f"iter_{iteration}"],
+                        fix_time=duration
+                    )
+                    
+                    # Also record as successful iteration
+                    SQL_LEARNING_SYSTEM.record_iteration(
+                        workflow_id=workflow_id,
+                        iteration_number=iteration,
+                        error_type=error_type,
+                        error_message=error_text,
+                        fix_attempted=fix_description,
+                        success=True,
+                        duration=duration,
+                        error_details={
+                            'strategy': strategy_name,
+                            'traceback': full_traceback,
+                            'original_error': error_msg
+                        },
+                        fix_details={
+                            'code_snippet': fix_code,
+                            'description': fix_description
+                        }
+                    )
+                    
+                    fixes_recorded += 1
+                    print(f"      ✅ Recorded fix for {error_type} in {strategy_name}")
+                    
+                except Exception as e:
+                    print(f"      ⚠️  Failed to record fix: {e}")
+        
+        if fixes_recorded > 0:
+            print(f"   💾 Recorded {fixes_recorded} successful fix(es) to database\n")
+    
+    def _extract_fix_code(self, workflow_id: str, strategy_name: str) -> Optional[str]:
+        """Extract code snippet of the fix that was applied."""
+        try:
+            # Try to read the fixed strategy file
+            strategy_file = Path(f"Backtest/codes/{strategy_name}.py")
+            if strategy_file.exists():
+                # Return last 50 lines which likely contain the fix
+                content = strategy_file.read_text(encoding='utf-8')
+                lines = content.split('\n')
+                return '\n'.join(lines[-50:]) if len(lines) > 50 else content
+        except Exception:
+            pass
+        return None
+    
+    def _extract_fix_description(
+        self,
+        workflow_id: str,
+        strategy_name: str,
+        iteration: int
+    ) -> str:
+        """Extract description of what fix was applied."""
+        # Look in workflow todo list for fix tasks
+        workflow_state = self.cli.orchestrator.workflows.get(workflow_id)
+        if not workflow_state:
+            return "Strategy code updated and tests now pass"
+        
+        todo_list = self.cli.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+        if not todo_list:
+            return "Strategy code updated and tests now pass"
+        
+        # Find recent fix tasks
+        fix_tasks = [
+            task for task in todo_list.get('items', [])
+            if 'fix_' in task.get('id', '') and strategy_name in task.get('id', '')
+        ]
+        
+        if fix_tasks:
+            # Get the most recent fix task
+            latest_fix = fix_tasks[-1]
+            description = latest_fix.get('description', '')
+            
+            # Extract key points from description
+            if 'Fix Instructions' in description:
+                # Extract fix instructions section
+                parts = description.split('Fix Instructions')[1]
+                fix_section = parts.split('\n\n')[0] if parts else description[:200]
+                return fix_section.strip()
+            
+            return description[:300] if description else "Strategy code updated and tests now pass"
+        
+        return "Strategy code updated and tests now pass"
     
     def _generate_final_report(
         self,

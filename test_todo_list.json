@@ -1,0 +1,41 @@
+{
+  "todo_list_id": "test-todo-001",
+  "correlation_id": "test-corr-001",
+  "workflow_name": "Simple MA Crossover Strategy",
+  "created_at": "2026-01-07T17:54:00Z",
+  "metadata": {
+    "strategy_type": "ma_crossover",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3
+  },
+  "items": [
+    {
+      "id": "task_001",
+      "title": "Setup data loading",
+      "description": "Implement fetch_and_prepare_data function",
+      "agent": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "test_command": "pytest tests/test_data_loading.py --json-report",
+      "output_artifacts": ["backtesting_adapter.py"],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "spec_mismatch": "architect"
+      }
+    },
+    {
+      "id": "task_002",
+      "title": "Implement MA indicators",
+      "description": "Create moving average calculation functions",
+      "agent": "coder",
+      "priority": 2,
+      "dependencies": ["task_001"],
+      "test_command": "pytest tests/test_indicators.py --json-report",
+      "output_artifacts": ["indicators/ma.py"],
+      "failure_routing": {
+        "implementation_bug": "coder"
+      }
+    }
+  ]
+}

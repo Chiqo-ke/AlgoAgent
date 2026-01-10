@@ -35,11 +35,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dotenv import load_dotenv
 import os
 
+# Load .env from AlgoAgent directory (parent of multi_agent)
 env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
+    print(f"✅ Loaded .env from {env_path}")
 else:
     print(f"⚠️  Warning: .env file not found at {env_path}")
+
+# Initialize learning system
+try:
+    from learning.knowledge_base import KnowledgeBase
+    from learning.context_injector import ContextInjector
+    LEARNING_SYSTEM = KnowledgeBase()
+    print(f"[CLI] 💡 Learning system initialized ({LEARNING_SYSTEM.get_stats()['total_patterns']} patterns)")
+except ImportError as e:
+    LEARNING_SYSTEM = None
+    print(f"[CLI] Warning: Learning system not available: {e}")
 
 # Also check for GOOGLE_API_KEY mapping from GEMINI_API_KEY
 if not os.getenv('GOOGLE_API_KEY') and os.getenv('GEMINI_API_KEY'):
@@ -356,20 +368,33 @@ class MultiAgentCLI:
                 
                 # Capture original_artifact_path for first iteration
                 # This allows file reuse in subsequent fix iterations
-                if 'original_artifact_path' not in task and result.artifacts:
+                if 'original_artifact_path' not in task.get('metadata', {}):
                     # Find the strategy file (not the test file)
                     strategy_artifact = next((a for a in result.artifacts if 'test_' not in a.file_path), None)
                     if strategy_artifact:
-                        task['original_artifact_path'] = strategy_artifact.file_path
-                        # Save to workload for persistence
-                        workload = self.coordinator.storage.load_workload(task.get('workload_id'))
-                        if workload:
-                            for t in workload.get('tasks', []):
-                                if t['id'] == task['id']:
-                                    t['original_artifact_path'] = strategy_artifact.file_path
-                                    break
-                            self.coordinator.storage.save_workload(workload)
-                        print(f"   ✓ Saved original_artifact_path: {strategy_artifact.file_path}")
+                        # Store in metadata (where coder agent reads it from)
+                        if 'metadata' not in task:
+                            task['metadata'] = {}
+                        task['metadata']['original_artifact_path'] = strategy_artifact.file_path
+                        
+                        # Also save to todo list for persistence across iterations
+                        workflow_id = task.get('metadata', {}).get('workflow_id')
+                        if workflow_id:
+                            workflow_state = self.orchestrator.workflows.get(workflow_id)
+                            if workflow_state:
+                                todo_list = self.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+                                if todo_list:
+                                    for item in todo_list['items']:
+                                        if item['id'] == task['id']:
+                                            if 'metadata' not in item:
+                                                item['metadata'] = {}
+                                            item['metadata']['original_artifact_path'] = strategy_artifact.file_path
+                                            # Save updated todo list
+                                            todo_path = self.output_dir / f"{workflow_state.todo_list_id}_todolist.json"
+                                            todo_path.write_text(json.dumps(todo_list, indent=2), encoding='utf-8')
+                                            break
+                        
+                        print(f"   ✓ Tracked strategy file for future iterations: {strategy_artifact.file_path}")
                         
             elif result.status == 'failed':
                 print(f"   ❌ Error: {result.error_message}")
@@ -1354,6 +1379,7 @@ from adapters.base_adapter import BaseAdapter
         print("  iterate <id>      - Run iterative loop until tests pass")
         print("  status <id>       - Check workflow status")
         print("  list              - List all workflows")
+        print("  learn             - Show learning system stats")
         print("  help              - Show this help")
         print("  exit              - Exit CLI")
         print()
@@ -1498,6 +1524,45 @@ from adapters.base_adapter import BaseAdapter
                         print()
                     else:
                         print("No workflows found.")
+                        print()
+                
+                elif command == "learn":
+                    # Show learning system statistics
+                    if LEARNING_SYSTEM:
+                        stats = LEARNING_SYSTEM.get_stats()
+                        print("="*70)
+                        print("📚 LEARNING SYSTEM STATISTICS")
+                        print("="*70)
+                        print(f"   Total Patterns: {stats['total_patterns']}")
+                        print(f"   Total Successful Fixes: {stats['total_successes']}")
+                        print()
+                        
+                        if stats['error_types']:
+                            print("   Error Types Tracked:")
+                            for error_type, count in stats['error_types'].items():
+                                print(f"      - {error_type}: {count}")
+                            print()
+                        
+                        if stats.get('most_successful'):
+                            ms = stats['most_successful']
+                            print(f"   Most Successful Fix:")
+                            print(f"      Type: {ms['error_type']}")
+                            print(f"      Success Count: {ms['success_count']}")
+                            print(f"      Fix: {ms['fix'][:100]}...")
+                            print()
+                        
+                        # Show recent fixes
+                        recent = LEARNING_SYSTEM.get_recent_fixes(limit=5)
+                        if recent:
+                            print("   Recent Fixes:")
+                            for i, pattern in enumerate(recent, 1):
+                                print(f"   {i}. [{pattern.error_type}] {pattern.fix_description[:60]}...")
+                            print()
+                        
+                        print("="*70)
+                        print()
+                    else:
+                        print("❌ Learning system not available")
                         print()
                 
                 else:
