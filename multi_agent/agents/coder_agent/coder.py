@@ -130,21 +130,56 @@ class CoderAgent:
         if self.use_router:
             print(f"[CoderAgent {self.agent_id}] Initialized with RequestRouter (model: {model_name})")
         else:
-            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback")
-            # Fallback mode
+            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback with key rotation")
+            # Fallback mode with key rotation support
             try:
                 import google.generativeai as genai
+                from keys.manager import KeyManager, get_key_manager
+                from keys.secret_store import fetch_api_secret
                 
-                # Get API key from parameter or environment
-                api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                # Try to use KeyManager for key rotation
+                try:
+                    # Initialize KeyManager with keys.json from multi_agent directory
+                    keys_json_path = Path(__file__).parent.parent.parent / 'keys.json'
+                    self.key_manager = KeyManager(key_store_path=keys_json_path)
+                    
+                    # Get a key from the rotation pool
+                    selected_key = self.key_manager.select_key(
+                        model_preference=model_name,
+                        workload='medium'
+                    )
+                    
+                    if selected_key:
+                        api_key = fetch_api_secret(selected_key.key_id)
+                        print(f"[CoderAgent {self.agent_id}] Using key rotation: {selected_key.key_id}")
+                    else:
+                        raise KeySelectionError("No suitable key available")
+                        
+                except Exception as km_error:
+                    print(f"[CoderAgent {self.agent_id}] Key rotation failed: {km_error}")
+                    print(f"[CoderAgent {self.agent_id}] Falling back to environment variables...")
+                    
+                    # Fallback to single key from environment
+                    api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                    
+                    # If still no key, try to find any GEMINI_KEY_* or API_KEY_* variable
+                    if not api_key:
+                        for env_var in os.environ:
+                            if env_var.startswith('GEMINI_KEY_') or env_var.startswith('API_KEY_gemini'):
+                                api_key = os.getenv(env_var)
+                                print(f"[CoderAgent {self.agent_id}] Found API key in {env_var}")
+                                break
+                
                 if not api_key:
-                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found for fallback mode")
+                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found in any location")
                     self.fallback_model = None
                 else:
                     genai.configure(api_key=api_key)
                     self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
-            except ImportError:
-                print(f"[CoderAgent {self.agent_id}] WARNING: No Gemini available")
+                    print(f"[CoderAgent {self.agent_id}] Fallback model configured successfully")
+                    
+            except ImportError as ie:
+                print(f"[CoderAgent {self.agent_id}] WARNING: Missing dependencies: {ie}")
                 self.fallback_model = None
     
     def start(self):

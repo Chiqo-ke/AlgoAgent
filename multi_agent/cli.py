@@ -84,9 +84,30 @@ class MultiAgentCLI:
         self.message_bus = InMemoryMessageBus()
         
         print("[DEBUG] Checking for API key...")
+        # Check if RequestRouter is enabled - if so, we have key infrastructure
+        router_enabled = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
         # Initialize Planner with API key if available
         api_key = os.getenv('GOOGLE_API_KEY')
-        if api_key:
+        
+        # If no GOOGLE_API_KEY but we have GEMINI_KEY_* or API_KEY_* keys, use one of those
+        if not api_key:
+            for env_var in os.environ:
+                if env_var.startswith('GEMINI_KEY_') or env_var.startswith('API_KEY_gemini'):
+                    api_key = os.getenv(env_var)
+                    print(f"[DEBUG] Found API key in {env_var}")
+                    # Also set GOOGLE_API_KEY for compatibility
+                    os.environ['GOOGLE_API_KEY'] = api_key
+                    break
+        
+        # Determine mode: AI with Planner, or RequestRouter mode, or Template fallback
+        if router_enabled:
+            # RequestRouter mode - agents will use key rotation
+            print("[ROUTER] RequestRouter Mode: ENABLED (using key rotation)")
+            self.planner = None  # Planner will use templates, agents use RequestRouter
+            self.ai_mode = True  # We have AI capability via RequestRouter
+            self.api_key = None  # Not needed, agents use RequestRouter
+        elif api_key:
             print("[DEBUG] Initializing Planner with API key...")
             self.planner = PlannerService(api_key=api_key)
             self.ai_mode = True
