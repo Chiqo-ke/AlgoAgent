@@ -106,18 +106,21 @@ class MultiAgentCLI:
             print("[ROUTER] RequestRouter Mode: ENABLED (using key rotation)")
             self.planner = None  # Planner will use templates, agents use RequestRouter
             self.ai_mode = True  # We have AI capability via RequestRouter
-            self.api_key = None  # Not needed, agents use RequestRouter
+            self.api_key = "ROUTER_MODE"  # Flag for router mode (not actual key)
+            self.use_router = True
         elif api_key:
             print("[DEBUG] Initializing Planner with API key...")
             self.planner = PlannerService(api_key=api_key)
             self.ai_mode = True
             self.api_key = api_key
+            self.use_router = False
             print("[AI] AI Mode: ENABLED (using Gemini API)")
         else:
             # No Planner without API key, will use template mode
             self.planner = None
             self.ai_mode = False
             self.api_key = None
+            self.use_router = False
             print("[TEMPLATE] Template Mode: ENABLED (no AI API key)")
         
         print("[DEBUG] Initializing Orchestrator...")
@@ -336,8 +339,9 @@ class MultiAgentCLI:
         """
         print(f"   ⏳ Executing Coder Agent...")
         
-        if not self.api_key:
-            print(f"   ⚠️  No API key - using template mode")
+        # Check if we have AI capability (either direct key or router)
+        if not self.ai_mode:
+            print(f"   ⚠️  No AI capability - using template mode")
             return {
                 'status': 'skipped',
                 'message': 'No API key available for AI code generation'
@@ -347,13 +351,16 @@ class MultiAgentCLI:
             # Lazy load Coder Agent
             if not self.coder_agent:
                 from agents.coder_agent.coder import CoderAgent
+                # Pass None for api_key if using router (agent will auto-detect)
+                api_key_param = None if self.use_router else self.api_key
                 self.coder_agent = CoderAgent(
                     agent_id="cli_coder",
                     message_bus=self.message_bus,
-                    gemini_api_key=self.api_key,
+                    gemini_api_key=api_key_param,
                     workspace_root=self.workspace_root / "multi_agent"
                 )
-                print(f"   ✓ Coder Agent initialized")
+                mode = "RequestRouter" if self.use_router else "Direct API"
+                print(f"   ✓ Coder Agent initialized ({mode})")
             
             # Create contract if missing
             if 'contract_path' not in task or not task['contract_path']:
