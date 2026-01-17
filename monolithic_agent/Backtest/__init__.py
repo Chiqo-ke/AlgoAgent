@@ -60,6 +60,16 @@ except ImportError:
     select_api_key = None
     KEY_ROTATION_AVAILABLE = False
 
+# Request router (for centralized API management)
+try:
+    from .request_router import RequestRouter, get_request_router, request_router
+    REQUEST_ROUTER_AVAILABLE = True
+except ImportError:
+    RequestRouter = None
+    get_request_router = None
+    request_router = None
+    REQUEST_ROUTER_AVAILABLE = False
+
 # Optional: Gemini strategy generator (requires google-generativeai)
 try:
     from .gemini_strategy_generator import GeminiStrategyGenerator, generate_strategy_from_description
@@ -115,6 +125,12 @@ __all__ = [
     'get_key_manager',
     'select_api_key',
     'KEY_ROTATION_AVAILABLE',
+    
+    # Request router (for centralized API management)
+    'RequestRouter',
+    'get_request_router',
+    'request_router',
+    'REQUEST_ROUTER_AVAILABLE',
     
     # Gemini integration (optional)
     'GeminiStrategyGenerator',

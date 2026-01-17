@@ -823,7 +823,11 @@ class StrategyAPIViewSet(viewsets.ViewSet):
     
     @action(detail=False, methods=['post'])
     def generate_code(self, request):
-        """Generate strategy code using AI"""
+        """Generate strategy code using AI or templates
+        
+        Supports template-only mode that bypasses API key requirements.
+        Set use_template_only=true to generate from database templates without API calls.
+        """
         serializer = StrategyCodeGenerationRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -834,53 +838,89 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             template_id = data.get('template_id')
             parameters = data.get('parameters', {})
             use_gemini = data.get('use_gemini', True)
+            use_template_only = data.get('use_template_only', False)
             
-            # Try to import strategy generator
-            try:
-                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-                from Backtest import get_key_manager, KEY_ROTATION_AVAILABLE
-                import google.generativeai as genai
+            # Template-only mode - bypass API entirely
+            if use_template_only or template_id:
+                logger.info(f"Template-only mode requested for: {description}")
                 
-                # Get API key using KeyManager if available
-                if KEY_ROTATION_AVAILABLE:
-                    key_manager = get_key_manager()
-                    key_info = key_manager.select_key(model_preference='gemini-2.0-flash')
-                    if key_info:
-                        genai.configure(api_key=key_info['secret'])
-                    else:
-                        raise Exception("No API keys available")
-                
-                generator = GeminiStrategyGenerator()
-                
-                # Get template if specified
-                template_code = None
+                # Load template directly from database
                 if template_id:
                     try:
                         template = StrategyTemplate.objects.get(id=template_id)
-                        template_code = template.template_code
+                        logger.info(f"Using specified template: {template.name}")
                     except StrategyTemplate.DoesNotExist:
-                        pass
+                        return Response({
+                            'error': 'Template not found',
+                            'template_id': template_id
+                        }, status=status.HTTP_404_NOT_FOUND)
+                else:
+                    # Auto-select template based on description
+                    templates = StrategyTemplate.objects.filter(
+                        is_active=True,
+                        is_system_template=True
+                    ).order_by('-created_at')
+                    
+                    if not templates.exists():
+                        return Response({
+                            'error': 'No templates available',
+                            'message': 'Template-only mode requires at least one system template'
+                        }, status=status.HTTP_404_NOT_FOUND)
+                    
+                    # Simple keyword matching
+                    description_lower = description.lower()
+                    template = None
+                    
+                    if 'momentum' in description_lower or 'ema' in description_lower:
+                        template = templates.filter(category='momentum').first()
+                    elif 'mean reversion' in description_lower or 'rsi' in description_lower:
+                        template = templates.filter(category='mean_reversion').first()
+                    elif 'breakout' in description_lower:
+                        template = templates.filter(category='breakout').first()
+                    
+                    # Fallback to first available
+                    if not template:
+                        template = templates.first()
+                    
+                    logger.info(f"Auto-selected template: {template.name}")
                 
-                # Generate strategy code
-                result = generator.generate_strategy(
+                # Return template code (canonical JSON format)
+                return Response({
+                    'generated_code': template.template_code,
+                    'strategy_name': template.name,
+                    'description': template.description,
+                    'parameters': template.parameters_schema,
+                    'metadata': {
+                        'template_id': template.id,
+                        'category': template.category,
+                        'source': 'template',
+                        'bypass_api': True
+                    }
+                })
+            
+            # AI generation mode with template fallback
+            try:
+                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                
+                # Initialize generator with template fallback enabled
+                generator = GeminiStrategyGenerator(use_template_fallback=True)
+                
+                # Generate strategy code (will fallback to templates if API fails)
+                code = generator.generate_strategy(
                     description=description,
-                    template_code=template_code,
+                    strategy_name=None,
                     parameters=parameters
                 )
                 
-                if result.get('success', False):
-                    return Response({
-                        'generated_code': result.get('code', ''),
-                        'strategy_name': result.get('name', ''),
-                        'description': result.get('description', ''),
-                        'parameters': result.get('parameters', {}),
-                        'metadata': result.get('metadata', {})
-                    })
-                else:
-                    return Response({
-                        'error': 'Failed to generate strategy code',
-                        'details': result.get('error', 'Unknown error')
-                    }, status=status.HTTP_400_BAD_REQUEST)
+                return Response({
+                    'generated_code': code,
+                    'strategy_name': 'AI Generated Strategy',
+                    'description': description,
+                    'parameters': parameters,
+                    'metadata': {
+                        'source': 'ai_with_fallback'
+                    }
+                })
                     
             except ImportError as e:
                 return Response({
