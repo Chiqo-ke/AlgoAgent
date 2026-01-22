@@ -10,49 +10,47 @@ class Command(BaseCommand):
     
     def create_momentum_template(self):
         """Create momentum strategy template"""
-        template_code = '''
+        template_code = '''import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from backtesting import Strategy, Backtest
+from backtesting.lib import crossover
+import talib as ta
 
-def initialize(context):
-    """Initialize the strategy"""
-    context.lookback_period = 20
-    context.position_size = 0.95
+class MomentumStrategy(Strategy):
+    ema_short = 50
+    ema_long = 100
     
-def handle_data(context, data):
-    """Main strategy logic - Momentum strategy"""
-    # Get price history
-    prices = data.history(context.symbol, 'close', context.lookback_period + 1, '1d')
+    def init(self):
+        close = self.data.Close
+        self.ema_short_line = self.I(ta.EMA, close, self.ema_short)
+        self.ema_long_line = self.I(ta.EMA, close, self.ema_long)
     
-    if len(prices) < context.lookback_period:
-        return
-    
-    # Calculate momentum (rate of change)
-    momentum = (prices.iloc[-1] / prices.iloc[0]) - 1
-    
-    # Get current position
-    current_position = context.portfolio.positions.get(context.symbol, 0)
-    current_price = data.current(context.symbol, 'close')
-    
-    # Entry signal: Strong positive momentum
-    if momentum > 0.05 and current_position == 0:
-        # Calculate shares to buy
-        cash = context.portfolio.cash
-        shares = int((cash * context.position_size) / current_price)
-        
-        if shares > 0:
-            context.order(context.symbol, shares)
-            print(f"{data.current_dt}: BUY {shares} shares at ${current_price:.2f} (momentum: {momentum:.2%})")
-    
-    # Exit signal: Negative momentum or weak positive
-    elif momentum < 0.02 and current_position > 0:
-        context.order(context.symbol, -current_position)
-        print(f"{data.current_dt}: SELL {current_position} shares at ${current_price:.2f} (momentum: {momentum:.2%})")
+    def next(self):
+        if crossover(self.ema_short_line, self.ema_long_line):
+            if not self.position:
+                self.buy()
+        elif crossover(self.ema_long_line, self.ema_short_line):
+            if self.position:
+                self.position.close()
 
-def analyze(context, perf):
-    """Called at the end of each day"""
-    pass
+if __name__ == "__main__":
+    # Download historical data
+    data = yf.download('AAPL', period='1y', interval='1d', progress=False)
+    
+    # Flatten column index if MultiIndex (yfinance issue with single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    
+    # Run backtest
+    bt = Backtest(data, MomentumStrategy, cash=10000, commission=0.002)
+    stats = bt.run()
+    
+    # Print metrics in parseable format
+    print(f"Return [Avg]: {stats['Return [%]']:.2f}%")
+    print(f"Sharpe Ratio: {stats.get('Sharpe Ratio', 0):.2f}")
+    print(f"Max Drawdown: {stats['Max. Drawdown [%]']:.2f}%")
+    print(f"Win Rate: {stats.get('Win Rate [%]', 0):.2f}%")
+    print(f"Total Trades: {stats['# Trades']}")
 '''
         
         template, created = StrategyTemplate.objects.update_or_create(
@@ -65,7 +63,7 @@ def analyze(context, perf):
                 'is_active': True,
                 'latest_strategy_code': template_code,
                 'parameters_schema': {
-                    'keywords': 'momentum,trend,rate of change,price momentum,uptrend,trend following'
+                    'keywords': 'momentum,trend,rate of change,price momentum,uptrend,trend following,ema,crossover'
                 }
             }
         )
@@ -74,55 +72,46 @@ def analyze(context, perf):
     
     def create_mean_reversion_template(self):
         """Create mean reversion strategy template"""
-        template_code = '''
+        template_code = '''import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from backtesting import Strategy, Backtest
+import talib as ta
 
-def initialize(context):
-    """Initialize the strategy"""
-    context.lookback_period = 20
-    context.entry_threshold = 2.0  # Standard deviations
-    context.exit_threshold = 0.5
-    context.position_size = 0.95
+class MeanReversionStrategy(Strategy):
+    rsi_period = 14
+    rsi_oversold = 30
+    rsi_overbought = 70
     
-def handle_data(context, data):
-    """Main strategy logic - Mean Reversion strategy"""
-    # Get price history
-    prices = data.history(context.symbol, 'close', context.lookback_period + 1, '1d')
+    def init(self):
+        close = self.data.Close
+        self.rsi = self.I(ta.RSI, close, self.rsi_period)
     
-    if len(prices) < context.lookback_period:
-        return
-    
-    # Calculate moving average and standard deviation
-    mean_price = prices.mean()
-    std_price = prices.std()
-    current_price = data.current(context.symbol, 'close')
-    
-    # Calculate z-score (how many standard deviations from mean)
-    z_score = (current_price - mean_price) / std_price if std_price > 0 else 0
-    
-    # Get current position
-    current_position = context.portfolio.positions.get(context.symbol, 0)
-    
-    # Entry signal: Price significantly below mean
-    if z_score < -context.entry_threshold and current_position == 0:
-        # Calculate shares to buy
-        cash = context.portfolio.cash
-        shares = int((cash * context.position_size) / current_price)
-        
-        if shares > 0:
-            context.order(context.symbol, shares)
-            print(f"{data.current_dt}: BUY {shares} shares at ${current_price:.2f} (z-score: {z_score:.2f})")
-    
-    # Exit signal: Price returned to near mean
-    elif z_score > -context.exit_threshold and current_position > 0:
-        context.order(context.symbol, -current_position)
-        print(f"{data.current_dt}: SELL {current_position} shares at ${current_price:.2f} (z-score: {z_score:.2f})")
+    def next(self):
+        if self.rsi < self.rsi_oversold:
+            if not self.position:
+                self.buy()
+        elif self.rsi > self.rsi_overbought:
+            if self.position:
+                self.position.close()
 
-def analyze(context, perf):
-    """Called at the end of each day"""
-    pass
+if __name__ == "__main__":
+    # Download historical data
+    data = yf.download('AAPL', period='1y', interval='1d', progress=False)
+    
+    # Flatten column index if MultiIndex (yfinance issue with single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    
+    # Run backtest
+    bt = Backtest(data, MeanReversionStrategy, cash=10000, commission=0.002)
+    stats = bt.run()
+    
+    # Print metrics in parseable format
+    print(f"Return [Avg]: {stats['Return [%]']:.2f}%")
+    print(f"Sharpe Ratio: {stats.get('Sharpe Ratio', 0):.2f}")
+    print(f"Max Drawdown: {stats['Max. Drawdown [%]']:.2f}%")
+    print(f"Win Rate: {stats.get('Win Rate [%]', 0):.2f}%")
+    print(f"Total Trades: {stats['# Trades']}")
 '''
         
         template, created = StrategyTemplate.objects.update_or_create(
@@ -135,7 +124,7 @@ def analyze(context, perf):
                 'is_active': True,
                 'latest_strategy_code': template_code,
                 'parameters_schema': {
-                    'keywords': 'mean reversion,oversold,overbought,bollinger,statistical arbitrage,reversion,oscillator'
+                    'keywords': 'mean reversion,oversold,overbought,bollinger,statistical arbitrage,reversion,oscillator,rsi'
                 }
             }
         )
@@ -144,52 +133,50 @@ def analyze(context, perf):
     
     def create_breakout_template(self):
         """Create breakout strategy template"""
-        template_code = '''
+        template_code = '''import yfinance as yf
 import pandas as pd
+from backtesting import Strategy, Backtest
+import talib as ta
 import numpy as np
-from datetime import datetime
 
-def initialize(context):
-    """Initialize the strategy"""
-    context.lookback_period = 20
-    context.breakout_threshold = 1.02  # 2% above high
-    context.position_size = 0.95
+class BreakoutStrategy(Strategy):
+    lookback_period = 20
     
-def handle_data(context, data):
-    """Main strategy logic - Breakout strategy"""
-    # Get price history
-    high_prices = data.history(context.symbol, 'high', context.lookback_period + 1, '1d')
-    low_prices = data.history(context.symbol, 'low', context.lookback_period + 1, '1d')
+    def init(self):
+        self.highest = self.I(ta.MAX, self.data.High, self.lookback_period)
+        self.lowest = self.I(ta.MIN, self.data.Low, self.lookback_period)
     
-    if len(high_prices) < context.lookback_period:
-        return
-    
-    # Calculate resistance (highest high) and support (lowest low)
-    resistance = high_prices[:-1].max()  # Exclude current bar
-    support = low_prices[:-1].min()
-    
-    current_price = data.current(context.symbol, 'close')
-    current_position = context.portfolio.positions.get(context.symbol, 0)
-    
-    # Entry signal: Breakout above resistance
-    breakout_level = resistance * context.breakout_threshold
-    if current_price > breakout_level and current_position == 0:
-        # Calculate shares to buy
-        cash = context.portfolio.cash
-        shares = int((cash * context.position_size) / current_price)
+    def next(self):
+        price = self.data.Close[-1]
         
-        if shares > 0:
-            context.order(context.symbol, shares)
-            print(f"{data.current_dt}: BUY {shares} shares at ${current_price:.2f} (breakout above ${resistance:.2f})")
-    
-    # Exit signal: Price falls below support
-    elif current_price < support and current_position > 0:
-        context.order(context.symbol, -current_position)
-        print(f"{data.current_dt}: SELL {current_position} shares at ${current_price:.2f} (broke support ${support:.2f})")
+        # Buy on breakout above resistance
+        if price > self.highest[-2]:  # Previous period's high
+            if not self.position:
+                self.buy()
+        
+        # Sell on breakdown below support
+        elif price < self.lowest[-2]:  # Previous period's low
+            if self.position:
+                self.position.close()
 
-def analyze(context, perf):
-    """Called at the end of each day"""
-    pass
+if __name__ == "__main__":
+    # Download historical data
+    data = yf.download('AAPL', period='1y', interval='1d', progress=False)
+    
+    # Flatten column index if MultiIndex (yfinance issue with single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    
+    # Run backtest
+    bt = Backtest(data, BreakoutStrategy, cash=10000, commission=0.002)
+    stats = bt.run()
+    
+    # Print metrics in parseable format
+    print(f"Return [Avg]: {stats['Return [%]']:.2f}%")
+    print(f"Sharpe Ratio: {stats.get('Sharpe Ratio', 0):.2f}")
+    print(f"Max Drawdown: {stats['Max. Drawdown [%]']:.2f}%")
+    print(f"Win Rate: {stats.get('Win Rate [%]', 0):.2f}%")
+    print(f"Total Trades: {stats['# Trades']}")
 '''
         
         template, created = StrategyTemplate.objects.update_or_create(
@@ -211,62 +198,59 @@ def analyze(context, perf):
     
     def create_scalping_template(self):
         """Create scalping strategy template"""
-        template_code = '''
+        template_code = '''import yfinance as yf
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from backtesting import Strategy, Backtest
+from backtesting.lib import crossover
+import talib as ta
 
-def initialize(context):
-    """Initialize the strategy"""
-    context.short_window = 5
-    context.long_window = 20
-    context.profit_target = 0.01  # 1% profit target
-    context.stop_loss = 0.005  # 0.5% stop loss
-    context.position_size = 0.95
+class ScalpingStrategy(Strategy):
+    short_window = 5
+    long_window = 20
+    take_profit_pct = 0.01  # 1%
+    stop_loss_pct = 0.005   # 0.5%
     
-def handle_data(context, data):
-    """Main strategy logic - Scalping strategy"""
-    # Get price history
-    prices = data.history(context.symbol, 'close', context.long_window + 1, '1d')
+    def init(self):
+        close = self.data.Close
+        self.short_ma = self.I(ta.SMA, close, self.short_window)
+        self.long_ma = self.I(ta.SMA, close, self.long_window)
+        self.entry_price = None
     
-    if len(prices) < context.long_window:
-        return
-    
-    # Calculate short and long moving averages
-    short_ma = prices.iloc[-context.short_window:].mean()
-    long_ma = prices.mean()
-    
-    current_price = data.current(context.symbol, 'close')
-    current_position = context.portfolio.positions.get(context.symbol, 0)
-    
-    # Entry signal: Short MA crosses above long MA
-    if short_ma > long_ma and current_position == 0:
-        # Calculate shares to buy
-        cash = context.portfolio.cash
-        shares = int((cash * context.position_size) / current_price)
+    def next(self):
+        price = self.data.Close[-1]
         
-        if shares > 0:
-            context.order(context.symbol, shares)
-            context.entry_price = current_price
-            print(f"{data.current_dt}: BUY {shares} shares at ${current_price:.2f} (MA cross)")
-    
-    # Exit signals: Profit target or stop loss
-    elif current_position > 0:
-        profit_pct = (current_price - context.entry_price) / context.entry_price
+        # Entry: MA crossover
+        if crossover(self.short_ma, self.long_ma):
+            if not self.position:
+                self.buy()
+                self.entry_price = price
         
-        # Take profit
-        if profit_pct >= context.profit_target:
-            context.order(context.symbol, -current_position)
-            print(f"{data.current_dt}: SELL {current_position} shares at ${current_price:.2f} (profit: {profit_pct:.2%})")
-        
-        # Stop loss
-        elif profit_pct <= -context.stop_loss:
-            context.order(context.symbol, -current_position)
-            print(f"{data.current_dt}: SELL {current_position} shares at ${current_price:.2f} (stop loss: {profit_pct:.2%})")
+        # Exit: Take profit or stop loss
+        elif self.position and self.entry_price:
+            pnl_pct = (price - self.entry_price) / self.entry_price
+            
+            if pnl_pct >= self.take_profit_pct or pnl_pct <= -self.stop_loss_pct:
+                self.position.close()
+                self.entry_price = None
 
-def analyze(context, perf):
-    """Called at the end of each day"""
-    pass
+if __name__ == "__main__":
+    # Download historical data
+    data = yf.download('AAPL', period='1y', interval='1d', progress=False)
+    
+    # Flatten column index if MultiIndex (yfinance issue with single ticker)
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    
+    # Run backtest
+    bt = Backtest(data, ScalpingStrategy, cash=10000, commission=0.002)
+    stats = bt.run()
+    
+    # Print metrics in parseable format
+    print(f"Return [Avg]: {stats['Return [%]']:.2f}%")
+    print(f"Sharpe Ratio: {stats.get('Sharpe Ratio', 0):.2f}")
+    print(f"Max Drawdown: {stats['Max. Drawdown [%]']:.2f}%")
+    print(f"Win Rate: {stats.get('Win Rate [%]', 0):.2f}%")
+    print(f"Total Trades: {stats['# Trades']}")
 '''
         
         template, created = StrategyTemplate.objects.update_or_create(
@@ -279,7 +263,7 @@ def analyze(context, perf):
                 'is_active': True,
                 'latest_strategy_code': template_code,
                 'parameters_schema': {
-                    'keywords': 'scalping,short term,quick profit,moving average,crossover,day trading,intraday'
+                    'keywords': 'scalping,short term,quick profit,moving average,crossover,day trading,intraday,sma'
                 }
             }
         )

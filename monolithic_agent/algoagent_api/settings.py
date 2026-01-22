@@ -51,14 +51,14 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver', 'chiqoke254.
 # Application definition
 
 INSTALLED_APPS = [
-    'daphne',  # ASGI server - must be first for Channels support
+    # 'daphne',  # ASGI server - must be first for Channels support
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'channels',  # WebSocket support
+    # 'channels',  # WebSocket support
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',

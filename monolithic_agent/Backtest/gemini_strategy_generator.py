@@ -30,11 +30,12 @@ logger = logging.getLogger(__name__)
 # Django integration for template access
 try:
     import django
-    if not django.apps.apps.ready:
+    from django.apps import apps
+    if not apps.ready:
         django.setup()
     from strategy_api.models import StrategyTemplate
     DJANGO_AVAILABLE = True
-except (ImportError, RuntimeError):
+except (ImportError, RuntimeError, AttributeError):
     DJANGO_AVAILABLE = False
     StrategyTemplate = None
     logger.warning("Django not available - template fallback disabled")
@@ -125,7 +126,13 @@ class GeminiStrategyGenerator:
     Now uses centralized RequestRouter for automatic key rotation and failover.
     """
     
-    def __init__(self, model_name: str = 'gemini-1.5-pro', use_template_fallback: bool = True):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_name: str = 'gemini-2.0-flash-exp',  # Changed from gemini-1.5-pro
+        use_template_fallback: bool = True,
+        request_router: Optional['RequestRouter'] = None
+    ):
         """
         Initialize Gemini Strategy Generator
         
@@ -137,7 +144,7 @@ class GeminiStrategyGenerator:
         
         self.model_name = model_name
         self.use_template_fallback = use_template_fallback
-        self.request_router = None
+        self.request_router = request_router
         self.key_manager = None
         
         # Initialize RequestRouter if Gemini available
@@ -548,6 +555,62 @@ Generate the complete, working code:
             
             raise
     
+    def chat(self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096) -> str:
+        """
+        Chat with Gemini AI for conversational strategy development
+        
+        Args:
+            prompt: User's message or question
+            temperature: Response creativity (0.0-1.0)
+            max_tokens: Maximum response length
+        
+        Returns:
+            AI response as string
+            
+        Raises:
+            Exception: If chat generation fails
+        """
+        try:
+            # Use RequestRouter if available
+            if self.request_router:
+                logger.info(f"Chat with RequestRouter")
+                response_text = self.request_router.execute_with_retry(
+                    model_name=self.model_name,
+                    prompt=prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens
+                )
+                return response_text
+            
+            # Fallback to direct key manager
+            elif self.key_manager and GEMINI_AVAILABLE:
+                key_info = self.key_manager.select_key(model_preference=self.model_name)
+                if not key_info:
+                    raise KeyRotationError("Failed to select an available API key.")
+
+                genai.configure(api_key=key_info['secret'])
+                model = genai.GenerativeModel(self.model_name)
+                
+                logger.info(f"Chat with key '{key_info['key_id']}'")
+                
+                response = model.generate_content(prompt)
+                
+                # Report success to reset error counters
+                self.key_manager.report_success(key_info['key_id'])
+                
+                return response.text
+            else:
+                raise ValueError("No model or key manager available")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate chat response: {e}")
+            
+            # Report error if a key was selected
+            if 'key_info' in locals() and key_info:
+                self.key_manager.report_error(key_info['key_id'], error_type=type(e).__name__)
+            
+            raise
+    
     def _extract_code(self, response: str) -> str:
         """Extract Python code from Gemini response"""
         # Remove markdown code blocks
@@ -708,7 +771,8 @@ Generate the complete, working code:
         max_iterations: int = 5,
         test_symbol: str = "AAPL",
         test_period_days: int = 365,
-        learning_system=None  # NEW: Optional learning system for feedback loop
+        learning_system=None,  # NEW: Optional learning system for feedback loop
+        error_context: Optional[Dict[str, Any]] = None  # NEW: Error context for debugging
     ) -> Tuple[bool, Path, List[Dict[str, Any]]]:
         """
         Automatically detect and fix bot execution errors iteratively
@@ -719,6 +783,7 @@ Generate the complete, working code:
             test_symbol: Symbol for testing (default: AAPL)
             test_period_days: Days of historical data for testing (default: 365)
             learning_system: Optional ErrorLearningSystem for feedback loop
+            error_context: Additional context for debugging (e.g., no trades issue)
         
         Returns:
             Tuple of (success, final_file_path, fix_history)
@@ -745,6 +810,13 @@ Generate the complete, working code:
         logger.info(f"Max iterations: {max_iterations}")
         if learning_system:
             logger.info(f"Feedback loop: ENABLED")
+        
+        # Log no-trades context if present
+        if error_context and error_context.get('is_no_trades'):
+            logger.info("⚠️  NO TRADES ISSUE - AI will debug why strategy didn't place trades")
+            logger.info(f"   Trades count: {error_context.get('trades_count')}")
+            logger.info(f"   Error: {error_context.get('execution_error')}")
+        
         logger.info(f"{'='*70}\n")
         
         success, final_code, fix_history = fixer.iterative_fix(

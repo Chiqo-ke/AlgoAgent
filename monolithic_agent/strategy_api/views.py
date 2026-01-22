@@ -341,16 +341,29 @@ class StrategyViewSet(viewsets.ModelViewSet):
             
             # Import the generator and RequestRouter
             try:
-                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-                from Backtest import request_router
+                from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                # Fallback to Gemini if Copilot not available
+                generator_available = True
             except ImportError:
+                try:
+                    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                    generator_available = True
+                except ImportError:
+                    generator_available = False
+            
+            if not generator_available:
                 return Response({
                     'error': 'Strategy generator not available',
-                    'details': 'GeminiStrategyGenerator module not found'
+                    'details': 'No LLM generator module found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            # Initialize generator (RequestRouter is used internally)
-            generator = GeminiStrategyGenerator()
+            # Initialize generator (prefer Copilot)
+            try:
+                generator = CopilotStrategyGenerator()
+                logger.info("Using GitHub Copilot generator")
+            except:
+                generator = GeminiStrategyGenerator()
+                logger.info("Using Gemini generator")
             
             # Generate strategy
             output_file, execution_result = generator.generate_and_save(
@@ -443,15 +456,19 @@ class StrategyViewSet(viewsets.ModelViewSet):
             
             # Import the generator
             try:
-                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-                from Backtest import request_router
+                from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                generator = CopilotStrategyGenerator()
+                logger.info("Using GitHub Copilot for error fixing")
             except ImportError:
-                return Response({
-                    'error': 'Error fixer not available',
-                    'details': 'GeminiStrategyGenerator module not found'
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
-            generator = GeminiStrategyGenerator()
+                try:
+                    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                    generator = GeminiStrategyGenerator()
+                    logger.info("Using Gemini for error fixing")
+                except ImportError:
+                    return Response({
+                        'error': 'Error fixer not available',
+                        'details': 'No LLM generator module found'
+                    }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
             # Fix errors iteratively
             success, final_path, fix_history = generator.fix_bot_errors_iteratively(
@@ -900,27 +917,58 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             # AI generation mode with template fallback
             try:
-                from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                # Try Copilot first, fallback to Gemini if needed
+                ai_provider = data.get('ai_provider', 'copilot')
                 
-                # Initialize generator with template fallback enabled
-                generator = GeminiStrategyGenerator(use_template_fallback=True)
+                if ai_provider == 'copilot':
+                    try:
+                        from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                        logger.info(f"Using Copilot for code generation: {description[:100]}...")
+                        
+                        # Initialize Copilot generator
+                        generator = CopilotStrategyGenerator()
+                        
+                        # Generate strategy code
+                        code = generator.generate_strategy_code(description)
+                        
+                        return Response({
+                            'generated_code': code,
+                            'strategy_name': 'Copilot Generated Strategy',
+                            'description': description,
+                            'parameters': parameters,
+                            'metadata': {
+                                'source': 'copilot',
+                                'ai_provider': 'copilot'
+                            }
+                        })
+                    except Exception as e:
+                        logger.warning(f"Copilot generation failed: {e}, falling back to Gemini")
+                        use_gemini = True  # Fallback to Gemini
                 
-                # Generate strategy code (will fallback to templates if API fails)
-                code = generator.generate_strategy(
-                    description=description,
-                    strategy_name=None,
-                    parameters=parameters
-                )
-                
-                return Response({
-                    'generated_code': code,
-                    'strategy_name': 'AI Generated Strategy',
-                    'description': description,
-                    'parameters': parameters,
-                    'metadata': {
-                        'source': 'ai_with_fallback'
-                    }
-                })
+                if use_gemini:
+                    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                    logger.info(f"Using Gemini for code generation: {description[:100]}...")
+                    
+                    # Initialize generator with template fallback enabled
+                    generator = GeminiStrategyGenerator(use_template_fallback=True)
+                    
+                    # Generate strategy code (will fallback to templates if API fails)
+                    code = generator.generate_strategy(
+                        description=description,
+                        strategy_name=None,
+                        parameters=parameters
+                    )
+                    
+                    return Response({
+                        'generated_code': code,
+                        'strategy_name': 'AI Generated Strategy',
+                        'description': description,
+                        'parameters': parameters,
+                        'metadata': {
+                            'source': 'gemini_with_fallback',
+                            'ai_provider': 'gemini'
+                        }
+                    })
                     
             except ImportError as e:
                 return Response({
@@ -1442,6 +1490,454 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'])
+    def generate_strategy_unified(self, request):
+        """
+        UNIFIED Strategy Code Generation Endpoint
+        
+        This endpoint combines all strategy generation features:
+        - AI Provider Selection (Copilot or Gemini)
+        - Code Generation from canonical JSON
+        - File Saving to Backtest/codes/
+        - Auto-Execution (optional)
+        - Auto-Fixing (optional)
+        - Full execution metrics and error history
+        
+        Request body:
+        {
+            "canonical_json": {...},           // Strategy specification in canonical format
+            "strategy_name": "MyStrategy",     // Strategy name for class naming
+            "strategy_id": 123,                // Optional: existing strategy ID to link
+            "ai_provider": "copilot",          // "copilot" (default) or "gemini"
+            "test_config": {                   // Optional: test execution config
+                "symbol": "AAPL",
+                "period": "1y",
+                "interval": "1d"
+            },
+            "auto_execute": true,              // Optional: Execute after generation (default: true)
+            "auto_fix": true,                  // Optional: Auto-fix errors (default: true)
+            "max_fix_attempts": 3              // Optional: Max fixing iterations (default: 3)
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "strategy_code": "...",            // Generated Python code
+            "file_path": "...",                // Path where code was saved
+            "file_name": "...",                // Filename only
+            "strategy_id": 123,                // Strategy ID if linked
+            "ai_provider": "copilot",          // Which AI was used
+            "execution": {                     // Execution results (if auto_execute=true)
+                "attempted": true,
+                "success": true,
+                "validation_status": "passed",
+                "metrics": {...},
+                "error_message": null
+            },
+            "error_fixing": {                  // Error fixing history (if auto_fix=true)
+                "attempted": true,
+                "attempts": 2,
+                "history": [...],
+                "final_status": "fixed"
+            }
+        }
+        """
+        try:
+            data = request.data
+            canonical_json = data.get('canonical_json')
+            strategy_name = data.get('strategy_name', 'GeneratedStrategy')
+            strategy_id = data.get('strategy_id')
+            ai_provider = data.get('ai_provider', 'copilot')
+            auto_execute = data.get('auto_execute', True)
+            auto_fix = data.get('auto_fix', True)
+            max_fix_attempts = data.get('max_fix_attempts', 3)
+            test_config = data.get('test_config', {})
+            
+            if not canonical_json:
+                return Response({
+                    'error': 'canonical_json is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Parse canonical JSON if it's a string
+            if isinstance(canonical_json, str):
+                import json
+                try:
+                    canonical_json = json.loads(canonical_json)
+                except json.JSONDecodeError as e:
+                    return Response({
+                        'error': 'Invalid JSON format',
+                        'details': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Build strategy description from canonical JSON
+            description = self._build_description_from_canonical(canonical_json, strategy_name)
+            
+            # ===== AI PROVIDER SELECTION (COPILOT FIRST, GEMINI FALLBACK) =====
+            generator = None
+            actual_provider = ai_provider
+            
+            if ai_provider == 'copilot':
+                try:
+                    from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                    generator = CopilotStrategyGenerator()
+                    logger.info(f"[UNIFIED] Using Copilot for: {strategy_name}")
+                except ImportError as e:
+                    logger.warning(f"[UNIFIED] Copilot not available: {e}, falling back to Gemini")
+                    actual_provider = 'gemini'
+            
+            if actual_provider == 'gemini':
+                try:
+                    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+                    from Backtest import get_key_manager, KEY_ROTATION_AVAILABLE
+                    import google.generativeai as genai
+                    
+                    # Get API key using KeyManager if available
+                    if KEY_ROTATION_AVAILABLE:
+                        key_manager = get_key_manager()
+                        key_info = key_manager.select_key(model_preference='gemini-2.0-flash')
+                        if key_info:
+                            genai.configure(api_key=key_info['secret'])
+                        else:
+                            raise Exception("No Gemini API keys available")
+                    
+                    generator = GeminiStrategyGenerator()
+                    logger.info(f"[UNIFIED] Using Gemini for: {strategy_name}")
+                except ImportError as e:
+                    return Response({
+                        'error': 'No AI provider available',
+                        'details': str(e)
+                    }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            if not generator:
+                return Response({
+                    'error': 'Failed to initialize AI generator',
+                    'ai_provider': ai_provider
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
+            # ===== ERROR LEARNING SYSTEM (FEEDBACK LOOP) =====
+            try:
+                from Backtest.error_learning_system import ErrorLearningSystem
+                learning_system = ErrorLearningSystem()
+                logger.info("[UNIFIED] Error learning system initialized (feedback loop enabled)")
+            except ImportError:
+                learning_system = None
+                logger.warning("[UNIFIED] Error learning system not available")
+            
+            # ===== CODE GENERATION =====
+            logger.info(f"[UNIFIED] Generating code for: {strategy_name} using {actual_provider}")
+            
+            if actual_provider == 'copilot':
+                # Copilot uses generate_strategy_code method
+                strategy_code = generator.generate_strategy_code(description)
+            else:
+                # Gemini uses generate_strategy method
+                strategy_code = generator.generate_strategy(
+                    description=description,
+                    strategy_name=strategy_name
+                )
+            
+            # ===== SAVE TO FILE =====
+            import re
+            from pathlib import Path
+            
+            # Create safe filename
+            safe_name = re.sub(r'[^a-zA-Z0-9\s]', '', strategy_name.lower())
+            words = safe_name.split()[:8]
+            base_filename = "_".join(words) if words else f"strategy_{strategy_id or 'new'}"
+            
+            backtest_codes_dir = Path(__file__).parent.parent / "Backtest" / "codes"
+            backtest_codes_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save Python file
+            python_file = backtest_codes_dir / f"{base_filename}.py"
+            counter = 1
+            while python_file.exists():
+                python_file = backtest_codes_dir / f"{base_filename}_{counter}.py"
+                counter += 1
+            
+            with open(python_file, 'w', encoding='utf-8') as f:
+                f.write(strategy_code)
+            
+            # Save canonical JSON for reference
+            json_file = python_file.with_suffix('.json')
+            import json
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(canonical_json, f, indent=2)
+            
+            logger.info(f"[UNIFIED] Strategy code saved to: {python_file}")
+            
+            # ===== AUTO-EXECUTION AND ERROR FIXING =====
+            execution_result = None
+            fix_history = []
+            validation_status = 'pending'
+            executor = None
+            
+            logger.info(f"[UNIFIED] auto_execute={auto_execute}, auto_fix={auto_fix}, max_fix_attempts={max_fix_attempts}")
+            
+            if auto_execute:
+                logger.info("[UNIFIED] Auto-execution ENABLED - proceeding with execution...")
+                try:
+                    from Backtest.bot_executor import BotExecutor
+                    # Use longer timeout (600s = 10 minutes) for backtests
+                    executor = BotExecutor(timeout_seconds=600)
+                    
+                    # Get test configuration
+                    test_symbol = test_config.get('symbol', 'AAPL')
+                    test_period = test_config.get('period', '1y')
+                    test_interval = test_config.get('interval', '1d')
+                    
+                    # Convert period string to days
+                    period_to_days = {
+                        '1mo': 30, '3mo': 90, '6mo': 180,
+                        '1y': 365, '2y': 730, '5y': 1825, 'max': 3650
+                    }
+                    test_period_days = period_to_days.get(test_period, 365)
+                    
+                    logger.info(f"[UNIFIED] Auto-executing... (Symbol: {test_symbol}, Period: {test_period})")
+                    execution_result = executor.execute_bot(
+                        strategy_file=str(python_file),
+                        test_symbol=test_symbol,
+                        test_period_days=test_period_days,
+                        parameters={'test_period': test_period, 'test_interval': test_interval},
+                        save_results=True
+                    )
+                    
+                    if execution_result.success:
+                        logger.info(f"[UNIFIED] ✅ Strategy executed successfully!")
+                        logger.info(f"[UNIFIED] Trades made: {execution_result.trades}")
+                        logger.info(f"[UNIFIED] Return: {execution_result.return_pct}%")
+                        validation_status = 'passed'
+                        
+                        # Save backtest results to database for frontend access
+                        try:
+                            LatestBacktestResult.objects.update_or_create(
+                                strategy_id=strategy.id if strategy else None,
+                                defaults={
+                                    'success': True,
+                                    'return_pct': execution_result.return_pct,
+                                    'num_trades': execution_result.trades,
+                                    'win_rate': execution_result.win_rate,
+                                    'sharpe_ratio': execution_result.sharpe_ratio,
+                                    'max_drawdown': execution_result.max_drawdown,
+                                    'test_symbol': test_symbol,
+                                    'test_period': test_period,
+                                    'results_file': execution_result.results_file,
+                                    'executed_at': timezone.now()
+                                }
+                            )
+                            logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy.id if strategy else 'N/A'}")
+                        except Exception as e:
+                            logger.error(f"[UNIFIED] Failed to save backtest results: {e}")
+                    else:
+                        # Execution failed - trigger auto-fix if enabled
+                        logger.warning(f"[UNIFIED] Execution failed: {execution_result.error}")
+                        validation_status = 'failed'
+                        
+                        # Check if this is a "no trades" issue
+                        is_no_trades_error = (
+                            execution_result.trades is not None and execution_result.trades == 0
+                        ) or (
+                            execution_result.error and "NO TRADES" in execution_result.error.upper()
+                        )
+                        
+                        if is_no_trades_error:
+                            logger.warning("[UNIFIED] ⚠️ Detected NO TRADES issue - bot needs debugging to place trades")
+                        
+                        if auto_fix:
+                            # Provide specific context for "no trades" debugging
+                            if is_no_trades_error:
+                                logger.info("[UNIFIED] Starting iterative error fixing for NO TRADES issue...")
+                                logger.info("[UNIFIED] AI will debug why strategy didn't place any trades")
+                            else:
+                                logger.info("[UNIFIED] Starting iterative error fixing...")
+                            
+                            # Pass learning system to error fixer for feedback loop
+                            success, final_path, fix_attempts = generator.fix_bot_errors_iteratively(
+                                strategy_file=str(python_file),
+                                max_iterations=max_fix_attempts,
+                                learning_system=learning_system,
+                                error_context={
+                                    'is_no_trades': is_no_trades_error,
+                                    'trades_count': execution_result.trades,
+                                    'execution_error': execution_result.error
+                                } if is_no_trades_error else None
+                            )
+                            
+                            fix_history = [
+                                {
+                                    'attempt': f.attempt_number if hasattr(f, 'attempt_number') else i+1,
+                                    'error_type': f.error_type if hasattr(f, 'error_type') else 'unknown',
+                                    'success': f.success if hasattr(f, 'success') else False,
+                                    'description': f.fix_description if hasattr(f, 'fix_description') else str(f)
+                                }
+                                for i, f in enumerate(fix_attempts[:max_fix_attempts])
+                            ]
+                            
+                            if success:
+                                # Re-execute after fixes
+                                logger.info("[UNIFIED] Re-executing after fixes...")
+                                execution_result = executor.execute_bot(
+                                    strategy_file=str(python_file),
+                                    save_results=True
+                                )
+                                validation_status = 'passed' if execution_result.success else 'failed'
+                                logger.info(f"[UNIFIED] After {len(fix_history)} fix(es), execution {'succeeded' if execution_result.success else 'still failing'}")
+                            else:
+                                validation_status = 'failed'
+                                logger.error(f"[UNIFIED] Failed to fix errors after {len(fix_history)} attempts")
+                        else:
+                            logger.info("[UNIFIED] Auto-fix disabled, skipping error correction")
+                            
+                except ImportError as import_err:
+                    logger.warning(f"[UNIFIED] BotExecutor not available - skipping auto-execution: {import_err}")
+                    validation_status = 'error'
+                except Exception as e:
+                    logger.error(f"[UNIFIED] Error during auto-execution: {e}")
+                    logger.error(f"[UNIFIED] Exception traceback: {traceback.format_exc()}")
+                    validation_status = 'error'
+                    
+                    # Trigger auto-fix for exceptions too
+                    if auto_fix and auto_execute:
+                        logger.info("[UNIFIED] Execution exception occurred, attempting auto-fix...")
+                        try:
+                            success, final_path, fix_attempts = generator.fix_bot_errors_iteratively(
+                                strategy_file=str(python_file),
+                                max_iterations=max_fix_attempts,
+                                learning_system=learning_system
+                            )
+                            
+                            fix_history = [
+                                {
+                                    'attempt': f.attempt_number if hasattr(f, 'attempt_number') else i+1,
+                                    'error_type': f.error_type if hasattr(f, 'error_type') else 'unknown',
+                                    'success': f.success if hasattr(f, 'success') else False,
+                                    'description': f.fix_description if hasattr(f, 'fix_description') else str(f)
+                                }
+                                for i, f in enumerate(fix_attempts[:max_fix_attempts])
+                            ]
+                            
+                            if success:
+                                # Re-execute after fixes
+                                logger.info("[UNIFIED] Re-executing after exception fixes...")
+                                execution_result = executor.execute_bot(
+                                    strategy_file=str(python_file),
+                                    save_results=True
+                                )
+                                validation_status = 'passed' if execution_result.success else 'failed'
+                                logger.info(f"[UNIFIED] After {len(fix_history)} fix(es), execution {'succeeded' if execution_result.success else 'still failing'}")
+                        except Exception as fix_error:
+                            logger.error(f"[UNIFIED] Auto-fix also failed: {fix_error}")
+                            validation_status = 'error'
+            else:
+                logger.info("[UNIFIED] Auto-execution DISABLED - skipping execution and auto-fix")
+                validation_status = 'not_executed'
+            
+            # ===== UPDATE STRATEGY RECORD =====
+            if strategy_id:
+                try:
+                    strategy = Strategy.objects.get(id=strategy_id)
+                    if not strategy.parameters:
+                        strategy.parameters = {}
+                    strategy.parameters['generated_code_path'] = str(python_file)
+                    strategy.parameters['generated_code_filename'] = python_file.name
+                    strategy.parameters['validation_status'] = validation_status
+                    strategy.parameters['fix_attempts'] = len(fix_history)
+                    strategy.parameters['ai_provider'] = actual_provider
+                    strategy.save(update_fields=['parameters'])
+                    logger.info(f"[UNIFIED] Updated strategy {strategy_id} with generated code path and execution status")
+                except Strategy.DoesNotExist:
+                    logger.warning(f"[UNIFIED] Strategy {strategy_id} not found for update")
+            
+            # ===== BUILD RESPONSE =====
+            response_data = {
+                'success': True,
+                'strategy_code': strategy_code,
+                'file_path': str(python_file),
+                'file_name': python_file.name,
+                'json_file_path': str(json_file),
+                'strategy_id': strategy_id,
+                'ai_provider': actual_provider,
+                'message': f'Strategy code generated successfully using {actual_provider.upper()}',
+                # Execution details
+                'execution': {
+                    'attempted': execution_result is not None,
+                    'success': execution_result.success if execution_result else False,
+                    'validation_status': validation_status,
+                    'metrics': {
+                        'return_pct': execution_result.return_pct if execution_result and execution_result.success else None,
+                        'num_trades': execution_result.trades if execution_result and execution_result.success else None,
+                        'win_rate': execution_result.win_rate if execution_result and execution_result.success else None,
+                        'sharpe_ratio': execution_result.sharpe_ratio if execution_result and execution_result.success else None,
+                        'max_drawdown': execution_result.max_drawdown if execution_result and execution_result.success else None,
+                    } if execution_result and execution_result.success else None,
+                    'error_message': execution_result.error if execution_result and not execution_result.success else None,
+                },
+                # Error fixing details
+                'error_fixing': {
+                    'attempted': len(fix_history) > 0,
+                    'attempts': len(fix_history),
+                    'history': fix_history,
+                    'final_status': 'fixed' if fix_history and execution_result and execution_result.success else 'failed' if fix_history else 'not_needed'
+                }
+            }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"[UNIFIED] Error in generate_strategy_unified: {e}", exc_info=True)
+            return Response({
+                'error': 'Failed to generate strategy',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _build_description_from_canonical(self, canonical_json, strategy_name):
+        """Helper method to build description from canonical JSON"""
+        description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
+        description += f"{canonical_json.get('description', '')}\n\n"
+        
+        # Add entry rules
+        if canonical_json.get('entry_rules'):
+            description += "Entry Rules:\n"
+            for i, rule in enumerate(canonical_json['entry_rules'], 1):
+                description += f"{i}. {rule.get('description', str(rule))}\n"
+            description += "\n"
+        
+        # Add exit rules
+        if canonical_json.get('exit_rules'):
+            description += "Exit Rules:\n"
+            for i, rule in enumerate(canonical_json['exit_rules'], 1):
+                description += f"{i}. {rule.get('description', str(rule))}\n"
+            description += "\n"
+        
+        # Add risk management
+        if canonical_json.get('risk_management'):
+            description += "Risk Management:\n"
+            risk = canonical_json['risk_management']
+            if risk.get('stop_loss'):
+                description += f"- Stop Loss: {risk['stop_loss']}\n"
+            if risk.get('take_profit'):
+                description += f"- Take Profit: {risk['take_profit']}\n"
+            if risk.get('position_sizing'):
+                description += f"- Position Sizing: {risk['position_sizing']}\n"
+            description += "\n"
+        
+        # Add indicators
+        if canonical_json.get('indicators'):
+            description += "Indicators:\n"
+            for indicator in canonical_json['indicators']:
+                description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
+            description += "\n"
+        
+        # Add symbol-agnostic instructions
+        description += "\nIMPORTANT INSTRUCTIONS FOR CODE GENERATION:\n"
+        description += "- Strategy should work with ANY symbol (do not hardcode symbols)\n"
+        description += "- Symbol will be provided dynamically through market_data parameter\n"
+        description += "- Use market_data dictionary to access OHLCV data for any symbol\n"
+        description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
+        description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
+        
+        return description
+    
+    @action(detail=False, methods=['post'])
     def search(self, request):
         """Advanced strategy search"""
         serializer = StrategySearchSerializer(data=request.data)
@@ -1557,7 +2053,8 @@ class StrategyAPIViewSet(viewsets.ViewSet):
         {
             "strategy_text": "Buy when RSI < 30, sell when RSI > 70...",
             "input_type": "auto",  # or "numbered", "freetext", "url"
-            "use_gemini": true,
+            "use_gemini": false,  # deprecated, use ai_provider instead
+            "ai_provider": "copilot",  # "copilot" (default) or "gemini"
             "strict_mode": false,
             "session_id": "chat_abc123",  # optional, for conversation memory
             "use_context": true  # optional, use conversation history
@@ -1580,7 +2077,9 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             data = serializer.validated_data
             strategy_text = data['strategy_text']
             input_type = data.get('input_type', 'auto')
-            use_gemini = data.get('use_gemini', True)
+            # Support both old use_gemini and new ai_provider parameters
+            ai_provider = data.get('ai_provider', 'copilot')  # Default to Copilot
+            use_gemini = data.get('use_gemini', ai_provider == 'gemini')  # Backward compatibility
             strict_mode = data.get('strict_mode', False)
             session_id = data.get('session_id')
             use_context = data.get('use_context', True)
@@ -1628,18 +2127,69 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             logger.info(f"Validation result status: {result.get('status')}")
             
-            # ✨ NEW: Let AI format the response with full freedom
-            if use_gemini and result.get('status') == 'success':
+            # ✨ AI-enhanced formatting (Copilot or Gemini)
+            if result.get('status') == 'success':
                 try:
-                    # Give AI opportunity to provide custom formatted response
-                    result = bot.gemini.generate_formatted_validation_response(
-                        strategy_text=strategy_text,
-                        validation_result=result,
-                        use_context=use_context
-                    )
+                    if hasattr(bot, 'copilot') and bot.use_copilot:
+                        # Use Copilot for AI-enhanced response
+                        logger.info("Using Copilot for AI-enhanced validation response")
+                        copilot_prompt = f"""Analyze this trading strategy and provide insights:
+
+Strategy: {strategy_text}
+
+Classification: {result.get('classification', 'N/A')}
+Indicators: {', '.join(result.get('indicators_used', []))}
+
+Provide:
+1. Brief assessment of strategy viability
+2. Potential risks or improvements
+3. Recommended next steps
+
+Keep response concise and actionable."""
+
+                        try:
+                            ai_response = bot.copilot._call_copilot_api(copilot_prompt, temperature=0.7)
+                            result['ai_insights'] = ai_response
+                            result['formatted_response'] = ai_response  # Frontend expects this field
+                            result['ai_provider'] = 'copilot'
+                        except Exception as e:
+                            logger.warning(f"Copilot AI insights failed: {e}")
+                    
+                    elif use_gemini and hasattr(bot, 'gemini') and bot.gemini:
+                        # Use Gemini for custom formatted response
+                        logger.info("Using Gemini for AI-enhanced validation response")
+                        result = bot.gemini.generate_formatted_validation_response(
+                            strategy_text=strategy_text,
+                            validation_result=result,
+                            use_context=use_context
+                        )
+                        result['ai_provider'] = 'gemini'
+                        # Copy formatted_response if Gemini provided it, otherwise use ai_insights
+                        if 'formatted_response' not in result and 'ai_insights' in result:
+                            result['formatted_response'] = result['ai_insights']
+                    else:
+                        result['ai_provider'] = 'none'
+                        
                 except Exception as e:
                     logger.warning(f"Could not generate custom AI formatting: {e}")
+                    result['ai_provider'] = 'error'
                     # Continue with structured response
+            
+            # Ensure formatted_response is always present for frontend
+            if 'formatted_response' not in result:
+                if 'ai_insights' in result:
+                    result['formatted_response'] = result['ai_insights']
+                else:
+                    # Provide basic formatted response based on validation results
+                    formatted_text = f"### Strategy Analysis\n\n"
+                    formatted_text += f"**Classification:** {result.get('classification', 'N/A')}\n\n"
+                    if result.get('indicators_used'):
+                        formatted_text += f"**Indicators:** {', '.join(result['indicators_used'])}\n\n"
+                    if result.get('recommendations_list'):
+                        formatted_text += "**Recommendations:**\n"
+                        for rec in result['recommendations_list']:
+                            formatted_text += f"- {rec}\n"
+                    result['formatted_response'] = formatted_text
             
             # Store AI's validation result in conversation
             ai_summary = f"Validation {result.get('status')}: {result.get('classification', 'N/A')}"

@@ -52,13 +52,40 @@ class StrategyValidatorBot:
         self.session_id = session_id
         self.user = user
         
-        # Initialize Gemini integration with conversation context
+        # Initialize AI integration with conversation context
+        # Try Copilot first (if Gemini disabled), then fall back to Gemini
         self.use_gemini = use_gemini
-        self.gemini = GeminiStrategyIntegrator(session_id=session_id, user=user) if use_gemini else None
-        if self.gemini and not self.gemini.use_mock:
-            print("✓ AI-enhanced strategy analysis enabled")
-            if session_id:
-                print(f"✓ Conversation memory enabled for session {session_id}")
+        self.use_copilot = False
+        self.ai_provider = None
+        
+        if not use_gemini:
+            # Try to use Copilot instead
+            try:
+                from algoagent_api.copilot_auth import get_auth_manager
+                auth_manager = get_auth_manager()
+                if auth_manager:
+                    # Import Copilot strategy generator for AI capabilities
+                    sys.path.insert(0, str(Path(__file__).parent.parent / "Backtest"))
+                    from copilot_strategy_generator import CopilotStrategyGenerator
+                    self.copilot = CopilotStrategyGenerator()
+                    self.use_copilot = True
+                    self.ai_provider = "copilot"
+                    print("✓ AI-enhanced strategy analysis enabled (GitHub Copilot)")
+                    if session_id:
+                        print(f"✓ Conversation memory enabled for session {session_id}")
+            except Exception as e:
+                print(f"⚠ Copilot not available: {e}")
+                self.copilot = None
+        
+        if use_gemini and not self.use_copilot:
+            self.gemini = GeminiStrategyIntegrator(session_id=session_id, user=user)
+            self.ai_provider = "gemini" if (self.gemini and not self.gemini.use_mock) else "mock"
+            if self.gemini and not self.gemini.use_mock:
+                print("✓ AI-enhanced strategy analysis enabled (Gemini)")
+                if session_id:
+                    print(f"✓ Conversation memory enabled for session {session_id}")
+        else:
+            self.gemini = None
     
     def process_input(
         self,
