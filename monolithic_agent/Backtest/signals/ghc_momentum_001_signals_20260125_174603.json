@@ -1,0 +1,38 @@
+[
+  {
+    "signal_id": "SIG_20250828_000000_0",
+    "timestamp": "2025-08-28 00:00:00",
+    "symbol": "AAPL",
+    "side": "BUY",
+    "action": "ENTRY",
+    "order_type": "MARKET",
+    "size": 100,
+    "price": 232.33477783203125,
+    "limit_price": "",
+    "stop_price": "",
+    "reason": "EMA crossover: Fast EMA (227.59) > Slow EMA (221.02)",
+    "indicator_values": "{\"ema_12\": 227.59202444447953, \"ema_26\": 221.0222655076247}",
+    "market_data": "{\"open\": 230.59647266873003, \"high\": 233.18396075811214, \"low\": 229.11789497993007, \"close\": 232.33477783203125, \"volume\": 38074700.0}",
+    "strategy_state": "{\"in_position\": false}",
+    "order_id": "",
+    "notes": ""
+  },
+  {
+    "signal_id": "SIG_20251231_000000_1",
+    "timestamp": "2025-12-31 00:00:00",
+    "symbol": "AAPL",
+    "side": "SELL",
+    "action": "EXIT",
+    "order_type": "MARKET",
+    "size": 100,
+    "price": 271.8599853515625,
+    "limit_price": "",
+    "stop_price": "",
+    "reason": "EMA crossover: Fast EMA (273.59) < Slow EMA (273.68)",
+    "indicator_values": "{\"ema_12\": 273.5914984267957, \"ema_26\": 273.67901408443186}",
+    "market_data": "{\"open\": 273.05999755859375, \"high\": 273.67999267578125, \"low\": 271.75, \"close\": 271.8599853515625, \"volume\": 27293600.0}",
+    "strategy_state": "{\"entry_price\": 232.33477783203125}",
+    "order_id": "",
+    "notes": ""
+  }
+]

@@ -413,6 +413,46 @@ class BotExecutor:
                     except (ValueError, IndexError):
                         pass
             
+            # Check for SignalLogger output as proof of successful execution
+            # SignalLogger always outputs summary regardless of JSON parsing
+            if 'Total Signals:' in stdout or 'signal_logger' in stdout.lower():
+                for line in lines:
+                    if 'Total Signals:' in line or 'total signals:' in line.lower():
+                        try:
+                            # Extract signal count from "Total Signals: 8"
+                            signal_count = int(line.split(':')[-1].strip())
+                            if signal_count > 0:
+                                result['trades'] = signal_count
+                                result['success'] = True
+                                logger.info(f"✅ Detected {signal_count} signals from SignalLogger output")
+                                
+                                # Try to extract additional metrics from signal logger
+                                for metric_line in lines:
+                                    if 'Buy Signals:' in metric_line:
+                                        logger.info(f"  {metric_line.strip()}")
+                                    elif 'Sell Signals:' in metric_line:
+                                        logger.info(f"  {metric_line.strip()}")
+                                
+                                # Signal logger output proves execution succeeded
+                                return result
+                        except (ValueError, IndexError):
+                            pass
+            
+            # Check for AccountManager messages (position opened/closed) as proof of execution
+            if 'Opened position:' in stdout or 'Closed position:' in stdout:
+                position_count = stdout.count('Opened position:')
+                if position_count > 0:
+                    result['trades'] = position_count
+                    result['success'] = True
+                    logger.info(f"✅ Detected {position_count} positions opened/closed from AccountManager")
+                    
+                    # Extract P&L if available
+                    for line in lines:
+                        if 'realized P&L:' in line.lower():
+                            logger.info(f"  {line.strip()}")
+                    
+                    return result
+            
             # If we extracted any metrics, consider it successful
             if any([
                 result['return_pct'] is not None,

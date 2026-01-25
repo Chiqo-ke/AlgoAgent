@@ -107,14 +107,14 @@ class CopilotStrategyGenerator:
     
     def __init__(
         self,
-        model_name: str = 'gpt-4o',
+        model_name: str = 'claude-sonnet-4.5',
         use_template_fallback: bool = True
     ):
         """
         Initialize Copilot Strategy Generator
         
         Args:
-            model_name: Copilot model name (gpt-4o, gpt-4o-mini, o1-preview, o1-mini)
+            model_name: Copilot model name (claude-sonnet-4.5, gpt-5.2-codex, gpt-5.1-codex, claude-opus-4.5, etc.)
             use_template_fallback: If True, fallback to database templates when API unavailable
         """
         load_dotenv()
@@ -604,6 +604,58 @@ CRITICAL: USE ONLY ASCII CHARACTERS
 - Use plain text: [OK], [PASS], [FAIL], [X] instead of ✓, ✗, ❌, etc.
 - Ensure all print statements use ASCII-safe strings
 - Use standard ASCII punctuation only
+
+CRITICAL: INDICATOR NAMING CONVENTION (MUST FOLLOW EXACTLY)
+When using indicators, the dictionary key must START with the uppercase indicator name from the registry, followed by underscore and parameters:
+
+✅ CORRECT - Keys start with uppercase indicator name:
+```python
+# Define indicators with keys that start with UPPERCASE indicator name
+indicators = {{
+    'EMA_12': {{'name': 'EMA', 'timeperiod': 12}},  # Key starts with 'EMA'
+    'EMA_26': {{'name': 'EMA', 'timeperiod': 26}}   # Key starts with 'EMA'
+}}
+
+# Access in market_data using LOWERCASE version of the key
+ema_fast = data.get('EMA_12')  # ✅ Matches key
+ema_slow = data.get('EMA_26')  # ✅ Matches key
+```
+
+OR use multi-period format (PREFERRED for multiple periods):
+```python
+# Multi-period format - single indicator with multiple periods
+indicators = {{
+    'EMA': {{'periods': [12, 26]}}  # Creates 'EMA_12' and 'EMA_26'
+}}
+
+# Access with period suffix
+ema_fast = data.get('EMA_12')  # ✅ Auto-generated key
+ema_slow = data.get('EMA_26')  # ✅ Auto-generated key
+```
+
+❌ WRONG (Validation will fail - indicator base name not recognized):
+```python
+# DON'T use all-lowercase keys
+indicators = {{
+    'ema_12': {{'name': 'EMA', 'timeperiod': 12}},  # ❌ 'ema_12' not recognized
+    'ema_26': {{'name': 'EMA', 'timeperiod': 26}}   # ❌ 'ema_26' not recognized
+}}
+```
+
+❌ ALSO WRONG (Duplicate keys in dict - Python will only keep last one):
+```python
+indicators = {{
+    'EMA': {{'timeperiod': 12}},  # ❌ Will be overwritten
+    'EMA': {{'timeperiod': 26}}   # ❌ Duplicate key - only this one kept
+}}
+```
+
+INDICATOR NAMING RULES:
+1. Key MUST start with UPPERCASE indicator name from registry (EMA, RSI, MACD, etc.)
+2. For single period: 'EMA_12' with {{'name': 'EMA', 'timeperiod': 12}}
+3. For multiple periods: 'EMA' with {{'periods': [12, 26]}} - creates 'EMA_12' and 'EMA_26'
+4. Access using the EXACT key name: data.get('EMA_12')
+5. Common indicators: EMA, SMA, RSI, MACD, BBANDS, ATR, STOCH, ADX
 
 CRITICAL IMPORT REQUIREMENTS (MUST FOLLOW EXACTLY):
 ```python

@@ -325,7 +325,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             "description": "Strategy description in natural language",
             "auto_fix": true,  // Optional, default true
             "execute_after_generation": false,  // Optional, default false
-            "max_fix_attempts": 3  // Optional, default 3
+            "max_fix_attempts": 8  // Optional, default 8
         }
         """
         try:
@@ -337,7 +337,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             
             auto_fix = request.data.get('auto_fix', True)
             execute_after = request.data.get('execute_after_generation', False)
-            max_fix_attempts = request.data.get('max_fix_attempts', 3)
+            max_fix_attempts = request.data.get('max_fix_attempts', 8)
             
             # Import the generator and RequestRouter
             try:
@@ -440,7 +440,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         
         Request body:
         {
-            "max_attempts": 3  // Optional, default 3
+            "max_attempts": 8  // Optional, default 8
         }
         """
         strategy = self.get_object()
@@ -452,7 +452,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            max_attempts = request.data.get('max_attempts', 3)
+            max_attempts = request.data.get('max_attempts', 8)
             
             # Import the generator
             try:
@@ -1181,7 +1181,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     logger.warning(f"Execution failed: {execution_result.error}")
                     logger.info("Starting iterative error fixing...")
                     
-                    max_fix_attempts = 5  # Increased from 3 to 5 for better success rate
+                    max_fix_attempts = 8  # Increased from 3 to 8 for better success rate
                     
                     # Pass learning system to error fixer for feedback loop
                     success, final_path, fix_attempts = generator.fix_bot_errors_iteratively(
@@ -1308,7 +1308,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             canonical_json = data.get('canonical_json')
             strategy_name = data.get('strategy_name', 'GeneratedStrategy')
             strategy_id = data.get('strategy_id')
-            max_fix_attempts = data.get('max_fix_attempts', 3)
+            max_fix_attempts = data.get('max_fix_attempts', 8)
             
             if not canonical_json:
                 return Response({
@@ -1549,7 +1549,7 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             ai_provider = data.get('ai_provider', 'copilot')
             auto_execute = data.get('auto_execute', True)
             auto_fix = data.get('auto_fix', True)
-            max_fix_attempts = data.get('max_fix_attempts', 3)
+            max_fix_attempts = data.get('max_fix_attempts', 8)
             test_config = data.get('test_config', {})
             
             if not canonical_json:
@@ -1709,22 +1709,19 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                         
                         # Save backtest results to database for frontend access
                         try:
-                            LatestBacktestResult.objects.update_or_create(
-                                strategy_id=strategy.id if strategy else None,
-                                defaults={
-                                    'success': True,
-                                    'return_pct': execution_result.return_pct,
-                                    'num_trades': execution_result.trades,
-                                    'win_rate': execution_result.win_rate,
-                                    'sharpe_ratio': execution_result.sharpe_ratio,
-                                    'max_drawdown': execution_result.max_drawdown,
-                                    'test_symbol': test_symbol,
-                                    'test_period': test_period,
-                                    'results_file': execution_result.results_file,
-                                    'executed_at': timezone.now()
-                                }
-                            )
-                            logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy.id if strategy else 'N/A'}")
+                            result_data = {
+                                'symbol': test_symbol,
+                                'period': test_period,
+                                'total_trades': execution_result.trades or 0,
+                                'win_rate': execution_result.win_rate or 0,
+                                'total_return_pct': execution_result.return_pct or 0,
+                                'sharpe_ratio': execution_result.sharpe_ratio,
+                                'max_drawdown': execution_result.max_drawdown or 0,
+                                'trades': [],  # Will be populated if available
+                                'equity_curve': []  # Will be populated if available
+                            }
+                            LatestBacktestResult.save_result(strategy_id, result_data)
+                            logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy_id}")
                         except Exception as e:
                             logger.error(f"[UNIFIED] Failed to save backtest results: {e}")
                     else:
@@ -1781,6 +1778,25 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                                 )
                                 validation_status = 'passed' if execution_result.success else 'failed'
                                 logger.info(f"[UNIFIED] After {len(fix_history)} fix(es), execution {'succeeded' if execution_result.success else 'still failing'}")
+                                
+                                # Save backtest results to database after successful auto-fix
+                                if execution_result.success and strategy_id:
+                                    try:
+                                        result_data = {
+                                            'symbol': test_symbol,
+                                            'period': test_period,
+                                            'total_trades': execution_result.trades or 0,
+                                            'win_rate': execution_result.win_rate or 0,
+                                            'total_return_pct': execution_result.return_pct or 0,
+                                            'sharpe_ratio': execution_result.sharpe_ratio,
+                                            'max_drawdown': execution_result.max_drawdown or 0,
+                                            'trades': [],  # Will be populated if available
+                                            'equity_curve': []  # Will be populated if available
+                                        }
+                                        LatestBacktestResult.save_result(strategy_id, result_data)
+                                        logger.info(f"[UNIFIED] Backtest results saved after auto-fix for strategy {strategy_id}")
+                                    except Exception as e:
+                                        logger.error(f"[UNIFIED] Failed to save backtest results after auto-fix: {e}")
                             else:
                                 validation_status = 'failed'
                                 logger.error(f"[UNIFIED] Failed to fix errors after {len(fix_history)} attempts")
@@ -1824,6 +1840,25 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                                 )
                                 validation_status = 'passed' if execution_result.success else 'failed'
                                 logger.info(f"[UNIFIED] After {len(fix_history)} fix(es), execution {'succeeded' if execution_result.success else 'still failing'}")
+                                
+                                # Save backtest results to database after successful exception auto-fix
+                                if execution_result.success and strategy_id:
+                                    try:
+                                        result_data = {
+                                            'symbol': test_symbol,
+                                            'period': test_period,
+                                            'total_trades': execution_result.trades or 0,
+                                            'win_rate': execution_result.win_rate or 0,
+                                            'total_return_pct': execution_result.return_pct or 0,
+                                            'sharpe_ratio': execution_result.sharpe_ratio,
+                                            'max_drawdown': execution_result.max_drawdown or 0,
+                                            'trades': [],  # Will be populated if available
+                                            'equity_curve': []  # Will be populated if available
+                                        }
+                                        LatestBacktestResult.save_result(strategy_id, result_data)
+                                        logger.info(f"[UNIFIED] Backtest results saved after exception auto-fix for strategy {strategy_id}")
+                                    except Exception as e:
+                                        logger.error(f"[UNIFIED] Failed to save backtest results after exception auto-fix: {e}")
                         except Exception as fix_error:
                             logger.error(f"[UNIFIED] Auto-fix also failed: {fix_error}")
                             validation_status = 'error'
@@ -1842,8 +1877,16 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     strategy.parameters['validation_status'] = validation_status
                     strategy.parameters['fix_attempts'] = len(fix_history)
                     strategy.parameters['ai_provider'] = actual_provider
-                    strategy.save(update_fields=['parameters'])
-                    logger.info(f"[UNIFIED] Updated strategy {strategy_id} with generated code path and execution status")
+                    
+                    # Update strategy status based on validation result
+                    if validation_status == 'passed':
+                        strategy.status = 'valid'
+                    elif validation_status in ['failed', 'error']:
+                        strategy.status = 'invalid'
+                    # Keep 'validating' status if validation_status is 'not_executed'
+                    
+                    strategy.save(update_fields=['parameters', 'status'])
+                    logger.info(f"[UNIFIED] Updated strategy {strategy_id} status to '{strategy.status}' with validation_status '{validation_status}'")
                 except Strategy.DoesNotExist:
                     logger.warning(f"[UNIFIED] Strategy {strategy_id} not found for update")
             

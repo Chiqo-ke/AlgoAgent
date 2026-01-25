@@ -1,0 +1,38 @@
+[
+  {
+    "signal_id": "SIG_20251024_000000_0",
+    "timestamp": "2025-10-24 00:00:00",
+    "symbol": "AAPL",
+    "side": "BUY",
+    "action": "ENTRY",
+    "order_type": "MARKET",
+    "size": 100,
+    "price": 262.56549072265625,
+    "limit_price": "",
+    "stop_price": "",
+    "reason": "Fast SMA crossed above Slow SMA",
+    "indicator_values": "{\"sma_10\": 254.79000396728514, \"sma_20\": 254.78151473999023}",
+    "market_data": "{\"open\": 260.93706434715574, \"high\": 263.87421967110856, \"low\": 258.9290010880386, \"close\": 262.56549072265625, \"volume\": 38253700.0}",
+    "strategy_state": "{\"in_position\": false}",
+    "order_id": "",
+    "notes": ""
+  },
+  {
+    "signal_id": "SIG_20251218_000000_1",
+    "timestamp": "2025-12-18 00:00:00",
+    "symbol": "AAPL",
+    "side": "SELL",
+    "action": "EXIT",
+    "order_type": "MARKET",
+    "size": 100,
+    "price": 272.19000244140625,
+    "limit_price": "",
+    "stop_price": "",
+    "reason": "Fast SMA crossed below Slow SMA",
+    "indicator_values": "{\"sma_10\": 276.1689971923828, \"sma_20\": 277.14299926757815}",
+    "market_data": "{\"open\": 273.6099853515625, \"high\": 273.6300048828125, \"low\": 266.95001220703125, \"close\": 272.19000244140625, \"volume\": 51630700.0}",
+    "strategy_state": "{\"entry_price\": 262.56549072265625}",
+    "order_id": "",
+    "notes": ""
+  }
+]
