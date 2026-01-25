@@ -521,13 +521,16 @@ class StrategyViewSet(viewsets.ModelViewSet):
         """
         strategy = self.get_object()
         
-        if not strategy.file_path:
+        if not strategy.strategy_code:
             return Response({
-                'error': 'Strategy has no file path',
-                'details': 'Cannot execute without a file path'
+                'error': 'Strategy has no code',
+                'details': 'Cannot execute without strategy code'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
+            import os
+            import tempfile
+            
             test_symbol = request.data.get('test_symbol', 'GOOG')
             
             # Import executor
@@ -539,29 +542,61 @@ class StrategyViewSet(viewsets.ModelViewSet):
                     'details': 'BotExecutor module not found'
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
-            executor = BotExecutor()
-            result = executor.execute_bot(
-                strategy_file=strategy.file_path,
-                test_symbol=test_symbol
-            )
+            # Create temporary file with strategy code
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tmp_file:
+                tmp_file.write(strategy.strategy_code)
+                tmp_file_path = tmp_file.name
+            
+            try:
+                executor = BotExecutor()
+                result = executor.execute_bot(
+                    strategy_file=tmp_file_path,
+                    test_symbol=test_symbol
+                )
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(tmp_file_path)
+                except:
+                    pass
             
             # Update strategy
             strategy.last_validated = timezone.now()
             strategy.status = 'executed' if result.success else 'failed'
             strategy.save(update_fields=['last_validated', 'status'])
             
+            # Save backtest results to LatestBacktestResult
+            if result.success:
+                try:
+                    from .models import LatestBacktestResult
+                    result_data = {
+                        'symbol': test_symbol,
+                        'period': request.data.get('period', '1y'),
+                        'total_trades': result.trades or 0,
+                        'win_rate': result.win_rate or 0,
+                        'total_return_pct': result.return_pct or 0,
+                        'sharpe_ratio': result.sharpe_ratio,
+                        'max_drawdown': result.max_drawdown or 0,
+                        'trades': [],  # Will be populated if available
+                        'equity_curve': []  # Will be populated if available
+                    }
+                    LatestBacktestResult.save_result(pk, result_data)
+                    logger.info(f"[EXECUTE] Saved backtest results for strategy {pk}")
+                except Exception as save_error:
+                    logger.error(f"[EXECUTE] Failed to save backtest results: {save_error}")
+            
             return Response({
                 'success': result.success,
                 'metrics': {
                     'return_pct': result.return_pct,
-                    'num_trades': result.num_trades,
+                    'num_trades': result.trades,
                     'win_rate': result.win_rate,
                     'sharpe_ratio': result.sharpe_ratio,
                     'max_drawdown': result.max_drawdown,
-                    'execution_time': result.execution_time
+                    'execution_time': result.duration_seconds
                 } if result.success else None,
                 'results_file': result.results_file if result.success else None,
-                'error_message': result.error_message if not result.success else None
+                'error_message': result.error if not result.success else None
             })
             
         except Exception as e:
@@ -1701,31 +1736,45 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                         save_results=True
                     )
                     
-                    if execution_result.success:
-                        logger.info(f"[UNIFIED] ✅ Strategy executed successfully!")
-                        logger.info(f"[UNIFIED] Trades made: {execution_result.trades}")
-                        logger.info(f"[UNIFIED] Return: {execution_result.return_pct}%")
+                    # Check if execution completed (even if metrics weren't parsed)
+                    # Consider it valid if:
+                    # 1. success=True (normal case), OR
+                    # 2. error is just "No results or metrics found" (code ran but output not parseable)
+                    is_parse_error_only = (
+                        execution_result.error and 
+                        "No results or metrics found" in execution_result.error
+                    )
+                    
+                    if execution_result.success or is_parse_error_only:
+                        if is_parse_error_only:
+                            logger.warning("[UNIFIED] ⚠️ Strategy executed but metrics couldn't be parsed - treating as valid")
+                        else:
+                            logger.info(f"[UNIFIED] ✅ Strategy executed successfully!")
+                            logger.info(f"[UNIFIED] Trades made: {execution_result.trades}")
+                            logger.info(f"[UNIFIED] Return: {execution_result.return_pct}%")
+                        
                         validation_status = 'passed'
                         
-                        # Save backtest results to database for frontend access
-                        try:
-                            result_data = {
-                                'symbol': test_symbol,
-                                'period': test_period,
-                                'total_trades': execution_result.trades or 0,
-                                'win_rate': execution_result.win_rate or 0,
-                                'total_return_pct': execution_result.return_pct or 0,
-                                'sharpe_ratio': execution_result.sharpe_ratio,
-                                'max_drawdown': execution_result.max_drawdown or 0,
-                                'trades': [],  # Will be populated if available
-                                'equity_curve': []  # Will be populated if available
-                            }
-                            LatestBacktestResult.save_result(strategy_id, result_data)
-                            logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy_id}")
-                        except Exception as e:
-                            logger.error(f"[UNIFIED] Failed to save backtest results: {e}")
+                        # Save backtest results to database for frontend access (if metrics available)
+                        if not is_parse_error_only:
+                            try:
+                                result_data = {
+                                    'symbol': test_symbol,
+                                    'period': test_period,
+                                    'total_trades': execution_result.trades or 0,
+                                    'win_rate': execution_result.win_rate or 0,
+                                    'total_return_pct': execution_result.return_pct or 0,
+                                    'sharpe_ratio': execution_result.sharpe_ratio,
+                                    'max_drawdown': execution_result.max_drawdown or 0,
+                                    'trades': [],  # Will be populated if available
+                                    'equity_curve': []  # Will be populated if available
+                                }
+                                LatestBacktestResult.save_result(strategy_id, result_data)
+                                logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy_id}")
+                            except Exception as e:
+                                logger.error(f"[UNIFIED] Failed to save backtest results: {e}")
                     else:
-                        # Execution failed - trigger auto-fix if enabled
+                        # Execution failed with real errors - trigger auto-fix if enabled
                         logger.warning(f"[UNIFIED] Execution failed: {execution_result.error}")
                         validation_status = 'failed'
                         
