@@ -532,6 +532,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
             import tempfile
             
             test_symbol = request.data.get('test_symbol', 'GOOG')
+            start_date = request.data.get('start_date')
+            end_date = request.data.get('end_date')
             
             # Import executor
             try:
@@ -551,7 +553,9 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 executor = BotExecutor()
                 result = executor.execute_bot(
                     strategy_file=tmp_file_path,
-                    test_symbol=test_symbol
+                    test_symbol=test_symbol,
+                    start_date=start_date,
+                    end_date=end_date
                 )
             finally:
                 # Clean up temporary file

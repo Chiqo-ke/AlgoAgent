@@ -1,8 +1,14 @@
 # AlgoAgent Monolithic Agent - Documentation Index
 
 **Created:** December 3, 2025  
+**Last Updated:** January 26, 2026  
 **Purpose:** Central hub for navigating monolithic agent documentation  
 **System Status:** ✅ Production-Ready
+
+**Latest Updates:**
+- ✅ [CHANGELOG.md](CHANGELOG.md) - Consolidated all fix summaries (Jan 26, 2026)
+- ✅ Archive created - Historical docs moved to [archive/](archive/) (Jan 26, 2026)
+- ✅ Documentation reorganized - All files in proper locations (Jan 26, 2026)
 
 ---
 
@@ -47,6 +53,7 @@ This index provides a roadmap through all monolithic agent documentation. Start 
 
 | Document | Purpose | Audience | Read Time |
 |----------|---------|----------|-----------|
+| **[CHANGELOG.md](CHANGELOG.md)** | All fixes and improvements since Dec 2025 | All developers | 15 min |
 | **ARCHITECTURE.md** | Complete system design with all modules | Architects, Senior Devs | 20 min |
 | **STATUS.md** | Component health check & known issues | DevOps, QA, Developers | 10 min |
 | **QUICK_REFERENCE.md** | Quick lookup tables & commands | All developers | 5 min |
@@ -71,12 +78,20 @@ This index provides a roadmap through all monolithic agent documentation. Start 
 
 ### Previous Implementation Docs
 
-| Document | Purpose | Status | Notes |
-|----------|---------|--------|-------|
-| INTEGRATION_COMPLETE.md | Gemini integration | ✅ Done | Legacy - integrated in new docs |
-| API_INTEGRATION_COMPLETE.md | Production API | ✅ Done | Legacy - info consolidated |
-| SETUP_COMPLETE.md | Initial setup | ✅ Done | Legacy - replaced by new setup docs |
-| CONVERSATION_MEMORY_*.md | Memory system | ✅ Done | Legacy - features documented in ARCHITECTURE |
+**Note:** Completed implementations have been archived. See [archive/README.md](archive/README.md) for details.
+
+| Document | Purpose | Status | Location |
+|----------|---------|--------|----------|
+| COPILOT_MIGRATION_COMPLETE.md | Copilot integration | ✅ Archived | [archive/](archive/) |
+| COPILOT_INTEGRATION_README.md | Copilot auth setup | ✅ Archived | [archive/](archive/) |
+| COPILOT_VALIDATION_INTEGRATION.md | Validation integration | ✅ Archived | [archive/](archive/) |
+| IMPLEMENTATION_SUMMARY.md | Overall implementation | ✅ Archived | [archive/](archive/) |
+| All Fix Summaries (5 files) | Fix documentation | ✅ Consolidated | [CHANGELOG.md](CHANGELOG.md) |
+
+**For current information:**
+- Implementation details: See [implementation/](implementation/) folder
+- All fixes: See [CHANGELOG.md](CHANGELOG.md)
+- Historical reference: See [archive/](archive/) folder
 
 ---
 
@@ -91,7 +106,17 @@ This index provides a roadmap through all monolithic agent documentation. Start 
 → Read: [SETUP_AND_INTEGRATION.md](SETUP_AND_INTEGRATION.md) → Quick Start
 
 #### ...check if something is working
-→ Read: [STATUS.md](STATUS.md) → Component Status Matrix
+→ Read: [STATUS.md](testing/STATUS.md) → Component Status Matrix
+→ Recent Changes: [CHANGELOG.md](CHANGELOG.md) → January 2026
+
+#### ...understand recent fixes and improvements
+→ Read: [CHANGELOG.md](CHANGELOG.md) → All improvements since December 2025
+→ Categories: Execution fixes, auto-fix improvements, error prevention
+
+#### ...prevent errors in generated strategies
+→ Read: [guides/ERROR_PREVENTION_QUICKSTART.md](guides/ERROR_PREVENTION_QUICKSTART.md) → 3-step setup
+→ Then: [guides/AGENT_ERROR_PREVENTION_GUIDE.md](guides/AGENT_ERROR_PREVENTION_GUIDE.md) → Complete guide
+→ Reference: `Backtest/SIMBROKER_API_REFERENCE.md` → API documentation
 
 #### ...use the REST API
 → Read: [QUICK_REFERENCE.md](QUICK_REFERENCE.md) → API Quick Reference

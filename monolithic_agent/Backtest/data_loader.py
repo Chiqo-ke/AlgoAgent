@@ -107,6 +107,66 @@ def fetch_market_data(
     return df
 
 
+def fetch_market_data_by_date_range(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    interval: str = "1d"
+) -> pd.DataFrame:
+    """
+    Fetch market data using DataFetcher with specific date range.
+    
+    Args:
+        ticker: Stock ticker symbol (e.g., 'AAPL')
+        start_date: Start date in 'YYYY-MM-DD' format
+        end_date: End date in 'YYYY-MM-DD' format
+        interval: Data interval (e.g., '1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo')
+    
+    Returns:
+        DataFrame with DatetimeIndex and OHLCV columns
+    """
+    if not DATA_FETCHER_AVAILABLE:
+        raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
+    
+    logger.info(f"Fetching {ticker} data: start_date={start_date}, end_date={end_date}, interval={interval}")
+    
+    fetcher = DataFetcher()
+    df = fetcher.fetch_data_by_date_range(ticker, start_date=start_date, end_date=end_date, interval=interval)
+    
+    if df.empty:
+        raise ValueError(f"No data returned for {ticker} between {start_date} and {end_date}")
+    
+    # Flatten MultiIndex columns if present
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    
+    # Ensure datetime index
+    if not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index)
+    
+    # Validate required columns
+    missing = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
+    
+    # Keep only OHLCV columns (drop Adj Close if present)
+    df = df[DataFormat.REQUIRED_COLUMNS]
+    
+    # Convert to numeric, coerce errors
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    # Drop rows with NaN values
+    df = df.dropna()
+    
+    # Sort by datetime
+    df = df.sort_index()
+    
+    logger.info(f"Fetched {len(df)} rows for {ticker} from {start_date} to {end_date}")
+    
+    return df
+
+
 def validate_indicator_requests(indicators: Dict[str, Optional[Dict[str, Any]]]) -> Tuple[bool, List[str]]:
     """
     Validate indicator requests before processing.

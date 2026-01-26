@@ -166,6 +166,8 @@ class BotExecutor:
         parameters: Dict[str, Any] = None,
         test_symbol: str = "AAPL",
         test_period_days: int = 365,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         save_results: bool = True
     ) -> BotExecutionResult:
         """
@@ -178,6 +180,8 @@ class BotExecutor:
             parameters: Strategy parameters used
             test_symbol: Symbol to test with (default: AAPL)
             test_period_days: Days of historical data (default: 365)
+            start_date: Start date for backtest in YYYY-MM-DD format (optional)
+            end_date: End date for backtest in YYYY-MM-DD format (optional)
             save_results: Save results to disk (default: True)
         
         Returns:
@@ -196,6 +200,8 @@ class BotExecutor:
         
         # Store test parameters for CLI argument passing
         self.test_symbol = test_symbol
+        self.start_date = start_date
+        self.end_date = end_date
         # Convert days to period string if parameters not provided
         if parameters and 'test_period' in parameters:
             self.test_period = parameters['test_period']
@@ -313,6 +319,14 @@ class BotExecutor:
             import os
             env = os.environ.copy()
             env['DJANGO_SETTINGS_MODULE'] = 'monolithic_agent.settings'
+            
+            # Set date range environment variables if provided
+            if self.start_date:
+                env['BACKTEST_START_DATE'] = self.start_date
+                logger.info(f"Setting backtest start date: {self.start_date}")
+            if self.end_date:
+                env['BACKTEST_END_DATE'] = self.end_date
+                logger.info(f"Setting backtest end date: {self.end_date}")
             
             process = subprocess.Popen(
                 cmd,
