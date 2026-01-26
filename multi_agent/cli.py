@@ -35,11 +35,23 @@ sys.path.insert(0, str(Path(__file__).parent))
 from dotenv import load_dotenv
 import os
 
+# Load .env from AlgoAgent directory (parent of multi_agent)
 env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
+    print(f"✅ Loaded .env from {env_path}")
 else:
     print(f"⚠️  Warning: .env file not found at {env_path}")
+
+# Initialize learning system
+try:
+    from learning.knowledge_base import KnowledgeBase
+    from learning.context_injector import ContextInjector
+    LEARNING_SYSTEM = KnowledgeBase()
+    print(f"[CLI] 💡 Learning system initialized ({LEARNING_SYSTEM.get_stats()['total_patterns']} patterns)")
+except ImportError as e:
+    LEARNING_SYSTEM = None
+    print(f"[CLI] Warning: Learning system not available: {e}")
 
 # Also check for GOOGLE_API_KEY mapping from GEMINI_API_KEY
 if not os.getenv('GOOGLE_API_KEY') and os.getenv('GEMINI_API_KEY'):
@@ -72,19 +84,43 @@ class MultiAgentCLI:
         self.message_bus = InMemoryMessageBus()
         
         print("[DEBUG] Checking for API key...")
+        # Check if RequestRouter is enabled - if so, we have key infrastructure
+        router_enabled = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
+        
         # Initialize Planner with API key if available
         api_key = os.getenv('GOOGLE_API_KEY')
-        if api_key:
+        
+        # If no GOOGLE_API_KEY but we have GEMINI_KEY_* or API_KEY_* keys, use one of those
+        if not api_key:
+            for env_var in os.environ:
+                if env_var.startswith('GEMINI_KEY_') or env_var.startswith('API_KEY_gemini'):
+                    api_key = os.getenv(env_var)
+                    print(f"[DEBUG] Found API key in {env_var}")
+                    # Also set GOOGLE_API_KEY for compatibility
+                    os.environ['GOOGLE_API_KEY'] = api_key
+                    break
+        
+        # Determine mode: AI with Planner, or RequestRouter mode, or Template fallback
+        if router_enabled:
+            # RequestRouter mode - agents will use key rotation
+            print("[ROUTER] RequestRouter Mode: ENABLED (using key rotation)")
+            self.planner = None  # Planner will use templates, agents use RequestRouter
+            self.ai_mode = True  # We have AI capability via RequestRouter
+            self.api_key = "ROUTER_MODE"  # Flag for router mode (not actual key)
+            self.use_router = True
+        elif api_key:
             print("[DEBUG] Initializing Planner with API key...")
             self.planner = PlannerService(api_key=api_key)
             self.ai_mode = True
             self.api_key = api_key
+            self.use_router = False
             print("[AI] AI Mode: ENABLED (using Gemini API)")
         else:
             # No Planner without API key, will use template mode
             self.planner = None
             self.ai_mode = False
             self.api_key = None
+            self.use_router = False
             print("[TEMPLATE] Template Mode: ENABLED (no AI API key)")
         
         print("[DEBUG] Initializing Orchestrator...")
@@ -303,8 +339,9 @@ class MultiAgentCLI:
         """
         print(f"   ⏳ Executing Coder Agent...")
         
-        if not self.api_key:
-            print(f"   ⚠️  No API key - using template mode")
+        # Check if we have AI capability (either direct key or router)
+        if not self.ai_mode:
+            print(f"   ⚠️  No AI capability - using template mode")
             return {
                 'status': 'skipped',
                 'message': 'No API key available for AI code generation'
@@ -314,13 +351,16 @@ class MultiAgentCLI:
             # Lazy load Coder Agent
             if not self.coder_agent:
                 from agents.coder_agent.coder import CoderAgent
+                # Pass None for api_key if using router (agent will auto-detect)
+                api_key_param = None if self.use_router else self.api_key
                 self.coder_agent = CoderAgent(
                     agent_id="cli_coder",
                     message_bus=self.message_bus,
-                    gemini_api_key=self.api_key,
+                    gemini_api_key=api_key_param,
                     workspace_root=self.workspace_root / "multi_agent"
                 )
-                print(f"   ✓ Coder Agent initialized")
+                mode = "RequestRouter" if self.use_router else "Direct API"
+                print(f"   ✓ Coder Agent initialized ({mode})")
             
             # Create contract if missing
             if 'contract_path' not in task or not task['contract_path']:
@@ -356,20 +396,33 @@ class MultiAgentCLI:
                 
                 # Capture original_artifact_path for first iteration
                 # This allows file reuse in subsequent fix iterations
-                if 'original_artifact_path' not in task and result.artifacts:
+                if 'original_artifact_path' not in task.get('metadata', {}):
                     # Find the strategy file (not the test file)
                     strategy_artifact = next((a for a in result.artifacts if 'test_' not in a.file_path), None)
                     if strategy_artifact:
-                        task['original_artifact_path'] = strategy_artifact.file_path
-                        # Save to workload for persistence
-                        workload = self.coordinator.storage.load_workload(task.get('workload_id'))
-                        if workload:
-                            for t in workload.get('tasks', []):
-                                if t['id'] == task['id']:
-                                    t['original_artifact_path'] = strategy_artifact.file_path
-                                    break
-                            self.coordinator.storage.save_workload(workload)
-                        print(f"   ✓ Saved original_artifact_path: {strategy_artifact.file_path}")
+                        # Store in metadata (where coder agent reads it from)
+                        if 'metadata' not in task:
+                            task['metadata'] = {}
+                        task['metadata']['original_artifact_path'] = strategy_artifact.file_path
+                        
+                        # Also save to todo list for persistence across iterations
+                        workflow_id = task.get('metadata', {}).get('workflow_id')
+                        if workflow_id:
+                            workflow_state = self.orchestrator.workflows.get(workflow_id)
+                            if workflow_state:
+                                todo_list = self.orchestrator.todo_lists.get(workflow_state.todo_list_id)
+                                if todo_list:
+                                    for item in todo_list['items']:
+                                        if item['id'] == task['id']:
+                                            if 'metadata' not in item:
+                                                item['metadata'] = {}
+                                            item['metadata']['original_artifact_path'] = strategy_artifact.file_path
+                                            # Save updated todo list
+                                            todo_path = self.output_dir / f"{workflow_state.todo_list_id}_todolist.json"
+                                            todo_path.write_text(json.dumps(todo_list, indent=2), encoding='utf-8')
+                                            break
+                        
+                        print(f"   ✓ Tracked strategy file for future iterations: {strategy_artifact.file_path}")
                         
             elif result.status == 'failed':
                 print(f"   ❌ Error: {result.error_message}")
@@ -1354,6 +1407,7 @@ from adapters.base_adapter import BaseAdapter
         print("  iterate <id>      - Run iterative loop until tests pass")
         print("  status <id>       - Check workflow status")
         print("  list              - List all workflows")
+        print("  learn             - Show learning system stats")
         print("  help              - Show this help")
         print("  exit              - Exit CLI")
         print()
@@ -1498,6 +1552,45 @@ from adapters.base_adapter import BaseAdapter
                         print()
                     else:
                         print("No workflows found.")
+                        print()
+                
+                elif command == "learn":
+                    # Show learning system statistics
+                    if LEARNING_SYSTEM:
+                        stats = LEARNING_SYSTEM.get_stats()
+                        print("="*70)
+                        print("📚 LEARNING SYSTEM STATISTICS")
+                        print("="*70)
+                        print(f"   Total Patterns: {stats['total_patterns']}")
+                        print(f"   Total Successful Fixes: {stats['total_successes']}")
+                        print()
+                        
+                        if stats['error_types']:
+                            print("   Error Types Tracked:")
+                            for error_type, count in stats['error_types'].items():
+                                print(f"      - {error_type}: {count}")
+                            print()
+                        
+                        if stats.get('most_successful'):
+                            ms = stats['most_successful']
+                            print(f"   Most Successful Fix:")
+                            print(f"      Type: {ms['error_type']}")
+                            print(f"      Success Count: {ms['success_count']}")
+                            print(f"      Fix: {ms['fix'][:100]}...")
+                            print()
+                        
+                        # Show recent fixes
+                        recent = LEARNING_SYSTEM.get_recent_fixes(limit=5)
+                        if recent:
+                            print("   Recent Fixes:")
+                            for i, pattern in enumerate(recent, 1):
+                                print(f"   {i}. [{pattern.error_type}] {pattern.fix_description[:60]}...")
+                            print()
+                        
+                        print("="*70)
+                        print()
+                    else:
+                        print("❌ Learning system not available")
                         print()
                 
                 else:

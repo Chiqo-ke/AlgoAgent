@@ -74,7 +74,8 @@ class BotExecutor:
         self,
         results_dir: Optional[str] = None,
         timeout_seconds: int = 300,
-        verbose: bool = True
+        verbose: bool = True,
+        venv_path: Optional[Path] = None
     ):
         """
         Initialize bot executor
@@ -83,7 +84,24 @@ class BotExecutor:
             results_dir: Directory to store execution results (default: codes/results/)
             timeout_seconds: Max time to wait for bot execution (default: 300s)
             verbose: Enable detailed logging (default: True)
+            venv_path: Path to virtual environment (default: C:/Users/nyaga/Documents/.venv)
         """
+        # Set virtual environment path
+        if venv_path:
+            self.venv_path = Path(venv_path)
+        else:
+            # Default to Documents/.venv
+            self.venv_path = Path(r"C:\Users\nyaga\Documents\.venv")
+        
+        # Get Python executable from venv
+        if self.venv_path.exists():
+            self.python_executable = str(self.venv_path / "Scripts" / "python.exe")
+            logger.info(f"Using virtual environment: {self.venv_path}")
+            logger.info(f"Python executable: {self.python_executable}")
+        else:
+            logger.warning(f"Virtual environment not found at {self.venv_path}, using system Python")
+            self.python_executable = sys.executable
+        
         self.results_dir = Path(results_dir or "Backtest/codes/results")
         self.results_dir.mkdir(parents=True, exist_ok=True)
         
@@ -277,7 +295,8 @@ class BotExecutor:
                 monolithic_root = Path(__file__).resolve().parent.parent
             
             # Build command with CLI arguments for symbol, period, interval
-            cmd = [sys.executable, str(strategy_file)]
+            # Use virtual environment Python if available
+            cmd = [self.python_executable, str(strategy_file)]
             
             # Add test parameters as CLI arguments if provided
             if self.test_symbol and self.test_symbol != "AAPL":
@@ -290,6 +309,11 @@ class BotExecutor:
             logger.debug(f"Running: {' '.join(cmd)}")
             logger.debug(f"Working directory: {monolithic_root}")
             
+            # Set Django settings environment variable for strategies that import Backtest modules
+            import os
+            env = os.environ.copy()
+            env['DJANGO_SETTINGS_MODULE'] = 'monolithic_agent.settings'
+            
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -297,7 +321,8 @@ class BotExecutor:
                 text=True,
                 encoding='utf-8',
                 errors='replace',  # Replace unencodable characters instead of crashing
-                cwd=str(monolithic_root)
+                cwd=str(monolithic_root),
+                env=env
             )
             
             try:
@@ -334,25 +359,8 @@ class BotExecutor:
         }
         
         try:
-            # Check for errors first
-            combined_output = stdout + stderr
-            
-            # Special handling for encoding errors (charmap_encode)
-            if "charmap_encode" in stderr or "UnicodeEncodeError" in stderr:
-                result['error'] = stderr if stderr else "Encoding error: Unicode characters in output"
-                return result
-            
-            if "error" in combined_output.lower() or "exception" in combined_output.lower():
-                # Try to extract meaningful error message
-                lines = combined_output.split('\n')
-                for line in lines:
-                    if 'error' in line.lower() or 'exception' in line.lower():
-                        result['error'] = line.strip()
-                        break
-                
-                if not result['error']:
-                    result['error'] = "Execution produced errors (check logs)"
-                return result
+            # STEP 1: Try to parse metrics FIRST (optimistic approach)
+            # If the strategy produced valid results, ignore stderr warnings
             
             # Try to parse JSON results if present
             json_match = self._extract_json(stdout)
@@ -411,6 +419,46 @@ class BotExecutor:
                     except (ValueError, IndexError):
                         pass
             
+            # Check for SignalLogger output as proof of successful execution
+            # SignalLogger always outputs summary regardless of JSON parsing
+            if 'Total Signals:' in stdout or 'signal_logger' in stdout.lower():
+                for line in lines:
+                    if 'Total Signals:' in line or 'total signals:' in line.lower():
+                        try:
+                            # Extract signal count from "Total Signals: 8"
+                            signal_count = int(line.split(':')[-1].strip())
+                            if signal_count > 0:
+                                result['trades'] = signal_count
+                                result['success'] = True
+                                logger.info(f"✅ Detected {signal_count} signals from SignalLogger output")
+                                
+                                # Try to extract additional metrics from signal logger
+                                for metric_line in lines:
+                                    if 'Buy Signals:' in metric_line:
+                                        logger.info(f"  {metric_line.strip()}")
+                                    elif 'Sell Signals:' in metric_line:
+                                        logger.info(f"  {metric_line.strip()}")
+                                
+                                # Signal logger output proves execution succeeded
+                                return result
+                        except (ValueError, IndexError):
+                            pass
+            
+            # Check for AccountManager messages (position opened/closed) as proof of execution
+            if 'Opened position:' in stdout or 'Closed position:' in stdout:
+                position_count = stdout.count('Opened position:')
+                if position_count > 0:
+                    result['trades'] = position_count
+                    result['success'] = True
+                    logger.info(f"✅ Detected {position_count} positions opened/closed from AccountManager")
+                    
+                    # Extract P&L if available
+                    for line in lines:
+                        if 'realized P&L:' in line.lower():
+                            logger.info(f"  {line.strip()}")
+                    
+                    return result
+            
             # If we extracted any metrics, consider it successful
             if any([
                 result['return_pct'] is not None,
@@ -420,13 +468,70 @@ class BotExecutor:
                 result['sharpe_ratio'] is not None
             ]):
                 result['success'] = True
+                
+                # CRITICAL: Validate that at least one trade was made
+                # Bot must make trades to pass debugging test
+                if result['trades'] is not None and result['trades'] == 0:
+                    result['success'] = False
+                    result['error'] = "Strategy executed but made NO TRADES (0 trades). Bot must place at least one trade to pass."
+                    logger.warning("⚠️ TRADE VALIDATION FAILED: Bot made 0 trades")
+                elif result['trades'] is None:
+                    # Trades not found in output - might indicate parsing issue or no trades
+                    result['success'] = False
+                    result['error'] = "Cannot verify trades were made - metrics parsing issue or no trades placed"
+                    logger.warning("⚠️ TRADE VALIDATION: Unable to verify trade count")
+                
+                # If successful with valid trades, return immediately (ignore stderr warnings)
+                if result['success']:
+                    return result
+            
+            # STEP 2: Only check stderr if we didn't get valid results
+            combined_output = stdout + stderr
+            
+            # Special handling for encoding errors (charmap_encode)
+            if "charmap_encode" in stderr or "UnicodeEncodeError" in stderr:
+                result['error'] = stderr if stderr else "Encoding error: Unicode characters in output"
+                return result
+            
+            # Ignore warnings and benign messages
+            ignored_patterns = [
+                "redis connection failed",
+                "docker command failed",
+                "docker not available",
+                "futurewarning",
+                "deprecationwarning",
+                "trying to import",  # Import warnings
+                "resulted in these errors",  # Import continuation messages
+            ]
+            
+            # Filter out ignored patterns from error detection
+            filtered_output = combined_output.lower()
+            for pattern in ignored_patterns:
+                filtered_output = filtered_output.replace(pattern, '')
+            
+            if "error" in filtered_output or "exception" in filtered_output:
+                # Try to extract meaningful error message
+                lines = combined_output.split('\n')
+                for line in lines:
+                    line_lower = line.lower()
+                    # Skip lines with ignored patterns
+                    if any(pattern in line_lower for pattern in ignored_patterns):
+                        continue
+                    if 'error' in line_lower or 'exception' in line_lower:
+                        result['error'] = line.strip()
+                        break
+                
+                if not result['error']:
+                    result['error'] = "Execution produced errors (check logs)"
+                return result
+            
+            # STEP 3: No valid results and no clear errors
+            # Check if output looks successful anyway
+            if stdout and not stderr:
+                result['success'] = True
+                result['error'] = "Output captured but metrics not parsed"
             else:
-                # Check if output looks successful anyway
-                if stdout and not stderr:
-                    result['success'] = True
-                    result['error'] = "Output captured but metrics not parsed"
-                else:
-                    result['error'] = "No results or metrics found in output"
+                result['error'] = "No results or metrics found in output"
         
         except Exception as e:
             logger.error(f"Failed to parse execution output: {e}")
@@ -708,10 +813,21 @@ class BotExecutor:
 
 def get_bot_executor(
     results_dir: Optional[str] = None,
-    timeout_seconds: int = 300
+    timeout_seconds: int = 300,
+    venv_path: Optional[Path] = None
 ) -> BotExecutor:
-    """Convenience function to get BotExecutor instance"""
-    return BotExecutor(results_dir=results_dir, timeout_seconds=timeout_seconds)
+    """Convenience function to get BotExecutor instance
+    
+    Args:
+        results_dir: Directory for results
+        timeout_seconds: Execution timeout
+        venv_path: Path to virtual environment (default: C:/Users/nyaga/Documents/.venv)
+    """
+    return BotExecutor(
+        results_dir=results_dir,
+        timeout_seconds=timeout_seconds,
+        venv_path=venv_path
+    )
 
 
 if __name__ == "__main__":

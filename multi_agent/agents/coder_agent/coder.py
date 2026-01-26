@@ -24,12 +24,24 @@ import shutil
 import re
 from dotenv import load_dotenv
 
-# Load environment variables (for API keys)
-load_dotenv()
+# Load environment variables from AlgoAgent/.env (parent of multi_agent)
+multi_agent_dir = Path(__file__).parent.parent.parent
+env_path = multi_agent_dir.parent / '.env'
+load_dotenv(env_path)
+print(f"[CoderAgent] Loaded .env from: {env_path}")
 
 from llm.router import get_request_router
 from contracts import Event, EventType
 from contracts.message_bus import MessageBus, Channels
+
+# Learning system imports
+try:
+    from learning.knowledge_base import KnowledgeBase
+    from learning.context_injector import ContextInjector
+    LEARNING_ENABLED = True
+except ImportError:
+    LEARNING_ENABLED = False
+    print("[CoderAgent] Warning: Learning system not available")
 
 
 @dataclass
@@ -102,6 +114,15 @@ class CoderAgent:
         self.model_name = model_name
         self.conversation_id = f"coder_{agent_id}_{uuid.uuid4().hex[:8]}"
         
+        # Initialize learning system
+        if LEARNING_ENABLED:
+            self.kb = KnowledgeBase()
+            self.context_injector = ContextInjector(self.kb)
+            print(f"[CoderAgent {self.agent_id}] Learning system enabled ({self.kb.get_stats()['total_patterns']} patterns loaded)")
+        else:
+            self.kb = None
+            self.context_injector = None
+        
         # Use RequestRouter for multi-key management
         self.router = get_request_router()
         self.use_router = os.getenv('LLM_MULTI_KEY_ROUTER_ENABLED', 'false').lower() == 'true'
@@ -109,21 +130,56 @@ class CoderAgent:
         if self.use_router:
             print(f"[CoderAgent {self.agent_id}] Initialized with RequestRouter (model: {model_name})")
         else:
-            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback")
-            # Fallback mode
+            print(f"[CoderAgent {self.agent_id}] RequestRouter disabled - using fallback with key rotation")
+            # Fallback mode with key rotation support
             try:
                 import google.generativeai as genai
+                from keys.manager import KeyManager, get_key_manager
+                from keys.secret_store import fetch_api_secret
                 
-                # Get API key from parameter or environment
-                api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                # Try to use KeyManager for key rotation
+                try:
+                    # Initialize KeyManager with keys.json from multi_agent directory
+                    keys_json_path = Path(__file__).parent.parent.parent / 'keys.json'
+                    self.key_manager = KeyManager(key_store_path=keys_json_path)
+                    
+                    # Get a key from the rotation pool
+                    selected_key = self.key_manager.select_key(
+                        model_preference=model_name,
+                        workload='medium'
+                    )
+                    
+                    if selected_key:
+                        api_key = fetch_api_secret(selected_key.key_id)
+                        print(f"[CoderAgent {self.agent_id}] Using key rotation: {selected_key.key_id}")
+                    else:
+                        raise KeySelectionError("No suitable key available")
+                        
+                except Exception as km_error:
+                    print(f"[CoderAgent {self.agent_id}] Key rotation failed: {km_error}")
+                    print(f"[CoderAgent {self.agent_id}] Falling back to environment variables...")
+                    
+                    # Fallback to single key from environment
+                    api_key = gemini_api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+                    
+                    # If still no key, try to find any GEMINI_KEY_* or API_KEY_* variable
+                    if not api_key:
+                        for env_var in os.environ:
+                            if env_var.startswith('GEMINI_KEY_') or env_var.startswith('API_KEY_gemini'):
+                                api_key = os.getenv(env_var)
+                                print(f"[CoderAgent {self.agent_id}] Found API key in {env_var}")
+                                break
+                
                 if not api_key:
-                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found for fallback mode")
+                    print(f"[CoderAgent {self.agent_id}] WARNING: No API key found in any location")
                     self.fallback_model = None
                 else:
                     genai.configure(api_key=api_key)
                     self.fallback_model = genai.GenerativeModel("gemini-2.0-flash-thinking-exp")
-            except ImportError:
-                print(f"[CoderAgent {self.agent_id}] WARNING: No Gemini available")
+                    print(f"[CoderAgent {self.agent_id}] Fallback model configured successfully")
+                    
+            except ImportError as ie:
+                print(f"[CoderAgent {self.agent_id}] WARNING: Missing dependencies: {ie}")
                 self.fallback_model = None
     
     def start(self):
@@ -298,10 +354,12 @@ class CoderAgent:
         metadata = task.get('metadata', {})
         original_artifact_path = metadata.get('original_artifact_path')
         
-        if original_artifact_path and auto_fix:
-            # Fix task: Update ORIGINAL file instead of creating new one
-            print(f"[CoderAgent] 🔧 Fix task detected - updating ORIGINAL file: {original_artifact_path}")
-            print(f"[CoderAgent]    (NOT creating new fix_{datetime.now().strftime('%Y%m%d_%H%M%S')}_... file)")
+        # If original_artifact_path exists, ALWAYS update that file (not just for auto_fix)
+        # This ensures we update the same file across all iterations, not create new ones
+        if original_artifact_path:
+            # Update existing file: reuse ORIGINAL filename
+            print(f"[CoderAgent] 🔧 Updating existing strategy file: {original_artifact_path}")
+            print(f"[CoderAgent]    (NOT creating new {datetime.now().strftime('%Y%m%d_%H%M%S')}_... file)")
             filename = Path(original_artifact_path).name
             file_path = original_artifact_path
         else:
@@ -309,9 +367,10 @@ class CoderAgent:
             filename = self._generate_unique_filename(task, contract)
             file_path = f"Backtest/codes/{filename}"
             
-            # Store this as original_artifact_path for future fix tasks
-            if not metadata.get('original_artifact_path'):
-                metadata['original_artifact_path'] = file_path
+            # Store this as original_artifact_path for all future iterations
+            metadata['original_artifact_path'] = file_path
+            print(f"[CoderAgent] 📝 New strategy file: {file_path}")
+            print(f"[CoderAgent]    This path will be reused for all future fixes/iterations")
         
         artifact = CodeArtifact(
             file_path=file_path,
@@ -331,6 +390,7 @@ class CoderAgent:
         
         Prompt structure:
         - System instructions
+        - Learning context (if available)
         - Contract specification
         - Example inputs/outputs
         - Template structure
@@ -339,6 +399,27 @@ class CoderAgent:
         # Check if this is an EMA-based strategy
         description = task.get('description', '').lower()
         is_ema_strategy = 'ema' in description or 'exponential moving average' in description
+        
+        # Get learning context if this is a fix task
+        learning_context = ""
+        if self.context_injector:
+            metadata = task.get('metadata', {})
+            is_fix = metadata.get('auto_fix', False)
+            error_msg = ""
+            
+            if is_fix:
+                # Extract error from fix_instructions
+                fix_instructions = metadata.get('fix_instructions', {})
+                error_msg = fix_instructions.get('description', '')
+            
+            learning_context = self.context_injector.get_coder_context(
+                task_description=task.get('description', ''),
+                is_fix_task=is_fix,
+                error_message=error_msg if error_msg else None
+            )
+            
+            if learning_context:
+                print(f"[CoderAgent] 💡 Injected learning context ({len(learning_context)} chars)")
         
         prompt = f"""You are a professional trading system developer implementing Python code for quantitative analysis.
 
@@ -370,6 +451,8 @@ Contract ID: {contract['contract_id']}
 
 **CONTRACT SPECIFICATION**
 {json.dumps(contract['interfaces'], indent=2)}
+
+{learning_context}
 
 **MANDATORY PERFORMANCE REQUIREMENTS**
 

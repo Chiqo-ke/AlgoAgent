@@ -385,3 +385,87 @@ class LatestBacktestResult(models.Model):
         print(f"💾 {action} LatestBacktestResult for strategy {strategy_id}")
         
         return obj
+
+
+class CopilotAuth(models.Model):
+    """
+    Model for storing GitHub Copilot OAuth tokens.
+    
+    Single account authentication for the entire application.
+    """
+    # Token fields
+    access_token = models.TextField(help_text="GitHub OAuth access token")
+    refresh_token = models.TextField(null=True, blank=True, default="", help_text="GitHub OAuth refresh token")
+    
+    # Expiration tracking
+    expires_at = models.DateTimeField(help_text="Token expiration datetime")
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_refreshed = models.DateTimeField(null=True, blank=True, help_text="Last token refresh time")
+    
+    # Additional info
+    github_user = models.CharField(max_length=200, blank=True, help_text="Authenticated GitHub username")
+    client_id = models.CharField(max_length=200, blank=True, help_text="OAuth client ID used")
+    
+    class Meta:
+        verbose_name = "Copilot Authentication"
+        verbose_name_plural = "Copilot Authentications"
+    
+    def __str__(self):
+        return f"Copilot Auth (expires: {self.expires_at})"
+    
+    @classmethod
+    def get_latest_token(cls):
+        """
+        Get the most recent valid token.
+        
+        Returns:
+            Dict with token data or None if no valid token exists
+        """
+        from datetime import datetime, timedelta
+        
+        # Get latest token ordered by updated_at
+        latest = cls.objects.order_by('-updated_at').first()
+        
+        if not latest:
+            return None
+        
+        # Return token data
+        return {
+            "access_token": latest.access_token,
+            "refresh_token": latest.refresh_token,
+            "expires_at": latest.expires_at,
+            "obtained_at": latest.updated_at
+        }
+    
+    @classmethod
+    def save_token(cls, access_token: str, refresh_token: str, expires_at, github_user: str = "", client_id: str = ""):
+        """
+        Save or update the Copilot token.
+        
+        Args:
+            access_token: OAuth access token
+            refresh_token: OAuth refresh token
+            expires_at: Token expiration datetime
+            github_user: GitHub username
+            client_id: OAuth client ID
+            
+        Returns:
+            The created/updated CopilotAuth instance
+        """
+        from django.utils.timezone import now
+        
+        # Delete all existing tokens (single account model)
+        cls.objects.all().delete()
+        
+        # Create new token
+        return cls.objects.create(
+            access_token=access_token,
+            refresh_token=refresh_token or "",  # Handle None
+            expires_at=expires_at,
+            github_user=github_user,
+            client_id=client_id,
+            last_refreshed=now()
+        )

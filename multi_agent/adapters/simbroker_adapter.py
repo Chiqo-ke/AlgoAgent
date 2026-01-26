@@ -39,27 +39,9 @@ class SimBrokerAdapter:
     def place_order(self, order_request: Dict) -> Dict:
         """Place order via SimBroker."""
         try:
-            # Extract order parameters
-            action = order_request['action']
-            symbol = order_request['symbol']
-            volume = order_request['volume']
-            order_type = order_request.get('type', 'MARKET')
-            price = order_request.get('price')
-            sl = order_request.get('sl')
-            tp = order_request.get('tp')
-            comment = order_request.get('comment', '')
-            
-            # Call SimBroker (assumes it has place_order method)
-            result = self.broker.place_order(
-                action=action,
-                symbol=symbol,
-                volume=volume,
-                order_type=order_type,
-                price=price,
-                sl=sl,
-                tp=tp,
-                comment=comment
-            )
+            # SimBroker expects a dictionary in MT5 format
+            # Pass the order_request directly to SimBroker
+            result = self.broker.place_order(order_request)
             
             # Log event
             self._event_log.append({
@@ -69,7 +51,15 @@ class SimBrokerAdapter:
                 'result': result
             })
             
-            return result
+            # Convert OrderResponse to dict
+            # Success if order was accepted, filled, or partially filled (not rejected)
+            status_value = result.status.value if hasattr(result.status, 'value') else str(result.status)
+            return {
+                'success': status_value.lower() not in ['rejected', 'cancelled', 'failed'],
+                'order_id': result.order_id,
+                'status': status_value,
+                'message': result.message
+            }
             
         except Exception as e:
             return {
@@ -116,17 +106,22 @@ class SimBrokerAdapter:
         Returns list of events that occurred (position opens, closes, SL/TP hits).
         """
         try:
-            # Call SimBroker's step method
-            events = self.broker.step(bar)
+            # Call SimBroker's step_bar method
+            events = self.broker.step_bar(bar)
             
-            # Log all events
+            # Convert Event objects to dicts
+            event_dicts = []
             for event in events:
-                self._event_log.append({
-                    **event,
-                    'timestamp': bar.name if hasattr(bar, 'name') else None
-                })
+                if hasattr(event, '__dict__'):
+                    event_dict = {k: v for k, v in event.__dict__.items()}
+                else:
+                    event_dict = dict(event) if isinstance(event, dict) else {'event': str(event)}
+                
+                event_dict['timestamp'] = bar.name if hasattr(bar, 'name') else None
+                self._event_log.append(event_dict)
+                event_dicts.append(event_dict)
             
-            return events
+            return event_dicts
             
         except Exception as e:
             error_event = {
@@ -139,7 +134,16 @@ class SimBrokerAdapter:
     
     def get_positions(self) -> List[Dict]:
         """Get all open positions."""
-        return self.broker.get_positions()
+        positions = self.broker.get_positions()
+        # Convert Position objects to dicts
+        position_dicts = []
+        for pos in positions:
+            if hasattr(pos, '__dict__'):
+                pos_dict = {k: v for k, v in pos.__dict__.items()}
+            else:
+                pos_dict = dict(pos) if isinstance(pos, dict) else {'position': str(pos)}
+            position_dicts.append(pos_dict)
+        return position_dicts
     
     def get_account(self) -> Dict:
         """Get account state."""
@@ -190,7 +194,15 @@ class SimBrokerAdapter:
         events_path = out_path / 'events.log'
         with open(events_path, 'w') as f:
             for event in self._event_log:
-                f.write(json.dumps(event) + '\n')
+                # Convert any non-serializable objects to strings
+                serializable_event = {}
+                for key, value in event.items():
+                    if hasattr(value, '__dict__'):
+                        # Convert objects to dict representation
+                        serializable_event[key] = str(value)
+                    else:
+                        serializable_event[key] = value
+                f.write(json.dumps(serializable_event, default=str) + '\n')
         saved_files['events'] = str(events_path)
         
         return saved_files

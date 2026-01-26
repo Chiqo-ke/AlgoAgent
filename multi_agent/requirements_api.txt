@@ -1,0 +1,24 @@
+# FastAPI Backend Server Dependencies
+
+# Core FastAPI
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# CORS support
+python-multipart==0.0.6
+
+# Async support
+aiofiles==23.2.1
+
+# Optional: Django Channels integration (for WebSocket)
+channels==4.0.0
+channels-redis==4.1.0
+daphne==4.0.0
+
+# Required from main requirements.txt
+# (these should already be installed if you've set up the multi-agent system)
+# redis>=4.0.0
+# anthropic
+# google-generativeai
+# openai

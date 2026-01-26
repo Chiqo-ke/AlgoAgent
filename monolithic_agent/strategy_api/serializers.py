@@ -112,7 +112,9 @@ class StrategyCodeGenerationRequestSerializer(serializers.Serializer):
     strategy_description = serializers.CharField()
     template_id = serializers.IntegerField(required=False)
     parameters = serializers.JSONField(default=dict)
-    use_gemini = serializers.BooleanField(default=True)
+    use_gemini = serializers.BooleanField(default=False)  # Changed default to False
+    ai_provider = serializers.CharField(default='copilot', required=False)  # New field
+    use_template_only = serializers.BooleanField(default=False, required=False)  # Add this field too
 
 
 class StrategySearchSerializer(serializers.Serializer):

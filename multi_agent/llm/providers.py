@@ -373,11 +373,90 @@ class AnthropicClient(ProviderClient):
             raise ProviderError(f"Anthropic error: {str(e)}")
 
 
+class AzureOpenAIClient(ProviderClient):
+    """Azure OpenAI API client."""
+    
+    def chat_completion(
+        self,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send Azure OpenAI chat completion request."""
+        try:
+            from openai import AzureOpenAI
+            from openai import RateLimitError as OpenAIRateLimitError
+        except ImportError:
+            raise ProviderError("openai not installed (pip install openai>=1.0.0)")
+        
+        try:
+            # Get Azure-specific configuration from environment
+            azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
+            api_version = os.getenv('AZURE_OPENAI_API_VERSION', '2024-02-15-preview')
+            
+            if not azure_endpoint:
+                raise ProviderError(
+                    "AZURE_OPENAI_ENDPOINT not configured in environment variables. "
+                    "Set it to your Azure OpenAI resource endpoint (e.g., https://your-resource.openai.azure.com/)"
+                )
+            
+            # Create Azure OpenAI client
+            client = AzureOpenAI(
+                api_key=api_key,
+                api_version=api_version,
+                azure_endpoint=azure_endpoint
+            )
+            
+            # Send chat completion request
+            response = client.chat.completions.create(
+                model=model,  # This is the deployment name in Azure
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Extract response
+            content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            
+            # Get token usage
+            tokens = {
+                'input': response.usage.prompt_tokens,
+                'output': response.usage.completion_tokens,
+                'total': response.usage.total_tokens
+            }
+            
+            return {
+                'content': content,
+                'model': model,
+                'tokens': tokens,
+                'finish_reason': finish_reason
+            }
+            
+        except OpenAIRateLimitError as e:
+            # Extract retry-after from headers if available
+            retry_after = None
+            if hasattr(e, 'response') and e.response:
+                retry_after = e.response.headers.get('Retry-After')
+                if retry_after:
+                    retry_after = int(retry_after)
+            
+            raise RateLimitError(str(e), retry_after=retry_after)
+            
+        except Exception as e:
+            logger.error(f"Azure OpenAI API error: {e}")
+            raise ProviderError(f"Azure OpenAI error: {str(e)}")
+
+
 # Provider registry
 _PROVIDERS: Dict[str, ProviderClient] = {
     'gemini': GeminiClient(),
     'openai': OpenAIClient(),
-    'anthropic': AnthropicClient()
+    'anthropic': AnthropicClient(),
+    'azure-openai': AzureOpenAIClient()
 }
 
 

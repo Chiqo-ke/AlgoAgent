@@ -107,10 +107,10 @@ class KeyManager:
         # Model compatibility mapping for cross-model fallback
         # When a model is exhausted, try compatible models in order
         self.model_compatibility = {
-            'gemini-2.0-flash': ['gemini-2.0-flash-exp', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-            'gemini-2.0-flash-exp': ['gemini-2.0-flash', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-            'gemini-2.5-pro': ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'],
-            'gemini-2.5-flash': ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-2.5-pro'],
+            'gemini-2.0-flash': ['gemini-2.0-flash-exp', 'gemini-1.5-pro', 'gemini-2.5-flash'],
+            'gemini-2.0-flash-exp': ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-2.5-flash'],
+            'gemini-1.5-pro': ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-2.0-flash'],
+            'gemini-2.5-flash': ['gemini-2.0-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-pro'],
         }
         
         if self.enabled:
@@ -547,6 +547,29 @@ class KeyManager:
                 self.key_health[key_id]['error_count'] = 0
                 self.key_health[key_id]['success_count'] = self.key_health[key_id].get('success_count', 0) + 1
                 logger.debug(f"Key {key_id} reported success (total: {self.key_health[key_id]['success_count']})")
+    
+    def mark_key_success(self, key_id: str):
+        """
+        Mark a key as successful (alias for report_success).
+        
+        This method provides compatibility with RequestRouter interface.
+        
+        Args:
+            key_id: Key that succeeded
+        """
+        self.report_success(key_id)
+    
+    def mark_key_failed(self, key_id: str, error_type: str = 'generic'):
+        """
+        Mark a key as failed (alias for report_error).
+        
+        This method provides compatibility with RequestRouter interface.
+        
+        Args:
+            key_id: Key that failed
+            error_type: Type of error (rate_limit, auth, network, etc.)
+        """
+        self.report_error(key_id, error_type)
     
     def get_health_status(self) -> Dict[str, Any]:
         """Get health status of all keys"""

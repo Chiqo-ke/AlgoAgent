@@ -70,6 +70,7 @@ urlpatterns = [
     path('api/data/', include('data_api.urls')),
     path('api/strategies/', include('strategy_api.urls')),
     path('api/backtests/', include('backtest_api.urls')),
+    path('api/workflows/', include('workflows_api.urls')),
     # Production-hardened endpoints with sandbox execution
     path('api/production/', include('production_api_urls')),
 ]

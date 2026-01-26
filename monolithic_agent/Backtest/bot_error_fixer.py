@@ -185,16 +185,39 @@ class ErrorAnalyzer:
 class BotErrorFixer:
     """Automatically fix bot execution errors using AI with enhanced detection"""
     
-    def __init__(self, strategy_generator=None, max_iterations: int = 5, learning_system=None):
+    def __init__(self, strategy_generator=None, max_iterations: int = 5, learning_system=None, llm_backend: str = 'copilot'):
         """
         Initialize bot error fixer
         
         Args:
-            strategy_generator: Instance of GeminiStrategyGenerator for fixing code
+            strategy_generator: Instance of StrategyGenerator for fixing code (optional, auto-created if None)
             max_iterations: Maximum number of fix attempts (default: 5)
             learning_system: Instance of ErrorLearningSystem for feedback loop (optional)
+            llm_backend: LLM backend to use ('copilot' or 'gemini', default: 'copilot')
         """
+        self.llm_backend = llm_backend
         self.strategy_generator = strategy_generator
+        
+        # Auto-initialize strategy generator if not provided
+        if self.strategy_generator is None:
+            if llm_backend == 'copilot':
+                try:
+                    from .copilot_strategy_generator import get_copilot_generator
+                    self.strategy_generator = get_copilot_generator()
+                    logger.info("✓ Using GitHub Copilot strategy generator")
+                except ImportError:
+                    logger.warning("Copilot generator not available, falling back to Gemini")
+                    llm_backend = 'gemini'
+            
+            if llm_backend == 'gemini':
+                try:
+                    from .gemini_strategy_generator import GeminiStrategyGenerator
+                    self.strategy_generator = GeminiStrategyGenerator()
+                    logger.info("✓ Using Gemini strategy generator")
+                except ImportError:
+                    logger.error("No strategy generator available")
+                    self.strategy_generator = None
+        
         self.max_iterations = max_iterations
         self.fix_history: List[ErrorFixAttempt] = []
         self.learning_system = learning_system
@@ -495,11 +518,20 @@ Framework Fix Required:
             
             logger.info(f"\nRequesting AI to fix {error_type}...")
             
-            # Request AI to fix the code
-            fixed_code = self.strategy_generator.generate_strategy(
-                description=fix_prompt,
-                strategy_name=bot_file.stem
-            )
+            # Request AI to fix the code - use correct method based on generator type
+            generator_class = self.strategy_generator.__class__.__name__
+            
+            if generator_class == 'CopilotStrategyGenerator':
+                # Copilot uses generate_strategy_code(description)
+                fixed_code = self.strategy_generator.generate_strategy_code(
+                    description=fix_prompt
+                )
+            else:
+                # Gemini uses generate_strategy(description, strategy_name)
+                fixed_code = self.strategy_generator.generate_strategy(
+                    description=fix_prompt,
+                    strategy_name=bot_file.stem
+                )
             
             if fixed_code:
                 fix_attempt.success = True
@@ -625,6 +657,12 @@ ORIGINAL CODE:
 {original_code}
 ```
 {context_str}
+
+CRITICAL: USE ONLY ASCII CHARACTERS IN ALL OUTPUT
+- NO Unicode symbols (✓, ✅, ❌, ⚠️, →, •, etc.)
+- Use ASCII equivalents: [OK], [PASS], [FAIL], [ERROR], [WARNING], ->, -, etc.
+- Ensure ALL print() statements use ASCII-safe strings
+- Replace any emoji or special characters with plain text
 
 REQUIREMENTS FOR FIXING:
 1. Identify the root cause of the {error_type}

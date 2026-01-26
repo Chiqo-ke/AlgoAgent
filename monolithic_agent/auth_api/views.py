@@ -341,9 +341,17 @@ User Context:
 - Preferred Timeframe: {request.user.profile.default_timeframe}
 """
         
-        # Import Gemini strategy generator
-        from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-        generator = GeminiStrategyGenerator()
+        # Import Copilot strategy generator (preferred) with Gemini fallback
+        try:
+            from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+            generator = CopilotStrategyGenerator()
+            use_copilot = True
+            logger.info("Using GitHub Copilot for chat")
+        except Exception as copilot_error:
+            logger.warning(f"Copilot unavailable, falling back to Gemini: {copilot_error}")
+            from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
+            generator = GeminiStrategyGenerator()
+            use_copilot = False
         
         # Build conversation history for context
         conversation_history = session.messages if session.messages else []
@@ -364,7 +372,12 @@ Please help the user develop their trading strategy. You can:
 """
         
         # Get AI response
-        ai_response = generator.chat(full_prompt)
+        if use_copilot:
+            # Copilot uses a different method for chat
+            ai_response = generator.generate_chat_response(full_prompt)
+        else:
+            # Gemini uses chat method
+            ai_response = generator.chat(full_prompt)
         
         # Save messages
         user_msg = {

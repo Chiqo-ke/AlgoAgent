@@ -18,9 +18,31 @@ import os
 import sys
 import time
 import threading
+import json
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, List
 import logging
+
+# Configure logging early
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)
+
+# Django integration for template access
+try:
+    import django
+    from django.apps import apps
+    if not apps.ready:
+        django.setup()
+    from strategy_api.models import StrategyTemplate
+    DJANGO_AVAILABLE = True
+except (ImportError, RuntimeError, AttributeError):
+    DJANGO_AVAILABLE = False
+    StrategyTemplate = None
+    logger.warning("Django not available - template fallback disabled")
+
+# Configure logging early
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)
 
 # Add parent directories to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -37,7 +59,7 @@ from dotenv import load_dotenv
 
 # Import key rotation module
 try:
-    from .key_rotation import get_key_manager, KeyRotationError
+    from .key_rotation import get_key_manager, KeyRotationError, select_api_key
     KEY_ROTATION_AVAILABLE = True
 except ImportError as e:
     KEY_ROTATION_AVAILABLE = False
@@ -104,46 +126,49 @@ class GeminiStrategyGenerator:
     Now uses centralized RequestRouter for automatic key rotation and failover.
     """
     
-    def __init__(self, model: Optional[genai.GenerativeModel] = None, model_name: str = 'gemini-2.0-flash'):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_name: str = 'gemini-2.0-flash-exp',  # Changed from gemini-1.5-pro
+        use_template_fallback: bool = True,
+        request_router: Optional['RequestRouter'] = None
+    ):
         """
         Initialize Gemini Strategy Generator
         
         Args:
-            model: Pre-configured GenerativeModel instance (from RequestRouter)
-            model_name: Model name to use if model is not provided
+            model_name: Model name to use for generation
+            use_template_fallback: If True, fallback to database templates when API unavailable
         """
-        # Load environment variables
         load_dotenv()
         
-        if not GEMINI_AVAILABLE:
-            raise ImportError(
-                "google-generativeai package not installed. "
-                "Run: pip install google-generativeai"
-            )
-        
-        # Store model and get RequestRouter for retry logic
-        self.model = model
         self.model_name = model_name
+        self.use_template_fallback = use_template_fallback
+        self.request_router = request_router
+        self.key_manager = None
         
-        # Get RequestRouter for execute_with_retry
-        try:
-            from . import request_router
-            self.request_router = request_router
-            logger.info(f"GeminiStrategyGenerator initialized (model: {model_name})")
-        except Exception as e:
-            logger.warning(f"RequestRouter not available: {e}")
-            self.request_router = None
+        # Initialize RequestRouter if Gemini available
+        if GEMINI_AVAILABLE:
+            try:
+                from .request_router import get_request_router
+                self.request_router = get_request_router()
+                self.key_manager = get_key_manager()
+                logger.info(f"GeminiStrategyGenerator initialized with RequestRouter (Model: {self.model_name})")
+            except ImportError:
+                logger.warning("RequestRouter not available, using direct API calls")
+                if not GEMINI_AVAILABLE:
+                    raise ImportError("google-generativeai package not installed. Run: pip install google-generativeai")
+                self.key_manager = get_key_manager()
+        else:
+            logger.warning("Gemini API not available")
         
-        # Framework selection (default to SimBroker with DataLoader)
-        self.use_backtesting_py = False  # Changed to use SimBroker
-        
-        # Load system prompt
+        self.use_backtesting_py = False
         self.system_prompt = self._load_system_prompt(use_backtesting_py=self.use_backtesting_py)
         
-        logger.info(
-            f"GeminiStrategyGenerator initialized "
-            f"(Framework: {'backtesting.py' if self.use_backtesting_py else 'SimBroker'})"
-        )
+        if self.use_template_fallback and DJANGO_AVAILABLE:
+            logger.info("Template fallback enabled - will use database templates if API fails")
+        elif self.use_template_fallback and not DJANGO_AVAILABLE:
+            logger.warning("Template fallback requested but Django unavailable")
     
     def _load_system_prompt(self, use_backtesting_py: bool = True) -> str:
         """
@@ -212,6 +237,63 @@ Strategy must:
                 base_prompt = base_prompt + "\n\n" + indicator_info
         
         return base_prompt
+    
+    def _get_template_strategy(self, description: str, strategy_name: str) -> Optional[str]:
+        """
+        Fallback to pre-built template from database when API unavailable.
+        
+        Args:
+            description: Strategy description to match against
+            strategy_name: Name for the strategy
+            
+        Returns:
+            Template code as string, or None if no suitable template found
+        """
+        if not DJANGO_AVAILABLE or not StrategyTemplate:
+            logger.warning("Django not available - cannot load templates")
+            return None
+        
+        try:
+            # Search for active system templates
+            templates = StrategyTemplate.objects.filter(
+                is_active=True,
+                is_system_template=True
+            ).order_by('-created_at')
+            
+            if not templates.exists():
+                logger.warning("No system templates found in database")
+                return None
+            
+            # Simple keyword matching for now
+            # TODO: Implement more sophisticated matching (embeddings, semantic search)
+            description_lower = description.lower()
+            keywords = {
+                'momentum': ['momentum', 'trend', 'moving average', 'ema', 'sma', 'crossover'],
+                'mean_reversion': ['mean reversion', 'rsi', 'oversold', 'overbought', 'bollinger'],
+                'breakout': ['breakout', 'volatility', 'atr', 'range'],
+                'scalping': ['scalp', 'short term', 'quick'],
+            }
+            
+            # Try to match category
+            best_template = None
+            for category, terms in keywords.items():
+                if any(term in description_lower for term in terms):
+                    template = templates.filter(category=category).first()
+                    if template:
+                        best_template = template
+                        logger.info(f"Using template '{template.name}' (category: {category})")
+                        break
+            
+            # Fallback to first available template if no match
+            if not best_template:
+                best_template = templates.first()
+                logger.info(f"Using default template '{best_template.name}'")            
+            # Return template code (canonical JSON format)
+            return best_template.template_code
+            
+        except Exception as e:
+            logger.error(f"Failed to load template from database: {e}")
+            return None
     
     def generate_strategy(
         self,
@@ -417,29 +499,116 @@ Generate the complete, working code:
 """
         
         try:
-            # Use RequestRouter's retry mechanism for automatic failover
+            # Use RequestRouter if available, otherwise fallback
             if self.request_router:
-                logger.info(f"Generating strategy with automatic failover: {strategy_name}")
+                logger.info(f"Generating strategy with RequestRouter: {strategy_name}")
                 response_text = self.request_router.execute_with_retry(
                     model_name=self.model_name,
-                    prompt=prompt
+                    prompt=prompt,
+                    temperature=0.7,
+                    max_output_tokens=8192
                 )
-            elif self.model:
-                # Fallback to direct model call (no retry)
-                logger.info(f"Generating strategy (no retry): {strategy_name}")
-                response = self.model.generate_content(prompt)
-                response_text = response.text
+                code = self._extract_code(response_text)
+                logger.info("Strategy generated successfully with RequestRouter")
+                return code
+            
+            # Fallback to direct key manager
+            elif self.key_manager and GEMINI_AVAILABLE:
+                # Select a key and configure the model for this specific request
+                key_info = self.key_manager.select_key(model_preference=self.model_name)
+                if not key_info:
+                    raise KeyRotationError("Failed to select an available API key.")
+
+                genai.configure(api_key=key_info['secret'])
+                model = genai.GenerativeModel(self.model_name)
+                
+                logger.info(f"Generating strategy '{strategy_name}' with key '{key_info['key_id']}'")
+                
+                response = model.generate_content(prompt)
+                
+                # Report success to reset error counters for the key
+                self.key_manager.report_success(key_info['key_id'])
+                
+                code = self._extract_code(response.text)
+                logger.info("Strategy generated successfully")
+                return code
             else:
-                raise ValueError("No model or RequestRouter available")
-            
-            # Extract code from response
-            code = self._extract_code(response_text)
-            
-            logger.info("Strategy generated successfully")
-            return code
+                raise ValueError("No model or key manager available")
             
         except Exception as e:
-            logger.error(f"Failed to generate strategy: {e}")
+            logger.error(f"Failed to generate strategy with AI: {e}")
+            
+            # Fallback to template if enabled
+            if self.use_template_fallback:
+                logger.info("Attempting template fallback...")
+                template_code = self._get_template_strategy(description, strategy_name)
+                
+                if template_code:
+                    logger.info(f"Using template fallback for strategy: {strategy_name}")
+                    return template_code
+                else:
+                    logger.error("Template fallback failed - no suitable templates found")
+            
+            # If a key was selected, report the error against it
+            if 'key_info' in locals() and key_info:
+                self.key_manager.report_error(key_info['key_id'], error_type=type(e).__name__)
+            
+            raise
+    
+    def chat(self, prompt: str, temperature: float = 0.7, max_tokens: int = 4096) -> str:
+        """
+        Chat with Gemini AI for conversational strategy development
+        
+        Args:
+            prompt: User's message or question
+            temperature: Response creativity (0.0-1.0)
+            max_tokens: Maximum response length
+        
+        Returns:
+            AI response as string
+            
+        Raises:
+            Exception: If chat generation fails
+        """
+        try:
+            # Use RequestRouter if available
+            if self.request_router:
+                logger.info(f"Chat with RequestRouter")
+                response_text = self.request_router.execute_with_retry(
+                    model_name=self.model_name,
+                    prompt=prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_tokens
+                )
+                return response_text
+            
+            # Fallback to direct key manager
+            elif self.key_manager and GEMINI_AVAILABLE:
+                key_info = self.key_manager.select_key(model_preference=self.model_name)
+                if not key_info:
+                    raise KeyRotationError("Failed to select an available API key.")
+
+                genai.configure(api_key=key_info['secret'])
+                model = genai.GenerativeModel(self.model_name)
+                
+                logger.info(f"Chat with key '{key_info['key_id']}'")
+                
+                response = model.generate_content(prompt)
+                
+                # Report success to reset error counters
+                self.key_manager.report_success(key_info['key_id'])
+                
+                return response.text
+            else:
+                raise ValueError("No model or key manager available")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate chat response: {e}")
+            
+            # Report error if a key was selected
+            if 'key_info' in locals() and key_info:
+                self.key_manager.report_error(key_info['key_id'], error_type=type(e).__name__)
+            
             raise
     
     def _extract_code(self, response: str) -> str:
@@ -602,7 +771,8 @@ Generate the complete, working code:
         max_iterations: int = 5,
         test_symbol: str = "AAPL",
         test_period_days: int = 365,
-        learning_system=None  # NEW: Optional learning system for feedback loop
+        learning_system=None,  # NEW: Optional learning system for feedback loop
+        error_context: Optional[Dict[str, Any]] = None  # NEW: Error context for debugging
     ) -> Tuple[bool, Path, List[Dict[str, Any]]]:
         """
         Automatically detect and fix bot execution errors iteratively
@@ -613,6 +783,7 @@ Generate the complete, working code:
             test_symbol: Symbol for testing (default: AAPL)
             test_period_days: Days of historical data for testing (default: 365)
             learning_system: Optional ErrorLearningSystem for feedback loop
+            error_context: Additional context for debugging (e.g., no trades issue)
         
         Returns:
             Tuple of (success, final_file_path, fix_history)
@@ -639,6 +810,13 @@ Generate the complete, working code:
         logger.info(f"Max iterations: {max_iterations}")
         if learning_system:
             logger.info(f"Feedback loop: ENABLED")
+        
+        # Log no-trades context if present
+        if error_context and error_context.get('is_no_trades'):
+            logger.info("⚠️  NO TRADES ISSUE - AI will debug why strategy didn't place trades")
+            logger.info(f"   Trades count: {error_context.get('trades_count')}")
+            logger.info(f"   Error: {error_context.get('execution_error')}")
+        
         logger.info(f"{'='*70}\n")
         
         success, final_code, fix_history = fixer.iterative_fix(
