@@ -1,21 +1,84 @@
 # Quick Start - AlgoAgent Systems
 
-**Last Updated:** December 17, 2025  
-**Time to Complete:** 5-10 minutes per system
+**Last Updated:** January 26, 2026  
+**Primary System:** Monolithic Agent (Production - Integrated with Frontend)  
+**Time to Complete:** 5-10 minutes
+
+---
+
+## 🚀 Recommended Setup (Production)
+
+For most users, start with the **Monolithic Agent + Frontend** setup for the complete web-based experience.
 
 ---
 
 ## 🎯 Choose Your System
 
-AlgoAgent provides **two independent systems** optimized for different use cases. Follow the appropriate guide below.
+AlgoAgent provides **two systems** optimized for different use cases:
+
+- **🚀 Monolithic Agent** (PRIMARY): Production-ready, integrated with React frontend, full web UI
+- **🔬 Multi-Agent** (RESEARCH): Experimental CLI-based system for advanced workflows
 
 ---
 
-## 🔹 Monolithic Agent - Quick Start
+## � Monolithic Agent - Quick Start (RECOMMENDED)
 
-**Best for:** Production trading, API integration, frontend applications
+**Best for:** Production trading, Web UI, API integration, frontend applications  
+**Status:** ✅ **In Production - Integrated with Frontend**
 
-### 1. Setup (One-Time)
+### Option A: Full Stack (Backend + Frontend) - RECOMMENDED
+
+#### 1. Start Backend
+
+```powershell
+# Navigate to monolithic agent
+cd c:\Users\nyaga\Documents\AlgoAgent\monolithic_agent
+
+# Install dependencies (one-time)
+pip install -r requirements.txt
+
+# Configure API keys (see API Keys section below)
+# Edit .env file with your Gemini API keys
+
+# Start the Django server
+python manage.py runserver
+
+# Backend running at: http://127.0.0.1:8000/
+```
+
+#### 2. Start Frontend (in new terminal)
+
+```bash
+# Navigate to frontend
+cd c:\Users\nyaga\Documents\Algo
+
+# Install dependencies (one-time)
+npm install
+
+# Start development server
+npm run dev
+
+# Frontend at: http://localhost:5173
+# Automatically connects to backend at http://localhost:8000
+```
+
+#### 3. Access the Web Interface
+
+1. Open browser to `http://localhost:5173`
+2. Log in or create an account
+3. Use the AI Assistant to generate strategies
+4. View backtesting results in real-time
+5. Manage your trading strategies through the dashboard
+
+**🎉 You're ready to go! Use the web interface for all features.**
+
+---
+
+### Option B: Backend Only (API Integration)
+
+**For developers integrating with the API:**
+
+#### 1. Setup (One-Time)
 
 ```powershell
 # Navigate to monolithic agent
@@ -28,7 +91,7 @@ pip install -r requirements.txt
 # Edit .env file with your Gemini API keys
 ```
 
-### 2. Start Django Server
+#### 2. Start Django Server
 
 ```powershell
 # Start the server
@@ -37,7 +100,7 @@ python manage.py runserver
 # Server runs at: http://127.0.0.1:8000/
 ```
 
-### 3. Test the API
+#### 3. Test the API
 
 ```powershell
 # Generate a strategy via API
@@ -53,9 +116,11 @@ curl -X POST http://localhost:8000/api/strategies/generate_with_ai/ \
 
 ---
 
-## 🔹 Multi-Agent System - Quick Start
+## � Multi-Agent System - Quick Start (RESEARCH/EXPERIMENTAL)
 
-**Best for:** Research, advanced workflows, development
+**Best for:** Research, advanced workflows, development  
+**Status:** ✅ CLI Ready (Not in Production)  
+**Note:** This system is NOT integrated with the frontend. For production use, see Monolithic Agent above.
 
 ### 1. Setup (One-Time)
 
@@ -146,12 +211,14 @@ SECRET_STORE_TYPE=environment
 
 After completing quick start, explore:
 
-### For Monolithic Agent Users
-1. [monolithic_agent/docs/guides/QUICK_REFERENCE.md](monolithic_agent/docs/guides/QUICK_REFERENCE.md) - Common commands
-2. [monolithic_agent/docs/api/API_ENDPOINTS.md](monolithic_agent/docs/api/API_ENDPOINTS.md) - API reference
-3. [monolithic_agent/STATUS.md](monolithic_agent/STATUS.md) - System status
+### For Frontend + Monolithic Users (Recommended)
+1. [Algo/FRONTEND_README.md](Algo/FRONTEND_README.md) - Complete frontend guide
+2. [monolithic_agent/README.md](monolithic_agent/README.md) - Backend overview
+3. [monolithic_agent/docs/guides/QUICK_REFERENCE.md](monolithic_agent/docs/guides/QUICK_REFERENCE.md) - Common commands
+4. [monolithic_agent/docs/api/API_ENDPOINTS.md](monolithic_agent/docs/api/API_ENDPOINTS.md) - API reference
+5. [monolithic_agent/STATUS.md](monolithic_agent/STATUS.md) - System status
 
-### For Multi-Agent Users
+### For Multi-Agent Users (Research)
 1. [multi_agent/QUICKSTART_GUIDE.md](multi_agent/QUICKSTART_GUIDE.md) - Detailed guide
 2. [multi_agent/docs/guides/CLI_READY.md](multi_agent/docs/guides/CLI_READY.md) - CLI commands
 3. [multi_agent/ARCHITECTURE.md](multi_agent/ARCHITECTURE.md) - System architecture

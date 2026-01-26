@@ -1,7 +1,8 @@
 # AlgoAgent - Complete Documentation Index
 
-**Last Updated:** December 17, 2025  
-**Status:** ✅ Both Systems Production Ready
+**Last Updated:** January 26, 2026  
+**Primary System:** `monolithic_agent` (Production - Integrated with Frontend)  
+**Secondary System:** `multi_agent` (Research/Development - CLI Only)
 
 ---
 
@@ -10,26 +11,32 @@
 **New to AlgoAgent?** Start here:
 
 1. **[README.md](README.md)** - Project overview and system comparison
-   - Understand the dual architecture
-   - Choose between Monolithic and Multi-Agent
+   - Understand the system architecture
+   - **Primary System:** Monolithic Agent (production, integrated with frontend)
+   - **Research System:** Multi-Agent (experimental, CLI-based)
    - See key capabilities and features
 
 2. **[QUICK_START.md](QUICK_START.md)** - Get up and running in 5-10 minutes
-   - Quick start for both systems
+   - **Recommended:** Monolithic Agent + Frontend setup
    - Prerequisites and setup
    - API keys configuration
    - Usage examples and troubleshooting
+
+**💡 For most users:** Use the Monolithic Agent system with the Algo frontend for the complete web-based experience.
 
 ---
 
 ## 📚 System-Specific Documentation
 
-### Monolithic Agent System
+### 🚀 Monolithic Agent System (PRIMARY - IN PRODUCTION)
+
+**This is the main system integrated with the frontend web application.**
 
 **Primary Resources:**
 - **[monolithic_agent/README.md](monolithic_agent/README.md)** - Complete overview
   - Architecture and capabilities
   - Django REST API integration
+  - Frontend integration details
   - Test results and metrics
   - Quick start guide
   
@@ -70,7 +77,9 @@ monolithic_agent/docs/
 
 ---
 
-### Multi-Agent System
+### 🔬 Multi-Agent System (RESEARCH/DEVELOPMENT)
+
+**This is an experimental system for research purposes. Not integrated with the frontend.**
 
 **Primary Resources:**
 - **[multi_agent/README.md](multi_agent/README.md)** - Complete overview
@@ -89,6 +98,8 @@ monolithic_agent/docs/
   - CLI interface tutorial
   - Workflow examples
   - Common tasks
+
+**Note:** For production use and frontend integration, use the Monolithic Agent system instead.
 
 **Documentation Structure:**
 ```
