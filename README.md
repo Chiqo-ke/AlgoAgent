@@ -1,26 +1,30 @@
 # AlgoAgent - Autonomous Trading Strategy System
 
-**Status:** ✅ Production Ready | **Last Updated:** December 17, 2025  
-**Version:** 2.1 - Multi-Agent & Monolithic Systems Complete
+**Status:** ✅ Production Ready | **Last Updated:** January 26, 2026  
+**Version:** 2.2 - Monolithic System in Production  
+**Primary System:** `monolithic_agent` (integrated with frontend)
 
 ---
 
 ## 🚀 Overview
 
-AlgoAgent is a **dual-architecture autonomous trading strategy system** featuring both **monolithic** and **multi-agent** implementations. Both systems generate, test, and fix trading strategies with zero manual intervention using advanced AI capabilities.
+AlgoAgent is a **production-ready autonomous trading strategy system** with the **monolithic_agent** as the primary implementation currently integrated with the frontend. A multi-agent research system is also available for experimental workflows.
+
+**The monolithic_agent is the main system in active use**, providing full Django REST API integration with the React frontend, automatic strategy generation, backtesting, and error fixing capabilities.
 
 ### System Comparison
 
 | Feature | Monolithic Agent | Multi-Agent System | Frontend |
 |---------|------------------|-------------------|----------|
+| **Status** | ✅ **IN PRODUCTION** | 🔬 Research/Development | ✅ **IN PRODUCTION** |
 | **Architecture** | Single Django service | Distributed agent architecture | React + TypeScript SPA |
-| **Best For** | Production trading, API integration | Research, advanced workflows | Web interface, user-friendly |
+| **Best For** | **Production trading, API integration** | Research, experimental workflows | Web interface, user-friendly |
 | **API** | Full Django REST API | CLI-based interface | REST client (connects to Monolithic) |
 | **Interface** | REST endpoints | CLI REPL | Web dashboard with AI chat |
 | **Agents** | Unified generator | Planner, Architect, Coder, Tester, Debugger | N/A (consumes Monolithic API) |
 | **Execution** | Direct bot execution | Sandbox isolation with Docker | Visualizes execution from backend |
 | **Error Fixing** | Integrated AI fixing | Debugger agent with failure analysis | UI for error viewing |
-| **Status** | ✅ Production Ready | ✅ CLI Ready | ✅ Production Ready |
+| **Frontend Integration** | ✅ **Fully Integrated** | ❌ Not integrated | ✅ Uses Monolithic API |
 
 ### Key Capabilities
 
@@ -181,21 +185,31 @@ AlgoAgent/
 
 ## 🎯 Quick Start
 
-### Choose Your System
+### 🚀 Primary System (Production)
 
-#### For Web Interface → **Frontend Application**
+#### **Frontend + Monolithic Backend** (Recommended)
+
+**1. Start the Backend:**
+```powershell
+cd AlgoAgent/monolithic_agent
+python manage.py runserver
+
+# Backend running at http://localhost:8000
+```
+
+**2. Start the Frontend:**
 ```bash
 cd Algo
 npm install
 npm run dev
 
-# Access at http://localhost:5173
-# Requires backend running at http://localhost:8000
+# Frontend at http://localhost:5173
+# Automatically connects to backend
 ```
 
 See [Algo/FRONTEND_README.md](Algo/FRONTEND_README.md) for complete documentation.
 
-#### For Production Trading & API Integration → **Monolithic Agent**
+#### **Backend Only (API Integration)**
 ```powershell
 cd AlgoAgent/monolithic_agent
 python manage.py runserver
@@ -206,7 +220,11 @@ curl -X POST http://localhost:8000/api/strategies/generate_with_ai/ \
   -d '{"description": "RSI strategy: buy when RSI < 30, sell when RSI > 70"}'
 ```
 
-#### For Research & Advanced Workflows → **Multi-Agent System**
+---
+
+### 🔬 Research System (Experimental)
+
+#### **Multi-Agent System** (CLI-based)
 ```powershell
 cd AlgoAgent/multi_agent
 python cli.py
@@ -215,6 +233,8 @@ python cli.py
 >>> submit Create RSI strategy: buy at RSI<30, sell at RSI>70
 >>> execute workflow_abc123
 ```
+
+**Note:** Multi-agent system is not integrated with the frontend and is intended for research purposes.
 
 **📖 See [QUICK_START.md](QUICK_START.md) for detailed setup instructions**
 
@@ -258,21 +278,25 @@ python cli.py
 
 ## ✅ System Status
 
-### Monolithic Agent
-- **Status:** ✅ Production Ready
+### 🚀 Monolithic Agent (PRIMARY SYSTEM - IN PRODUCTION)
+- **Status:** ✅ **Production Ready & Deployed**
+- **Frontend Integration:** ✅ **Fully Integrated** (Algo React app)
 - **API:** 5 endpoints operational
 - **Tests:** 90% pass rate (18/20)
 - **Key Rotation:** 8 keys configured
 - **Error Fixing:** 10+ error types supported
 - **Documentation:** Complete
+- **Last Updated:** January 26, 2026
 
-### Multi-Agent System
-- **Status:** ✅ CLI Production Ready
+### 🔬 Multi-Agent System (RESEARCH/DEVELOPMENT)
+- **Status:** ✅ CLI Ready (Not in Production)
+- **Frontend Integration:** ❌ Not integrated
 - **Interface:** Interactive + Command-line
 - **Agents:** 5 agents operational
 - **Tests:** 17+ unit tests passing
 - **Adapter System:** Complete
 - **Documentation:** Complete
+- **Use Case:** Research, experimental workflows only
 
 ---
 
@@ -329,14 +353,17 @@ python cli.py --request "Create EMA strategy"    # CLI integration test
 
 ## 🚧 Current Focus
 
-### Monolithic Agent
-- ⏳ Frontend integration (API ready)
-- ⏳ Live trading implementation (backtesting only)
+### 🚀 Monolithic Agent (Production Priorities)
+- ✅ Frontend integration complete (Fully operational)
 - ✅ All core features complete
+- ✅ API documentation complete
+- 🔄 Ongoing: Performance optimization
+- ⏳ Future: Live trading implementation (currently backtesting only)
 
-### Multi-Agent System
+### 🔬 Multi-Agent System (Research)
 - ⏳ Tester agent full integration
 - ⏳ SQLite persistence for cross-session workflows
+- ⏳ Future: Frontend integration exploration
 - ✅ CLI and core agents complete
 
 ---
