@@ -149,6 +149,31 @@ Backtest/codes/archive/
 tests/test_ai_strategy_*.py
 tests/archive/
 
+# Generated strategy files and backtesting artifacts
+monolithic_agent/Backtest/codes/*.py
+monolithic_agent/Backtest/codes/*.json
+monolithic_agent/Backtest/codes/*.html
+!monolithic_agent/Backtest/codes/README.md
+!monolithic_agent/Backtest/codes/CODES_README.md
+monolithic_agent/Backtest/codes/results/
+monolithic_agent/Backtest/codes/trades/
+monolithic_agent/Backtest/codes/temp/
+monolithic_agent/Backtest/codes/generated_by_keys_*/
+
+# Backtest chronicle files (signals and patterns)
+monolithic_agent/Backtest/signals/*.csv
+monolithic_agent/Backtest/signals/*.json
+!monolithic_agent/Backtest/signals/README.md
+
+# Backtest results
+monolithic_agent/Backtest/results/*
+!monolithic_agent/Backtest/results/README.md
+
+# Generated test files with timestamps
+**/e2e_test_*.py
+**/quick_e2e_test_*.py
+**/test_unified_output_*.py
+
 # Generated artifacts
 *.pyc
 __pycache__/

@@ -21,7 +21,7 @@ if str(parent_dir) not in sys.path:
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from Backtest.data_loader import fetch_market_data, add_indicators
+from Backtest.data_loader import fetch_market_data, fetch_market_data_by_date_range, add_indicators
 from datetime import datetime
 import pandas as pd
 import logging
@@ -161,14 +161,21 @@ def run_backtest(
     """
     logger.info("="*70)
     logger.info(f"STARTING BACKTEST: {symbol}")
-    logger.info(f"Period: {period}, Interval: {interval}")
+    if start_date and end_date:
+        logger.info(f"Date Range: {start_date} to {end_date}, Interval: {interval}")
+    else:
+        logger.info(f"Period: {period}, Interval: {interval}")
     logger.info(f"Initial Cash: ${cash:,.2f}, Commission: {commission*100}%")
     logger.info("="*70)
     
     # 1. Fetch market data using DataLoader
     logger.info(f"\n[1/6] Fetching market data for {symbol}...")
-    df = fetch_market_data(symbol, period=period, interval=interval)
-    logger.info(f"Loaded {len(df)} bars from {df.index[0].date()} to {df.index[-1].date()}")
+    if start_date and end_date:
+        df = fetch_market_data_by_date_range(symbol, start_date=start_date, end_date=end_date, interval=interval)
+        logger.info(f"Loaded {len(df)} bars from {start_date} to {end_date}")
+    else:
+        df = fetch_market_data(symbol, period=period, interval=interval)
+        logger.info(f"Loaded {len(df)} bars from {df.index[0].date()} to {df.index[-1].date()}")
     
     # 2. Add required indicators
     logger.info(f"\n[2/6] Computing technical indicators...")
@@ -285,13 +292,23 @@ if __name__ == "__main__":
     - '1h'   : 1 hour bars
     - '1d'   : 1 day bars (default)
     - '1wk'  : 1 week bars
+    
+    DATE RANGE (optional): Use custom date range instead of period
+    - Can be passed via environment variables or modified below
     """
+    
+    # Check for environment variables (set by bot_executor)
+    import os
+    start_date = os.environ.get('BACKTEST_START_DATE')
+    end_date = os.environ.get('BACKTEST_END_DATE')
     
     # Example 1: Default - AAPL with 1 year of daily data
     results = run_backtest(
         symbol="AAPL",
         period="1y",
         interval="1d",
+        start_date=start_date,
+        end_date=end_date,
         cash=10000,
         commission=0.002,
         ema_fast=12,

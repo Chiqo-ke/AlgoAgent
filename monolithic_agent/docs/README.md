@@ -1,6 +1,6 @@
 # Monolithic Agent Documentation
 
-**Last Updated:** December 4, 2025  
+**Last Updated:** January 26, 2026  
 **Version:** 2.0 - Backend-to-API Integration Complete
 
 ---
@@ -15,6 +15,7 @@ This documentation is organized following best practices for clear navigation an
 - **[Quick Reference](guides/QUICK_REFERENCE.md)** - Fast lookups and common tasks
 - **[Architecture Overview](architecture/ARCHITECTURE.md)** - System design and components
 - **[API Integration Guide](api/BACKEND_API_INTEGRATION.md)** - Latest API updates
+- **[Changelog](CHANGELOG.md)** - All fixes and improvements (January 2026)
 
 ---
 
@@ -38,6 +39,9 @@ Step-by-step guides for common tasks and workflows.
 
 - **[BOT_EXECUTION_START_HERE.md](guides/BOT_EXECUTION_START_HERE.md)** - Getting started
 - **[QUICK_REFERENCE.md](guides/QUICK_REFERENCE.md)** - Quick command reference
+- **[THREE_STEP_WORKFLOW.md](guides/THREE_STEP_WORKFLOW.md)** - Three-step generation workflow
+- **[AGENT_ERROR_PREVENTION_GUIDE.md](guides/AGENT_ERROR_PREVENTION_GUIDE.md)** - Error prevention system
+- **[ERROR_PREVENTION_QUICKSTART.md](guides/ERROR_PREVENTION_QUICKSTART.md)** - Quick start for validation
 - **[BOT_EXECUTION_QUICK_REFERENCE.md](guides/BOT_EXECUTION_QUICK_REFERENCE.md)** - Bot execution guide
 - **[BOT_CREATION_WITH_KEY_ROTATION_QUICKSTART.md](guides/BOT_CREATION_WITH_KEY_ROTATION_QUICKSTART.md)** - Key rotation setup
 - **[E2E_QUICK_REFERENCE.md](guides/E2E_QUICK_REFERENCE.md)** - End-to-end workflow
@@ -64,9 +68,19 @@ Deep dives into specific features and their implementation.
 ### `/testing` - Testing Documentation
 Testing guides, methodologies, and best practices.
 
-- **[E2E_TESTING_GUIDE.md](testing/E2E_TESTING_GUIDE.md)** - End-to-end testing guide
-- **[E2E_TESTING_COMPLETE.md](testing/E2E_TESTING_COMPLETE.md)** - Testing completion status
-- **[E2E_TEST_INDEX.md](testing/E2E_TEST_INDEX.md)** - Test documentation index
+- **[E2E_TEST_REPORT.md](testing/E2E_TEST_REPORT.md)** - Latest test results (January 2026)
+- **[STATUS.md](testing/STATUS.md)** - Current system status and test results
+
+**Note:** All test scripts (38 files) are located in [../tests/](../tests/) directory.
+
+### `/archive` - Historical Documentation
+Completed implementations and consolidated fix summaries.
+
+- **[Archive README](archive/README.md)** - Guide to archived documentation
+- **Migration Docs** - Completed Copilot integration (4 files)
+- **Fix Summaries** - Consolidated into [CHANGELOG.md](CHANGELOG.md) (5 files)
+
+**Note:** For current information, always check main docs first, then CHANGELOG
 - **[STATUS.md](testing/STATUS.md)** - Current system status and test results
 
 **Note:** All test scripts (38 files) are located in [../tests/](../tests/) directory.
