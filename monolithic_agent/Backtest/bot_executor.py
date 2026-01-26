@@ -309,6 +309,11 @@ class BotExecutor:
             logger.debug(f"Running: {' '.join(cmd)}")
             logger.debug(f"Working directory: {monolithic_root}")
             
+            # Set Django settings environment variable for strategies that import Backtest modules
+            import os
+            env = os.environ.copy()
+            env['DJANGO_SETTINGS_MODULE'] = 'monolithic_agent.settings'
+            
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -316,7 +321,8 @@ class BotExecutor:
                 text=True,
                 encoding='utf-8',
                 errors='replace',  # Replace unencodable characters instead of crashing
-                cwd=str(monolithic_root)
+                cwd=str(monolithic_root),
+                env=env
             )
             
             try:

@@ -562,28 +562,27 @@ class StrategyViewSet(viewsets.ModelViewSet):
             
             # Update strategy
             strategy.last_validated = timezone.now()
-            strategy.status = 'executed' if result.success else 'failed'
-            strategy.save(update_fields=['last_validated', 'status'])
+            strategy.save(update_fields=['last_validated'])
             
             # Save backtest results to LatestBacktestResult
-            if result.success:
-                try:
-                    from .models import LatestBacktestResult
-                    result_data = {
-                        'symbol': test_symbol,
-                        'period': request.data.get('period', '1y'),
-                        'total_trades': result.trades or 0,
-                        'win_rate': result.win_rate or 0,
-                        'total_return_pct': result.return_pct or 0,
-                        'sharpe_ratio': result.sharpe_ratio,
-                        'max_drawdown': result.max_drawdown or 0,
-                        'trades': [],  # Will be populated if available
-                        'equity_curve': []  # Will be populated if available
-                    }
-                    LatestBacktestResult.save_result(pk, result_data)
-                    logger.info(f"[EXECUTE] Saved backtest results for strategy {pk}")
-                except Exception as save_error:
-                    logger.error(f"[EXECUTE] Failed to save backtest results: {save_error}")
+            # Save results even if metrics couldn't be parsed - user needs to know backtest was attempted
+            try:
+                from .models import LatestBacktestResult
+                result_data = {
+                    'symbol': test_symbol,
+                    'period': request.data.get('period', '1y'),
+                    'total_trades': result.trades if result.trades is not None else 0,
+                    'win_rate': result.win_rate or 0,
+                    'total_return_pct': result.return_pct or 0,
+                    'sharpe_ratio': result.sharpe_ratio or 0,
+                    'max_drawdown': result.max_drawdown or 0,
+                    'trades': [],  # Will be populated if available
+                    'equity_curve': []  # Will be populated if available
+                }
+                LatestBacktestResult.save_result(pk, result_data)
+                logger.info(f"[EXECUTE] Saved backtest attempt for strategy {pk} with symbol {test_symbol}")
+            except Exception as save_error:
+                logger.error(f"[EXECUTE] Failed to save backtest results: {save_error}")
             
             return Response({
                 'success': result.success,
