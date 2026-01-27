@@ -14,6 +14,7 @@ from .views import (
     UserProfileViewSet, AIContextViewSet, ChatSessionViewSet,
     ai_chat_view, health_check, change_password_view
 )
+from .google_auth_views import google_auth_redirect, google_auth_callback
 
 # Create router for viewsets
 router = DefaultRouter()
@@ -29,6 +30,10 @@ urlpatterns = [
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('user/me/', current_user_view, name='current-user'),
     path('change-password/', change_password_view, name='change-password'),
+    
+    # Google OAuth endpoints
+    path('google/', google_auth_redirect, name='google-auth'),
+    path('google/callback/', google_auth_callback, name='google-callback'),
     
     # AI Chat endpoint
     path('chat/', ai_chat_view, name='ai-chat'),

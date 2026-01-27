@@ -45,7 +45,7 @@ SECRET_KEY = 'django-insecure-ic)b377zj54kad&)o__t(#)8l&i-4n664+nw3j8_u&-q00ux12
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver', 'chiqoke254.pythonanywhere.com']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver', 'chiqoke254.pythonanywhere.com', 'ps283t0p-8000.uks1.devtunnels.ms', '.algoai.biz']
 
 
 # Application definition
@@ -58,11 +58,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sites',  # Required for allauth
     # 'channels',  # WebSocket support
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.google',
     'data_api',
     'backtest_api',
     'strategy_api',
@@ -78,6 +83,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',  # Required for django-allauth
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -198,7 +204,10 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
     "https://algo-rho.vercel.app",  # Production frontend
+    "https://www.algoai.biz",  # Production domain
+    "https://algoai.biz",  # Production domain (without www)
     "http://chiqoke254.pythonanywhere.com",  # PythonAnywhere backend (for admin access)
+    "https://ps283t0p-8000.uks1.devtunnels.ms",  # Dev tunnel
 ]
 
 CORS_ALLOW_ALL_ORIGINS = False  # Set to True for development only
@@ -208,6 +217,39 @@ CORS_ALLOW_CREDENTIALS = True
 
 # JWT Configuration
 from datetime import timedelta
+
+# Django Sites Framework (required for allauth)
+SITE_ID = 1
+
+# Django Allauth Configuration
+AUTHENTICATION_BACKENDS = (
+    'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
+)
+
+# Allauth settings
+ACCOUNT_LOGIN_METHODS = {'username'}
+ACCOUNT_SIGNUP_FIELDS = ['username*', 'password1*', 'password2*']
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_AUTO_SIGNUP = True
+
+# Google OAuth Settings
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        },
+        'APP': {
+            'client_id': os.getenv('GOOGLE_OAUTH_CLIENT_ID', ''),
+            'secret': os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', ''),
+            'key': ''
+        }
+    }
+}
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),

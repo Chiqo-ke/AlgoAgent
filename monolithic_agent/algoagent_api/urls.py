@@ -72,5 +72,5 @@ urlpatterns = [
     path('api/backtests/', include('backtest_api.urls')),
     path('api/workflows/', include('workflows_api.urls')),
     # Production-hardened endpoints with sandbox execution
-    path('api/production/', include('production_api_urls')),
+    path('api/production/', include('algoagent_api.production_api_urls')),
 ]
