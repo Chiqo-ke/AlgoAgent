@@ -1,0 +1,41 @@
+[Unit]
+Description=AlgoAgent Gunicorn WSGI Server (Fallback)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=algoagent
+Group=algoagent
+WorkingDirectory=/opt/algoagent/AlgoAgent/monolithic_agent
+Environment="PATH=/opt/algoagent/venv/bin"
+EnvironmentFile=/etc/algoagent/.env
+
+# Gunicorn with multiple workers (use only if WebSockets not needed)
+ExecStart=/opt/algoagent/venv/bin/gunicorn \
+    --workers 4 \
+    --worker-class sync \
+    --bind 0.0.0.0:8000 \
+    --timeout 60 \
+    --access-logfile /var/log/algoagent/gunicorn-access.log \
+    --error-logfile /var/log/algoagent/gunicorn-error.log \
+    --log-level info \
+    algoagent_api.wsgi:application
+
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+LimitNOFILE=65535
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=algoagent-gunicorn
+
+[Install]
+WantedBy=multi-user.target
