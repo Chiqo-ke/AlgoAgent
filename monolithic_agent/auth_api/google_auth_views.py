@@ -162,20 +162,17 @@ def google_auth_callback(request):
             user.set_unusable_password()
             user.save()
             
-            # Create user profile
+            # Create user profile with default preferences
             UserProfile.objects.create(
                 user=user,
-                avatar_url=picture,
-                bio=f'User authenticated via Google',
-                preferences={'auth_method': 'google'}
+                trading_goals='New user authenticated via Google',
+                risk_parameters={'auth_method': 'google'}
             )
         else:
             logger.info(f"Existing user logged in via Google: {user.username}")
             # Update last active
             if hasattr(user, 'profile'):
                 user.profile.last_active = timezone.now()
-                if picture and not user.profile.avatar_url:
-                    user.profile.avatar_url = picture
                 user.profile.save()
         
         # Generate JWT tokens
