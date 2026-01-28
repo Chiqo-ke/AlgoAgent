@@ -8,7 +8,7 @@ Django REST Framework views for the strategy API.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
@@ -17,6 +17,10 @@ import sys
 import os
 from pathlib import Path
 import traceback
+
+# Import custom permissions
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from permissions import IsOwner, IsOwnerOrReadOnly
 
 from .models import (
     StrategyTemplate, Strategy, StrategyValidation, StrategyPerformance, 
@@ -49,14 +53,17 @@ class StrategyTemplateViewSet(viewsets.ModelViewSet):
     """ViewSet for managing strategy templates"""
     queryset = StrategyTemplate.objects.all()
     serializer_class = StrategyTemplateSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwner]
+    
+    def get_queryset(self):
+        """Users can only access their own templates"""
+        if self.request.user.is_authenticated:
+            return StrategyTemplate.objects.filter(created_by=self.request.user)
+        return StrategyTemplate.objects.none()
     
     def perform_create(self, serializer):
-        """Set the creating user if authenticated"""
-        if self.request.user.is_authenticated:
-            serializer.save(created_by=self.request.user)
-        else:
-            serializer.save()
+        """Set the creating user"""
+        serializer.save(created_by=self.request.user)
     
     @action(detail=True, methods=['post'])
     def sync_from_strategy(self, request, pk=None):
@@ -178,7 +185,7 @@ class StrategyTemplateViewSet(viewsets.ModelViewSet):
 class StrategyViewSet(viewsets.ModelViewSet):
     """ViewSet for managing strategies"""
     queryset = Strategy.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwner]
     
     def get_serializer_class(self):
         """Use different serializers for list vs detail views"""
@@ -187,8 +194,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return StrategySerializer
     
     def get_queryset(self):
-        """Filter strategies by query parameters"""
-        queryset = Strategy.objects.all()
+        """Filter strategies by user and query parameters"""
+        # Base filter: user can only see their own strategies
+        if not self.request.user.is_authenticated:
+            return Strategy.objects.none()
+        
+        queryset = Strategy.objects.filter(created_by=self.request.user)
         
         # Filter by status
         status_filter = self.request.query_params.get('status', None)
@@ -216,11 +227,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return queryset.order_by('-created_at')
     
     def perform_create(self, serializer):
-        """Set the creating user if authenticated"""
-        if self.request.user.is_authenticated:
-            serializer.save(created_by=self.request.user)
-        else:
-            serializer.save()
+        """Set the creating user"""
+        serializer.save(created_by=self.request.user)
     
     @action(detail=True, methods=['post'])
     def validate_strategy(self, request, pk=None):
@@ -2830,29 +2838,43 @@ class StrategyValidationViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing strategy validations"""
     queryset = StrategyValidation.objects.all()
     serializer_class = StrategyValidationSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only see validations for their own strategies"""
+        if not self.request.user.is_authenticated:
+            return StrategyValidation.objects.none()
+        return StrategyValidation.objects.filter(strategy__created_by=self.request.user)
 
 
 class StrategyPerformanceViewSet(viewsets.ModelViewSet):
     """ViewSet for managing strategy performance records"""
     queryset = StrategyPerformance.objects.all()
     serializer_class = StrategyPerformanceSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only see performance records for their own strategies"""
+        if not self.request.user.is_authenticated:
+            return StrategyPerformance.objects.none()
+        return StrategyPerformance.objects.filter(strategy__created_by=self.request.user)
 
 
 class StrategyCommentViewSet(viewsets.ModelViewSet):
     """ViewSet for managing strategy comments"""
     queryset = StrategyComment.objects.all()
     serializer_class = StrategyCommentSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwnerOrReadOnly]
+    
+    def get_queryset(self):
+        """Users can only see comments on their own strategies"""
+        if not self.request.user.is_authenticated:
+            return StrategyComment.objects.none()
+        return StrategyComment.objects.filter(strategy__created_by=self.request.user)
     
     def perform_create(self, serializer):
-        """Set the comment author if authenticated"""
-        if self.request.user.is_authenticated:
-            serializer.save(author=self.request.user)
-        else:
-            # Create anonymous user or handle as needed
-            serializer.save()
+        """Set the comment author"""
+        serializer.save(author=self.request.user)
 
 
 class StrategyTagViewSet(viewsets.ModelViewSet):
@@ -2865,7 +2887,7 @@ class StrategyTagViewSet(viewsets.ModelViewSet):
 class StrategyChatViewSet(viewsets.ModelViewSet):
     """ViewSet for managing chat sessions with AI conversation memory"""
     queryset = StrategyChat.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwner]
     lookup_field = 'session_id'  # Allow lookup by session_id instead of pk
     
     def get_serializer_class(self):
@@ -2875,14 +2897,11 @@ class StrategyChatViewSet(viewsets.ModelViewSet):
         return StrategyChatSerializer
     
     def get_queryset(self):
-        """Filter chat sessions by user if authenticated"""
-        queryset = StrategyChat.objects.all()
+        """Users can only access their own chat sessions"""
+        if not self.request.user.is_authenticated:
+            return StrategyChat.objects.none()
         
-        # Filter by user
-        if self.request.user.is_authenticated:
-            user_filter = self.request.query_params.get('my_sessions', None)
-            if user_filter:
-                queryset = queryset.filter(user=self.request.user)
+        queryset = StrategyChat.objects.filter(user=self.request.user)
         
         # Filter by active status
         is_active = self.request.query_params.get('is_active', None)

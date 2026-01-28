@@ -8,7 +8,7 @@ Django REST Framework views for the backtest API.
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db.models import Q
@@ -21,6 +21,10 @@ from decimal import Decimal
 import math
 import pandas as pd
 from datetime import datetime
+
+# Import custom permissions
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from permissions import IsOwner
 
 from .models import BacktestConfig, BacktestRun, BacktestResult, Trade, BacktestAlert
 from .serializers import (
@@ -52,14 +56,17 @@ class BacktestConfigViewSet(viewsets.ModelViewSet):
     """ViewSet for managing backtest configurations"""
     queryset = BacktestConfig.objects.all()
     serializer_class = BacktestConfigSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwner]
+    
+    def get_queryset(self):
+        """Users can only access their own backtest configs"""
+        if not self.request.user.is_authenticated:
+            return BacktestConfig.objects.none()
+        return BacktestConfig.objects.filter(created_by=self.request.user)
     
     def perform_create(self, serializer):
-        """Set the creating user if authenticated"""
-        if self.request.user.is_authenticated:
-            serializer.save(created_by=self.request.user)
-        else:
-            serializer.save()
+        """Set the creating user"""
+        serializer.save(created_by=self.request.user)
     
     @action(detail=False, methods=['get'])
     def templates(self, request):
@@ -72,7 +79,7 @@ class BacktestConfigViewSet(viewsets.ModelViewSet):
 class BacktestRunViewSet(viewsets.ModelViewSet):
     """ViewSet for managing backtest runs"""
     queryset = BacktestRun.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsOwner]
     
     def get_serializer_class(self):
         """Use different serializers for list vs detail views"""
@@ -81,8 +88,12 @@ class BacktestRunViewSet(viewsets.ModelViewSet):
         return BacktestRunSerializer
     
     def get_queryset(self):
-        """Filter backtest runs by query parameters"""
-        queryset = BacktestRun.objects.all()
+        """Filter backtest runs by user and query parameters"""
+        # Base filter: user can only see their own backtest runs
+        if not self.request.user.is_authenticated:
+            return BacktestRun.objects.none()
+        
+        queryset = BacktestRun.objects.filter(created_by=self.request.user)
         
         # Filter by status
         status_filter = self.request.query_params.get('status', None)
@@ -874,13 +885,19 @@ class BacktestResultViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing backtest results"""
     queryset = BacktestResult.objects.all()
     serializer_class = BacktestResultSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only see results for their own backtest runs"""
+        if not self.request.user.is_authenticated:
+            return BacktestResult.objects.none()
+        return BacktestResult.objects.filter(run__created_by=self.request.user)
 
 
 class TradeViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing trades"""
     queryset = Trade.objects.all()
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     
     def get_serializer_class(self):
         """Use different serializers for list vs detail views"""
@@ -889,8 +906,12 @@ class TradeViewSet(viewsets.ReadOnlyModelViewSet):
         return TradeSerializer
     
     def get_queryset(self):
-        """Filter trades by query parameters"""
-        queryset = Trade.objects.all()
+        """Filter trades by user and query parameters"""
+        # Base filter: user can only see trades from their own backtest runs
+        if not self.request.user.is_authenticated:
+            return Trade.objects.none()
+        
+        queryset = Trade.objects.filter(run__created_by=self.request.user)
         
         # Filter by run
         run_id = self.request.query_params.get('run_id', None)
@@ -919,4 +940,10 @@ class BacktestAlertViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for viewing backtest alerts"""
     queryset = BacktestAlert.objects.all()
     serializer_class = BacktestAlertSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Users can only see alerts for their own backtest runs"""
+        if not self.request.user.is_authenticated:
+            return BacktestAlert.objects.none()
+        return BacktestAlert.objects.filter(run__created_by=self.request.user)
