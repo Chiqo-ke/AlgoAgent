@@ -4,10 +4,31 @@ Inherits from base settings and adds production-specific configuration
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from .settings import *
 
+# Load environment variables from /etc/algoagent/.env (production)
+# This takes priority over any .env files in the project directory
+env_file = '/etc/algoagent/.env'
+if os.path.exists(env_file):
+    load_dotenv(env_file, override=True)
+    print(f"[Settings] Loaded .env from {env_file}")
+else:
+    # Fallback: search in project directory (for development/testing)
+    env_search_paths = [
+        BASE_DIR / '.env',
+        BASE_DIR.parent / '.env',
+    ]
+    for path in env_search_paths:
+        if path.exists():
+            load_dotenv(path, override=True)
+            print(f"[Settings] Loaded .env from {path}")
+            break
+    else:
+        print("[Settings] WARNING: No .env file found!")
+
 # Security Settings
-DEBUG = False
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
 
 if not SECRET_KEY:
@@ -15,6 +36,7 @@ if not SECRET_KEY:
 
 # Allowed Hosts - Set from environment variable
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS if host.strip()]
 if not ALLOWED_HOSTS or ALLOWED_HOSTS == ['']:
     raise ValueError("DJANGO_ALLOWED_HOSTS environment variable is required")
 
@@ -87,6 +109,7 @@ MEDIA_URL = '/media/'
 
 # CORS Settings - Strict production whitelist
 CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -102,9 +125,11 @@ CORS_ALLOW_HEADERS = [
 
 # WebSocket Origin Validation
 ALLOWED_WEBSOCKET_ORIGINS = os.environ.get('ALLOWED_WEBSOCKET_ORIGINS', '').split(',')
+ALLOWED_WEBSOCKET_ORIGINS = [origin.strip() for origin in ALLOWED_WEBSOCKET_ORIGINS if origin.strip()]
 
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
+CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS if origin.strip()]
 CSRF_COOKIE_HTTPONLY = False  # Allow JS access for CSRF token
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_AGE = 31449600  # 1 year
