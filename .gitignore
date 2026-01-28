@@ -194,3 +194,10 @@ keys.json
 *.key
 *.pem
 api_keys.json
+
+# Environment files (local development)
+.env
+.env.local
+.env.*.local
+monolithic_agent/.env.local
+

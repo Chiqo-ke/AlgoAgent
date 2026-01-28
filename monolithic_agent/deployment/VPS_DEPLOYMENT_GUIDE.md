@@ -45,8 +45,12 @@ Wait 1-2 minutes, then reconnect via SSH.
 ### Step 3: Install Required Software
 
 ```bash
+# Add deadsnakes PPA for Python 3.11 (if Ubuntu 20.04/22.04)
+sudo add-apt-repository ppa:deadsnakes/ppa -y
+sudo apt update
+
 # Install Python 3.11 and development tools
-sudo apt install -y python3.11 python3.11-venv python3-pip build-essential libpq-dev python3-dev git curl
+sudo apt install -y python3.11 python3.11-venv python3.11-dev python3-pip build-essential libpq-dev python3-dev git curl
 
 # Install PostgreSQL database
 sudo apt install -y postgresql postgresql-contrib
@@ -95,6 +99,10 @@ Nginx Full                 ALLOW       Anywhere
 ```bash
 # Create dedicated user for the application
 sudo useradd -m -s /bin/bash algoagent
+
+# Set password for algoagent user (required for sudo operations)
+sudo passwd algoagent
+# Enter a strong password when prompted
 
 # Create application directory
 sudo mkdir -p /opt/algoagent
@@ -189,7 +197,8 @@ sudo -u algoagent -i
 cd /opt/algoagent
 
 # Clone your repository (replace with your repo URL)
-git clone https://github.com/yourusername/AlgoAgent.git .
+# This will create /opt/algoagent/AlgoAgent/
+git clone https://github.com/yourusername/AlgoAgent.git
 
 # Or if already cloned locally, use git to push and then clone
 # Or use SCP/SFTP to upload files
@@ -197,8 +206,8 @@ git clone https://github.com/yourusername/AlgoAgent.git .
 
 If uploading via SCP from your Windows machine (in a new PowerShell window):
 ```powershell
-# Upload from your local machine
-scp -r C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent root@your-vps-ip:/opt/algoagent/
+# Upload from your local machine to create /opt/algoagent/AlgoAgent/
+scp -r C:\Users\nyaga\Documents\AlgoAgent root@your-vps-ip:/opt/algoagent/
 ```
 
 ### Step 10: Create Python Virtual Environment
@@ -217,7 +226,7 @@ source /opt/algoagent/venv/bin/activate
 pip install --upgrade pip
 
 # Install Python dependencies
-cd /opt/algoagent/monolithic_agent
+cd /opt/algoagent/AlgoAgent/monolithic_agent
 pip install -r requirements.txt
 ```
 
@@ -242,7 +251,7 @@ Copy and paste this configuration (update the values in CAPS):
 # Django Settings
 DJANGO_SETTINGS_MODULE=algoagent_api.settings_production
 DJANGO_SECRET_KEY=GENERATE_A_RANDOM_SECRET_KEY_HERE
-DJANGO_ALLOWED_HOSTS=your-domain.com,www.your-domain.com
+DJANGO_ALLOWED_HOSTS=api.algoai.biz,algoai.biz,www.algoai.biz
 DEBUG=False
 
 # Database Configuration
@@ -255,10 +264,10 @@ DB_PORT=5432
 # Redis Configuration
 REDIS_URL=redis://localhost:6379/0
 
-# CORS & CSRF Settings (update with your frontend domain)
-CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com,https://www.your-frontend-domain.com
-CSRF_TRUSTED_ORIGINS=https://your-domain.com,https://www.your-domain.com
-ALLOWED_WEBSOCKET_ORIGINS=your-domain.com,www.your-domain.com
+# CORS & CSRF Settings - IMPORTANT: Must include https:// scheme, no trailing slashes
+CORS_ALLOWED_ORIGINS=https://algoai.biz,https://www.algoai.biz,https://api.algoai.biz
+CSRF_TRUSTED_ORIGINS=https://algoai.biz,https://www.algoai.biz,https://api.algoai.biz
+ALLOWED_WEBSOCKET_ORIGINS=algoai.biz,api.algoai.biz,www.algoai.biz
 
 # Google OAuth (Optional - add if you have credentials)
 GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID
@@ -278,8 +287,15 @@ EMAIL_HOST_PASSWORD=your-app-specific-password
 ADMIN_EMAIL=admin@your-domain.com
 ```
 
-**To generate a Django SECRET_KEY:**
+**To generate a Django SECRET_KEY (use any of these methods):**
 ```bash
+# Option 1: Using Python secrets module (works without Django)
+python3 -c "import secrets; print(''.join(secrets.choice('abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)') for i in range(50)))"
+
+# Option 2: Using OpenSSL
+openssl rand -base64 50
+
+# Option 3: If Django is installed
 python3 -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
@@ -300,13 +316,14 @@ sudo -u algoagent -i
 source /opt/algoagent/venv/bin/activate
 
 # Navigate to Django project
-cd /opt/algoagent/monolithic_agent
+cd /opt/algoagent/AlgoAgent/monolithic_agent
 
-# Load environment variables
-export $(cat /etc/algoagent/.env | xargs)
-
-# Run migrations
+# Run migrations (settings_production.py now loads /etc/algoagent/.env automatically)
 python manage.py migrate --settings=algoagent_api.settings_production
+
+# You should see:
+# [Settings] Loaded .env from /etc/algoagent/.env
+# ✓ Production settings loaded successfully
 
 # Create superuser (optional but recommended)
 python manage.py createsuperuser --settings=algoagent_api.settings_production
@@ -326,7 +343,7 @@ exit
 
 ```bash
 # Copy Daphne service file
-sudo cp /opt/algoagent/monolithic_agent/deployment/daphne.service /etc/systemd/system/algoagent-daphne.service
+sudo cp /opt/algoagent/AlgoAgent/monolithic_agent/deployment/daphne.service /etc/systemd/system/algoagent-daphne.service
 
 # Reload systemd
 sudo systemctl daemon-reload
@@ -352,15 +369,18 @@ sudo journalctl -u algoagent-daphne -n 50 --no-pager
 
 ```bash
 # Copy nginx configuration
-sudo cp /opt/algoagent/monolithic_agent/deployment/nginx.conf /etc/nginx/sites-available/algoagent
+sudo cp /opt/algoagent/AlgoAgent/monolithic_agent/deployment/nginx.conf /etc/nginx/sites-available/algoagent
 
 # Edit the configuration to replace placeholders
 sudo nano /etc/nginx/sites-available/algoagent
 ```
 
-**Find and replace:**
-- `your-domain.com` → Your actual domain (e.g., `api.algoai.biz`)
-- Both occurrences in the file
+**Find and replace all occurrences:**
+- `your-domain.com` → `api.algoai.biz` (or your actual domain)
+- Make sure to update:
+  - `server_name` directives (2 places)
+  - SSL certificate paths (2 places)
+  - `wss://your-domain.com` in Content-Security-Policy
 
 Save: `Ctrl+X`, `Y`, `Enter`
 
@@ -483,10 +503,10 @@ sudo systemctl status algoagent-daphne nginx postgresql redis-server
 
 ```bash
 # Make the script executable (first time only)
-sudo chmod +x /opt/algoagent/monolithic_agent/deployment/deploy.sh
+sudo chmod +x /opt/algoagent/AlgoAgent/monolithic_agent/deployment/deploy.sh
 
 # Run deployment script
-cd /opt/algoagent/monolithic_agent/deployment
+cd /opt/algoagent/AlgoAgent/monolithic_agent/deployment
 bash deploy.sh
 ```
 
@@ -496,11 +516,14 @@ bash deploy.sh
 # Switch to algoagent user
 sudo -u algoagent -i
 
-# Navigate to project
-cd /opt/algoagent/monolithic_agent
+# Navigate to project root
+cd /opt/algoagent/AlgoAgent
 
 # Pull latest code
 git pull origin main
+
+# Navigate to monolithic_agent
+cd monolithic_agent
 
 # Activate virtual environment
 source /opt/algoagent/venv/bin/activate
@@ -653,7 +676,7 @@ sudo journalctl -u algoagent-daphne -f
 sudo tail -f /var/log/nginx/algoagent-access.log
 
 # Run Django management commands
-sudo -u algoagent bash -c "source /opt/algoagent/venv/bin/activate && cd /opt/algoagent/monolithic_agent && python manage.py <command> --settings=algoagent_api.settings_production"
+sudo -u algoagent bash -c "source /opt/algoagent/venv/bin/activate && cd /opt/algoagent/AlgoAgent/monolithic_agent && python manage.py <command> --settings=algoagent_api.settings_production"
 
 # Check disk space
 df -h
@@ -669,10 +692,15 @@ htop  # or top
 
 ## 📝 Notes
 
-- All configuration files are in: `/opt/algoagent/monolithic_agent/deployment/`
-- Environment variables: `/etc/algoagent/.env`
-- Application logs: `/var/log/algoagent/`
-- Nginx logs: `/var/log/nginx/`
+- **Repository location:** `/opt/algoagent/AlgoAgent/`
+- **Django project:** `/opt/algoagent/AlgoAgent/monolithic_agent/`
+- **Configuration files:** `/opt/algoagent/AlgoAgent/monolithic_agent/deployment/`
+- **Virtual environment:** `/opt/algoagent/venv/`
+- **Environment variables:** `/etc/algoagent/.env`
+- **Application logs:** `/var/log/algoagent/`
+- **Nginx logs:** `/var/log/nginx/`
+- **Static files:** `/opt/algoagent/AlgoAgent/monolithic_agent/staticfiles/`
+- **Media files:** `/opt/algoagent/AlgoAgent/monolithic_agent/media/`
 - Database backups should be automated (not covered in this guide - see PostgreSQL documentation)
 
 **Congratulations!** Your AlgoAgent backend is now deployed on a production VPS with industry-standard security and configuration. 🎉
