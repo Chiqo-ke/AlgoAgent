@@ -1,0 +1,43 @@
+[Unit]
+Description=AlgoAgent Daphne ASGI Server
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=notify
+User=algoagent
+Group=algoagent
+WorkingDirectory=/opt/algoagent/AlgoAgent/monolithic_agent
+Environment="PATH=/opt/algoagent/venv/bin"
+EnvironmentFile=/etc/algoagent/.env
+
+# Daphne ASGI server with WebSocket support
+ExecStart=/opt/algoagent/venv/bin/daphne \
+    -b 0.0.0.0 \
+    -p 8000 \
+    --proxy-headers \
+    --access-log /var/log/algoagent/daphne-access.log \
+    --verbosity 2 \
+    algoagent_api.asgi:application
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Process management
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Resource limits
+LimitNOFILE=65535
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=algoagent-daphne
+
+[Install]
+WantedBy=multi-user.target
