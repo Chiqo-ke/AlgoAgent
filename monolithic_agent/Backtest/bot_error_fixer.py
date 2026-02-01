@@ -733,7 +733,8 @@ COMMON FIXES FOR {error_type}:
         self,
         bot_file: Path,
         bot_executor,
-        max_attempts: int = None
+        max_attempts: int = None,
+        use_diagnostics: bool = True
     ) -> Tuple[bool, str, List[ErrorFixAttempt]]:
         """
         Iteratively fix bot errors until successful or max attempts reached
@@ -742,6 +743,7 @@ COMMON FIXES FOR {error_type}:
             bot_file: Path to bot file
             bot_executor: BotExecutor instance to run the bot
             max_attempts: Maximum fix attempts (default: self.max_iterations)
+            use_diagnostics: Use diagnostic logging to identify issues (default: True)
         
         Returns:
             Tuple of (success, final_code, fix_history)
@@ -756,16 +758,25 @@ COMMON FIXES FOR {error_type}:
         logger.info(f"\n{'='*70}")
         logger.info(f"STARTING ITERATIVE ERROR FIXING")
         logger.info(f"Max attempts: {max_attempts}")
+        logger.info(f"Diagnostic mode: {'ENABLED' if use_diagnostics else 'DISABLED'}")
         logger.info(f"{'='*70}\n")
         
         for attempt in range(max_attempts):
             logger.info(f"\n>>> ATTEMPT {attempt + 1}/{max_attempts}")
             
-            # Execute the bot
-            result = bot_executor.execute_bot(
-                strategy_file=str(bot_file),
-                save_results=False
-            )
+            # Execute the bot (with diagnostics if enabled)
+            if use_diagnostics and hasattr(bot_executor, 'execute_with_diagnostics'):
+                logger.info("🔍 Running diagnostic execution...")
+                result, diagnostic_report = bot_executor.execute_with_diagnostics(
+                    strategy_file=str(bot_file),
+                    strategy_name=bot_file.stem
+                )
+            else:
+                result = bot_executor.execute_bot(
+                    strategy_file=str(bot_file),
+                    save_results=False
+                )
+                diagnostic_report = None
             
             if result.success:
                 logger.info(f"\n[OK] SUCCESS! Bot executed successfully on attempt {attempt + 1}")
@@ -785,23 +796,43 @@ COMMON FIXES FOR {error_type}:
                 
                 return True, current_code, self.fix_history
             
-            if not result.error:
+            if not result.error and not diagnostic_report:
                 logger.warning("Execution failed but no error details available")
                 return False, current_code, self.fix_history
             
-            # Try to fix the error
+            # Prepare error context for fixing
             output_log = result.output_log or ""
             stderr_log = result.stderr_log or ""
-            # Combine stdout and stderr for proper error classification
             combined_output = output_log + "\n" + stderr_log
-            success, fixed_code, fix_record = self.fix_bot_error(
-                bot_file=bot_file,
-                error_output=combined_output,
-                original_code=current_code,
-                execution_context={
+            
+            # If we have diagnostic report, use it to enhance the fix
+            if diagnostic_report and diagnostic_report.get('issues'):
+                logger.info(f"📊 Using diagnostic analysis with {len(diagnostic_report['issues'])} issues identified")
+                
+                # Use the AI-generated fix prompt from diagnostic report
+                enhanced_error_output = diagnostic_report.get('fix_prompt', combined_output)
+                
+                # Add diagnostic context to execution context
+                execution_context = {
+                    'symbol': result.test_symbol,
+                    'period_days': result.test_period_days,
+                    'diagnostic_issues': diagnostic_report.get('issues', []),
+                    'recommendations': diagnostic_report.get('recommendations', []),
+                    'functions_executed': diagnostic_report.get('functions_executed', [])
+                }
+            else:
+                enhanced_error_output = combined_output
+                execution_context = {
                     'symbol': result.test_symbol,
                     'period_days': result.test_period_days
                 }
+            
+            # Try to fix the error
+            success, fixed_code, fix_record = self.fix_bot_error(
+                bot_file=bot_file,
+                error_output=enhanced_error_output,
+                original_code=current_code,
+                execution_context=execution_context
             )
             
             if not success:
