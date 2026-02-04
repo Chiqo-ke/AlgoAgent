@@ -33,6 +33,7 @@ from datetime import datetime
 import traceback
 from dataclasses import dataclass, asdict
 import sqlite3
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +231,42 @@ class BotExecutor:
                 logger.error(result.error)
                 return result
             
+            # NEW: Dry run before full execution
+            logger.info("\n" + "=" * 70)
+            logger.info("DRY RUN - Testing with 10 bars")
+            logger.info("=" * 70)
+            
+            try:
+                from .bot_dry_runner import BotDryRunner
+                
+                dry_runner = BotDryRunner(venv_python=self.python_executable, timeout=30)
+                dry_success, dry_message, dry_details = dry_runner.dry_run(strategy_file, max_bars=10)
+                
+                if not dry_success:
+                    logger.error("[DRY RUN FAILED] Bot failed quick validation")
+                    logger.error(f"Error: {dry_details.get('error_type')}")
+                    logger.error(f"Details: {dry_details.get('error_details')}")
+                    
+                    if dry_details.get('suggestions'):
+                        logger.info("Suggestions:")
+                        for suggestion in dry_details['suggestions']:
+                            logger.info(f"  - {suggestion}")
+                    
+                    # Don't fail completely - still try full execution
+                    # (might be a false positive in dry run)
+                    logger.warning("Proceeding with full execution despite dry run failure...")
+                else:
+                    logger.info("[DRY RUN PASSED] Bot executed successfully with 10 bars")
+            
+            except ImportError:
+                logger.warning("BotDryRunner not available - skipping dry run")
+            except Exception as e:
+                logger.warning(f"Dry run failed: {e} - continuing with full execution")
+            
+            logger.info("=" * 70)
+            
             # Execute the strategy
-            logger.info(f"Starting execution (timeout: {self.timeout_seconds}s)...")
+            logger.info(f"Starting full execution (timeout: {self.timeout_seconds}s)...")
             
             output, stderr = self._run_strategy(strategy_file)
             
@@ -276,6 +311,154 @@ class BotExecutor:
             logger.info(f"{'='*70}\n")
         
         return result
+    
+    def execute_with_diagnostics(
+        self,
+        strategy_file: str,
+        strategy_name: str = None,
+        cleanup: bool = True
+    ) -> Tuple[BotExecutionResult, Optional[Dict[str, Any]]]:
+        """
+        Execute bot with diagnostic logging to identify issues
+        
+        This method:
+        1. Creates a diagnostic version of the bot with logging injected
+        2. Runs the diagnostic version
+        3. Analyzes the logs to identify specific issues
+        4. Returns both execution result and diagnostic report
+        
+        Args:
+            strategy_file: Path to Python strategy file
+            strategy_name: Name of strategy (auto-detect if None)
+            cleanup: Remove diagnostic files after execution (default: True)
+            
+        Returns:
+            Tuple of (BotExecutionResult, diagnostic_report_dict or None)
+        """
+        strategy_file = Path(strategy_file)
+        
+        if not strategy_name:
+            strategy_name = strategy_file.stem
+        
+        logger.info(f"\n{'='*70}")
+        logger.info(f"🔍 DIAGNOSTIC EXECUTION: {strategy_name}")
+        logger.info(f"{'='*70}")
+        
+        diagnostic_file = None
+        log_file = None
+        diagnostic_report = None
+        
+        try:
+            # Step 1: Create diagnostic version with logging
+            logger.info("Step 1: Injecting diagnostic logging...")
+            from .diagnostic_logger import create_diagnostic_version
+            
+            success, diagnostic_path, injection_summary = create_diagnostic_version(
+                bot_file=strategy_file
+            )
+            
+            if not success:
+                logger.error("Failed to create diagnostic version")
+                # Fall back to regular execution
+                return self.execute_bot(strategy_file=str(strategy_file)), None
+            
+            diagnostic_file = Path(diagnostic_path)
+            
+            # Validate diagnostic file has valid syntax
+            try:
+                import ast
+                diagnostic_code = diagnostic_file.read_text(encoding='utf-8')
+                ast.parse(diagnostic_code)
+            except SyntaxError as syntax_err:
+                logger.error(f"Diagnostic version has syntax error: {syntax_err}")
+                logger.warning("Falling back to regular execution without diagnostics")
+                if diagnostic_file.exists():
+                    diagnostic_file.unlink()
+                return self.execute_bot(strategy_file=str(strategy_file)), None
+            
+            logger.info(f"✓ Created diagnostic version: {diagnostic_file.name}")
+            logger.info(f"  Injected {injection_summary.get('total_points', 0)} diagnostic points")
+            
+            # Step 2: Execute diagnostic version
+            logger.info("\nStep 2: Executing diagnostic version...")
+            result = self.execute_bot(
+                strategy_file=str(diagnostic_file),
+                strategy_name=f"{strategy_name}_diagnostic",
+                save_results=False  # Don't save diagnostic runs
+            )
+            
+            # Step 3: Find and analyze log file
+            logger.info("\nStep 3: Analyzing diagnostic logs...")
+            log_files = list(diagnostic_file.parent.glob("diagnostic_log_*.log"))
+            
+            if log_files:
+                # Use the most recent log file
+                log_file = max(log_files, key=lambda p: p.stat().st_mtime)
+                logger.info(f"Found log file: {log_file.name}")
+                
+                from .log_analyzer import LogAnalyzer
+                analyzer = LogAnalyzer(verbose=True)
+                
+                # Read original code for context
+                original_code = strategy_file.read_text(encoding='utf-8')
+                
+                report = analyzer.analyze_log_file(log_file)
+                
+                # Convert report to dict for return
+                diagnostic_report = {
+                    'success': report.success,
+                    'execution_completed': report.execution_completed,
+                    'issues': [
+                        {
+                            'type': issue.issue_type.value,
+                            'severity': issue.severity.value,
+                            'description': issue.description,
+                            'line_number': issue.line_number,
+                            'function_name': issue.function_name,
+                            'suggested_fix': issue.suggested_fix,
+                            'confidence': issue.confidence,
+                            'evidence': issue.evidence[:3]  # Limit evidence
+                        }
+                        for issue in report.issues
+                    ],
+                    'functions_executed': report.functions_executed,
+                    'recommendations': report.recommendations,
+                    'error_message': report.error_message,
+                    'fix_prompt': analyzer.generate_fix_prompt(report, original_code)
+                }
+                
+                logger.info(f"✓ Analysis complete: {len(report.issues)} issues found")
+                
+                # Log issues
+                for issue in report.issues:
+                    logger.warning(f"  [{issue.severity.value}] {issue.description}")
+                    if issue.suggested_fix:
+                        logger.info(f"      Fix: {issue.suggested_fix}")
+            else:
+                logger.warning("No diagnostic log file found")
+            
+        except Exception as e:
+            logger.error(f"Diagnostic execution failed: {e}")
+            logger.error(traceback.format_exc())
+            # Fall back to regular execution
+            return self.execute_bot(strategy_file=str(strategy_file)), None
+        
+        finally:
+            # Cleanup diagnostic files
+            if cleanup:
+                try:
+                    if diagnostic_file and diagnostic_file.exists():
+                        diagnostic_file.unlink()
+                        logger.debug(f"Cleaned up diagnostic file: {diagnostic_file}")
+                    
+                    if log_file and log_file.exists():
+                        log_file.unlink()
+                        logger.debug(f"Cleaned up log file: {log_file}")
+                except Exception as e:
+                    logger.warning(f"Cleanup failed: {e}")
+        
+        logger.info(f"{'='*70}\n")
+        return result, diagnostic_report
     
     def _run_strategy(self, strategy_file: Path) -> Tuple[str, str]:
         """

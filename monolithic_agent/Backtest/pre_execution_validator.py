@@ -84,6 +84,12 @@ def validate_strategy(file_path: str = None, code: str = None) -> ValidationRepo
     # 5. Validate market data
     _validate_market_data(code, errors, warnings)
     
+    # 6. Validate indicator keys
+    _validate_indicator_keys(code, errors, warnings)
+    
+    # 7. Validate comment-code consistency
+    _validate_comment_consistency(code, errors, warnings)
+    
     is_valid = len(errors) == 0
     return ValidationReport(is_valid, errors, warnings)
 
@@ -91,34 +97,37 @@ def validate_strategy(file_path: str = None, code: str = None) -> ValidationRepo
 def _validate_imports(code: str, errors: List[str], warnings: List[str]):
     """Check import statements"""
     
-    # Required imports
-    required = {
-        'Backtest.sim_broker': r'from\s+Backtest\.sim_broker\s+import',
-        'Backtest.config': r'from\s+Backtest\.config\s+import'
+    # Check for Django-triggering imports (FORBIDDEN)
+    if re.search(r'from\s+Backtest\.', code):
+        errors.append(
+            "CRITICAL: Found 'from Backtest.*' imports which trigger Django initialization. "
+            "Use direct imports: 'from sim_broker import SimBroker'"
+        )
+    
+    # Required direct imports
+    required_direct_imports = {
+        'sim_broker': r'from\s+sim_broker\s+import\s+SimBroker',
+        'config': r'from\s+config\s+import\s+BacktestConfig',
+        'canonical_schema': r'from\s+canonical_schema\s+import',
+        'data_loader': r'from\s+data_loader\s+import',
     }
     
-    for name, pattern in required.items():
+    for name, pattern in required_direct_imports.items():
         if not re.search(pattern, code):
-            errors.append(f"Missing required import: 'from {name} import ...'")
+            warnings.append(f"Missing recommended import: 'from {name} import ...'")
     
-    # Forbidden patterns
-    forbidden = [
-        (r'from\s+simbroker\s+import', "Use 'from Backtest.sim_broker import'"),
-        (r'from\s+sim_broker\s+import\s+(?!.*Backtest)', "Missing 'Backtest' prefix"),
-        (r'import\s+simbroker\b', "Use 'from Backtest.sim_broker import SimBroker'"),
-    ]
+    # Check path setup (should be parent.parent for codes/ directory)
+    if 'parent.parent.parent' in code:
+        errors.append(
+            "CRITICAL: Wrong path depth! Use parent.parent (2 levels), not parent.parent.parent (3 levels)"
+        )
     
-    for pattern, msg in forbidden:
-        if re.search(pattern, code):
-            errors.append(f"Forbidden import: {msg}")
+    if 'parent.parent' not in code and 'parent.parent.parent' not in code:
+        warnings.append("Missing path setup: parent_dir = Path(__file__).parent.parent")
     
-    # Check path setup
-    if 'parent.parent.parent' not in code:
-        warnings.append("Missing path setup: parent_dir = Path(__file__).parent.parent.parent")
-    
-    # Check Django settings
-    if 'DJANGO_SETTINGS_MODULE' not in code:
-        warnings.append("Missing Django settings: os.environ['DJANGO_SETTINGS_MODULE'] = ...")
+    # Django settings not needed for direct imports
+    if 'DJANGO_SETTINGS_MODULE' in code:
+        warnings.append("Django settings found - may not be needed with direct imports")
 
 
 def _validate_broker_init(code: str, errors: List[str], warnings: List[str]):
@@ -190,6 +199,69 @@ def _validate_market_data(code: str, errors: List[str], warnings: List[str]):
             warnings.append(
                 "Market data may not be nested dict - "
                 "use: {'SYMBOL': {'open': ..., 'close': ...}}"
+            )
+
+
+def _validate_indicator_keys(code: str, errors: List[str], warnings: List[str]):
+    """Validate indicator key access patterns"""
+    
+    # Detect mode
+    is_streaming = 'stream=True' in code or ('load_market_data' in code and 'stream=False' not in code)
+    
+    if is_streaming:
+        # Streaming mode: should use lowercase keys
+        if re.search(r"\.get\(['\"]([A-Z]+_\d+)['\"]\)", code):
+            errors.append(
+                "CRITICAL: STREAMING mode detected but code uses UPPERCASE indicator keys. "
+                "Data loader converts to lowercase in streaming mode. "
+                "Use: symbol_data.get('ema_12') NOT symbol_data.get('EMA_12')"
+            )
+    else:
+        # Batch mode: should use uppercase keys
+        if re.search(r"\.get\(['\"]([a-z]+_\d+)['\"]\)", code):
+            warnings.append(
+                "BATCH mode detected but code uses lowercase indicator keys. "
+                "DataFrame columns are UPPERCASE in batch mode. "
+                "Use: df['EMA_12'] NOT df['ema_12']"
+            )
+
+
+def _validate_comment_consistency(code: str, errors: List[str], warnings: List[str]):
+    """Check if comments match code implementation"""
+    
+    lines = code.split('\n')
+    
+    for i, line in enumerate(lines):
+        if '#' not in line:
+            continue
+        
+        # Check for uppercase/lowercase mentions
+        if 'uppercase' in line.lower():
+            # Check next few lines for contradictory lowercase usage
+            next_lines = lines[i+1:min(i+6, len(lines))]
+            for j, next_line in enumerate(next_lines):
+                if '.get(' in next_line:
+                    match = re.search(r"\.get\(['\"]([a-z_]+_\d+)['\"]\)", next_line)
+                    if match:
+                        warnings.append(
+                            f"Line {i+1}: Comment says 'uppercase' but code uses lowercase: {next_line.strip()}"
+                        )
+        
+        elif 'lowercase' in line.lower():
+            # Check next few lines for contradictory uppercase usage
+            next_lines = lines[i+1:min(i+6, len(lines))]
+            for j, next_line in enumerate(next_lines):
+                if '.get(' in next_line:
+                    match = re.search(r"\.get\(['\"]([A-Z_]+_\d+)['\"]\)", next_line)
+                    if match:
+                        warnings.append(
+                            f"Line {i+1}: Comment says 'lowercase' but code uses uppercase: {next_line.strip()}"
+                        )
+        
+        # Check for FIX/TODO comments
+        if 'FIX:' in line or 'TODO:' in line:
+            warnings.append(
+                f"Line {i+1}: Found FIX/TODO comment - code may be incomplete"
             )
 
 

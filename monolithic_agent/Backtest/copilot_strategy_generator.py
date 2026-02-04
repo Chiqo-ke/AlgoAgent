@@ -687,7 +687,44 @@ Requirements:
 5. Follow best practices for trading strategies
 6. Use available indicators when appropriate
 
-Return ONLY the Python code, no explanations or markdown formatting.
+CRITICAL TRADING LOGIC REQUIREMENTS (MUST IMPLEMENT):
+⚠️ The strategy MUST contain actual trading logic that places trades:
+1. MUST call broker.buy() when buy conditions are met
+2. MUST call broker.sell() when sell conditions are met
+3. MUST have clear if/else conditional logic that evaluates market data
+4. MUST implement entry AND exit conditions
+5. DO NOT generate placeholder code - generate REAL trading conditions
+
+Example of REQUIRED trading logic pattern:
+```python
+def my_strategy(broker, market_data):
+    data = market_data.get('data', [])
+    if not data:
+        return
+    
+    # Get indicator values
+    ema_fast = data[-1].get('EMA_12')
+    ema_slow = data[-1].get('EMA_26')
+    
+    # ACTUAL trading conditions (not placeholders)
+    if ema_fast is not None and ema_slow is not None:
+        # Buy when fast EMA crosses above slow EMA
+        if ema_fast > ema_slow and not broker.has_position():
+            broker.buy(size=100)  # ✅ REAL buy call
+        
+        # Sell when fast EMA crosses below slow EMA
+        elif ema_fast < ema_slow and broker.has_position():
+            broker.sell(size=100)  # ✅ REAL sell call
+```
+
+❌ DO NOT generate code like this (no actual trading):
+```python
+def my_strategy(broker, market_data):
+    # TODO: Implement trading logic  # ❌ Placeholder
+    pass  # ❌ No trading
+```
+
+Return ONLY the Python code with REAL trading logic, no explanations or markdown formatting.
 """
         
         try:

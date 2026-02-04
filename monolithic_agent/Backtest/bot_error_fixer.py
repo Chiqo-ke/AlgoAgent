@@ -136,6 +136,11 @@ class ErrorAnalyzer:
             'description': 'Character encoding error (emoji/unicode in output)',
             'severity': 'high'
         },
+        'no_trades_error': {
+            'patterns': [r'Total Signals:\s*0', r'Buy Signals:\s*0', r'Sell Signals:\s*0', r'NO TRADES', r'no trades executed'],
+            'description': 'Strategy executed but placed no trades',
+            'severity': 'high'
+        },
     }
     
     @classmethod
@@ -726,6 +731,33 @@ COMMON FIXES FOR {error_type}:
 - Check division by zero scenarios
 - Ensure data types are compatible
 """
+        elif error_type == 'no_trades_error':
+            prompt += """
+- CRITICAL: The strategy ran successfully but placed ZERO trades
+- This means the buy/sell conditions NEVER evaluated to True
+- INVESTIGATE:
+  1. Are indicator values None or missing? Add logging to check
+  2. Are the conditional thresholds too strict? (e.g., RSI > 80 might never happen)
+  3. Is there a logic error preventing trades? (e.g., inverted conditions)
+  4. Are you checking for broker.has_position() but never initializing it?
+  5. Are the indicators available in market_data? Print market_data keys to verify
+  
+- COMMON FIXES:
+  * Add None checks: if ema_fast is not None and ema_slow is not None
+  * Relax thresholds: RSI > 70 instead of RSI > 80
+  * Add debug prints to see if conditions are being evaluated
+  * Verify indicator names match exactly: 'EMA_12' not 'ema_12'
+  * Check data availability: print(f"Data keys: {list(data[-1].keys())}")
+  
+- DEBUGGING TEMPLATE:
+  ```python
+  # Add this in your strategy function to debug
+  print(f"[DEBUG] Data available: {list(data[-1].keys())}")
+  print(f"[DEBUG] EMA_12 value: {data[-1].get('EMA_12')}")
+  print(f"[DEBUG] Condition check: ema_fast={ema_fast}, ema_slow={ema_slow}")
+  print(f"[DEBUG] Has position: {broker.has_position()}")
+  ```
+"""
         
         return prompt
     
@@ -733,7 +765,8 @@ COMMON FIXES FOR {error_type}:
         self,
         bot_file: Path,
         bot_executor,
-        max_attempts: int = None
+        max_attempts: int = None,
+        use_diagnostics: bool = True
     ) -> Tuple[bool, str, List[ErrorFixAttempt]]:
         """
         Iteratively fix bot errors until successful or max attempts reached
@@ -742,6 +775,7 @@ COMMON FIXES FOR {error_type}:
             bot_file: Path to bot file
             bot_executor: BotExecutor instance to run the bot
             max_attempts: Maximum fix attempts (default: self.max_iterations)
+            use_diagnostics: Use diagnostic logging to identify issues (default: True)
         
         Returns:
             Tuple of (success, final_code, fix_history)
@@ -756,16 +790,44 @@ COMMON FIXES FOR {error_type}:
         logger.info(f"\n{'='*70}")
         logger.info(f"STARTING ITERATIVE ERROR FIXING")
         logger.info(f"Max attempts: {max_attempts}")
+        logger.info(f"Diagnostic mode: {'ENABLED' if use_diagnostics else 'DISABLED'}")
         logger.info(f"{'='*70}\n")
+        
+        # Track if we're in an error loop (same error multiple times)
+        error_history = []
+        diagnostic_failures = 0
         
         for attempt in range(max_attempts):
             logger.info(f"\n>>> ATTEMPT {attempt + 1}/{max_attempts}")
             
-            # Execute the bot
-            result = bot_executor.execute_bot(
-                strategy_file=str(bot_file),
-                save_results=False
-            )
+            # If diagnostics failed too many times, disable them
+            if diagnostic_failures >= 2:
+                logger.warning(f"⚠️ Diagnostics failed {diagnostic_failures} times, disabling for remaining attempts")
+                use_diagnostics = False
+            
+            # Execute the bot (with diagnostics if enabled)
+            if use_diagnostics and hasattr(bot_executor, 'execute_with_diagnostics'):
+                logger.info("🔍 Running diagnostic execution...")
+                result, diagnostic_report = bot_executor.execute_with_diagnostics(
+                    strategy_file=str(bot_file),
+                    strategy_name=bot_file.stem
+                )
+                
+                # Check if diagnostic execution itself failed
+                if diagnostic_report is None and not result.success:
+                    diagnostic_failures += 1
+                    if 'diagnostic' in str(result.error).lower() or 'syntax' in str(result.error).lower():
+                        logger.warning("Diagnostic execution failed, retrying without diagnostics this attempt")
+                        result = bot_executor.execute_bot(
+                            strategy_file=str(bot_file),
+                            save_results=False
+                        )
+            else:
+                result = bot_executor.execute_bot(
+                    strategy_file=str(bot_file),
+                    save_results=False
+                )
+                diagnostic_report = None
             
             if result.success:
                 logger.info(f"\n[OK] SUCCESS! Bot executed successfully on attempt {attempt + 1}")
@@ -785,23 +847,53 @@ COMMON FIXES FOR {error_type}:
                 
                 return True, current_code, self.fix_history
             
-            if not result.error:
+            if not result.error and not diagnostic_report:
                 logger.warning("Execution failed but no error details available")
                 return False, current_code, self.fix_history
             
-            # Try to fix the error
+            # Prepare error context for fixing
             output_log = result.output_log or ""
             stderr_log = result.stderr_log or ""
-            # Combine stdout and stderr for proper error classification
             combined_output = output_log + "\n" + stderr_log
-            success, fixed_code, fix_record = self.fix_bot_error(
-                bot_file=bot_file,
-                error_output=combined_output,
-                original_code=current_code,
-                execution_context={
+            
+            # Check for infinite loop (same error appearing multiple times)
+            error_signature = str(result.error)[:100] if result.error else combined_output[:100]
+            if error_signature in error_history:
+                error_count = error_history.count(error_signature)
+                if error_count >= 2:
+                    logger.error(f"⚠️ Same error detected {error_count + 1} times - breaking infinite loop")
+                    logger.error("Consider manual intervention or different fix strategy")
+                    break
+            error_history.append(error_signature)
+            
+            # If we have diagnostic report, use it to enhance the fix
+            if diagnostic_report and diagnostic_report.get('issues'):
+                logger.info(f"📊 Using diagnostic analysis with {len(diagnostic_report['issues'])} issues identified")
+                
+                # Use the AI-generated fix prompt from diagnostic report
+                enhanced_error_output = diagnostic_report.get('fix_prompt', combined_output)
+                
+                # Add diagnostic context to execution context
+                execution_context = {
+                    'symbol': result.test_symbol,
+                    'period_days': result.test_period_days,
+                    'diagnostic_issues': diagnostic_report.get('issues', []),
+                    'recommendations': diagnostic_report.get('recommendations', []),
+                    'functions_executed': diagnostic_report.get('functions_executed', [])
+                }
+            else:
+                enhanced_error_output = combined_output
+                execution_context = {
                     'symbol': result.test_symbol,
                     'period_days': result.test_period_days
                 }
+            
+            # Try to fix the error
+            success, fixed_code, fix_record = self.fix_bot_error(
+                bot_file=bot_file,
+                error_output=enhanced_error_output,
+                original_code=current_code,
+                execution_context=execution_context
             )
             
             if not success:
