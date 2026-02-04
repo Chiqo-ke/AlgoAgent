@@ -340,12 +340,12 @@ Generate a complete, runnable Python trading strategy with the following require
 - Replace: ✓ → [OK] | ❌ → [ERROR] | ⚠️ → [WARNING]
 
 **Requirements:**
-1. Import from Backtest package (DO NOT modify SimBroker)
-2. Use EXACTLY 3-level path traversal: Path(__file__).parent.parent.parent
+1. Use direct module imports (NOT from Backtest package - causes Django errors)
+2. Use EXACTLY 2-level path traversal: Path(__file__).parent.parent
 3. Use fetch_market_data() to load data dynamically  
 4. Use compute_indicator() for EACH indicator separately (cannot reuse same key)
 5. Extract indicator PERIODS from description (e.g., "30 and 70" means EMA_30 and EMA_70)
-6. Access indicators with LOWERCASE keys: 'ema_12', 'ema_26', 'rsi_14' (NOT 'EMA_12')
+6. Access indicators with LOWERCASE keys in STREAMING mode: 'ema_12', 'ema_26', 'rsi_14'
 7. Create a strategy class with __init__ and on_bar methods
 8. Use create_signal() to emit trading signals
 9. Include a run_backtest() function with symbol, period, interval parameters
@@ -357,9 +357,11 @@ Generate a complete, runnable Python trading strategy with the following require
 
 **CRITICAL - INDICATOR NAMING:**
 - Indicator functions create columns like: EMA_{{period}}, SMA_{{period}}, RSI_{{period}}
-- In streaming mode, these become lowercase: ema_12, sma_20, rsi_14
-- Access with: indicators.get('ema_12'), NOT indicators.get('EMA_12')
-- For multiple EMAs: compute_indicator('EMA', df, {{'timeperiod': 30}}) then {{'timeperiod': 70}}
+- In STREAMING mode, data_loader converts these to lowercase: ema_12, sma_20, rsi_14
+- In BATCH mode, keys remain UPPERCASE: EMA_12, SMA_20, RSI_14
+- For STREAMING (default), access with: symbol_data.get('ema_12')
+- For BATCH mode, access with: df['EMA_12']
+- For multiple EMAs: use multi-period format {{'EMA': {{'periods': [12, 26]}}}}
 
 **PERIOD EXTRACTION:**
 If description says "30 and 70 period EMA", use:
@@ -377,7 +379,21 @@ Strategy: {strategy_name}
 Description: {description}
 \"\"\"
 
-# Imports - BotExecutor runs from monolithic_agent/ directory, so Backtest module is available
+# Imports - use direct module imports to avoid Django initialization
+import sys
+from pathlib import Path
+
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+# Direct imports (NOT from Backtest package)
+from sim_broker import SimBroker
+from config import BacktestConfig
+from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from data_loader import load_market_data
+from pattern_logger import PatternLogger
+from signal_logger import SignalLogger
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
@@ -658,6 +674,33 @@ Generate the complete, working code:
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         
+        # NEW: Pre-execution validation before saving
+        logger.info("\n" + "=" * 70)
+        logger.info("PRE-EXECUTION VALIDATION")
+        logger.info("=" * 70)
+        
+        try:
+            from .pre_execution_validator import validate_strategy
+            
+            validation_report = validate_strategy(code=code)
+            print(validation_report)
+            
+            if not validation_report.is_valid:
+                logger.warning("Pre-execution validation found issues")
+                logger.warning("Saving code anyway, but execution may fail")
+                
+                # Log issues for debugging
+                for error in validation_report.errors:
+                    logger.error(f"  - {error}")
+            else:
+                logger.info("[OK] Pre-execution validation passed")
+        
+        except ImportError:
+            logger.warning("Pre-execution validator not available - skipping validation")
+        except Exception as e:
+            logger.warning(f"Pre-execution validation failed: {e}")
+        
+        # Save the file
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(code)
         
@@ -705,16 +748,21 @@ Generate the complete, working code:
         issues = []
         warnings = []
         
-        # ✅ Check 1: Correct import path depth
-        if "parent.parent.parent" not in code:
-            if "parent.parent" in code and "parent.parent.parent" not in code:
-                issues.append("CRITICAL: Wrong sys.path depth! Use parent.parent.parent (3 levels), not parent.parent (2 levels)")
+        # ✅ Check 1: Correct import path depth - should be 2 levels (codes -> Backtest)
+        if "parent.parent.parent" in code:
+            issues.append("CRITICAL: Wrong sys.path depth! Use parent.parent (2 levels), not parent.parent.parent (3 levels)")
         
-        # ✅ Check 2: Required imports
-        if "from Backtest.sim_broker import SimBroker" not in code and "from sim_broker import SimBroker" not in code:
-            issues.append("Missing import: from Backtest.sim_broker import SimBroker")
+        if "parent.parent" not in code:
+            issues.append("CRITICAL: Missing sys.path setup! Must include parent.parent")
         
-        if "from Backtest.canonical_schema import" not in code and "from canonical_schema import" not in code:
+        # ✅ Check 2: Must use direct imports, NOT Backtest.* package imports (Django issue)
+        if "from Backtest." in code:
+            issues.append("CRITICAL: Do NOT use 'from Backtest.*' imports! Use direct imports: 'from sim_broker import SimBroker' to avoid Django initialization errors")
+        
+        if "from sim_broker import SimBroker" not in code:
+            issues.append("Missing import: from sim_broker import SimBroker")
+        
+        if "from canonical_schema import" not in code:
             issues.append("Missing canonical_schema imports")
         
         if "from Data.indicator_calculator import compute_indicator" not in code:

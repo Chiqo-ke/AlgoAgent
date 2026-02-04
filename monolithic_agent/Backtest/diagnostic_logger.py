@@ -77,6 +77,14 @@ class DiagnosticLogInjector:
             # Inject logging statements
             logged_code = self._inject_logs_into_code(code, bot_name)
             
+            # Validate the injected code can be parsed
+            try:
+                ast.parse(logged_code)
+            except SyntaxError as validation_error:
+                logger.error(f"Injected code has syntax error: {validation_error}")
+                logger.warning("Returning original code without logging injection")
+                return code
+            
             if self.verbose:
                 logger.info(f"Injected {len(self.injection_points)} diagnostic log points")
             

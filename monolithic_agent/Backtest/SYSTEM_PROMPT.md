@@ -36,36 +36,38 @@ Location: codes/ directory
 # Add parent directory to path for imports
 import sys
 from pathlib import Path
-# IMPORTANT: Go up 3 levels (codes -> Backtest -> monolithic_agent)
-# to add monolithic_agent to sys.path, allowing "from Backtest import ..."
-parent_dir = Path(__file__).parent.parent.parent
+# IMPORTANT: Go up 2 levels (codes -> Backtest) to add Backtest directory to path
+# This allows direct module imports without triggering Django initialization
+parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-# Import from Backtest package (NOT as standalone modules)
-from Backtest.sim_broker import SimBroker
-from Backtest.config import BacktestConfig
-from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from Backtest.data_loader import load_market_data
-from Backtest.pattern_logger import PatternLogger
-from Backtest.signal_logger import SignalLogger
+# Import directly from modules (NOT from Backtest package to avoid Django initialization)
+from sim_broker import SimBroker
+from config import BacktestConfig
+from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from data_loader import load_market_data
+from pattern_logger import PatternLogger
+from signal_logger import SignalLogger
 from datetime import datetime
 import pandas as pd
 ```
 
-**❌ NEVER use these imports:**
+**❌ NEVER use these imports (they trigger Django initialization):**
 ```python
-from sim_broker import SimBroker  # WRONG
-from config import BacktestConfig  # WRONG
-from canonical_schema import ...  # WRONG
+from Backtest.sim_broker import SimBroker  # WRONG - triggers Django setup()
+from Backtest.config import BacktestConfig  # WRONG - triggers Django setup()
+from Backtest.canonical_schema import ...  # WRONG - triggers Django setup()
 ```
 
 **✅ ALWAYS use these imports:**
 ```python
-from Backtest.sim_broker import SimBroker  # CORRECT
-from Backtest.config import BacktestConfig  # CORRECT
-from Backtest.canonical_schema import ...  # CORRECT
+from sim_broker import SimBroker  # CORRECT - direct import
+from config import BacktestConfig  # CORRECT - direct import
+from canonical_schema import ...  # CORRECT - direct import
 ```
+
+**Why:** Importing from the Backtest package triggers `__init__.py` which imports `gemini_strategy_generator.py` which calls `django.setup()` without proper configuration, causing `ImproperlyConfigured` errors.
 
 ## Data Loading Modes
 

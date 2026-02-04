@@ -231,8 +231,42 @@ class BotExecutor:
                 logger.error(result.error)
                 return result
             
+            # NEW: Dry run before full execution
+            logger.info("\n" + "=" * 70)
+            logger.info("DRY RUN - Testing with 10 bars")
+            logger.info("=" * 70)
+            
+            try:
+                from .bot_dry_runner import BotDryRunner
+                
+                dry_runner = BotDryRunner(venv_python=self.python_executable, timeout=30)
+                dry_success, dry_message, dry_details = dry_runner.dry_run(strategy_file, max_bars=10)
+                
+                if not dry_success:
+                    logger.error("[DRY RUN FAILED] Bot failed quick validation")
+                    logger.error(f"Error: {dry_details.get('error_type')}")
+                    logger.error(f"Details: {dry_details.get('error_details')}")
+                    
+                    if dry_details.get('suggestions'):
+                        logger.info("Suggestions:")
+                        for suggestion in dry_details['suggestions']:
+                            logger.info(f"  - {suggestion}")
+                    
+                    # Don't fail completely - still try full execution
+                    # (might be a false positive in dry run)
+                    logger.warning("Proceeding with full execution despite dry run failure...")
+                else:
+                    logger.info("[DRY RUN PASSED] Bot executed successfully with 10 bars")
+            
+            except ImportError:
+                logger.warning("BotDryRunner not available - skipping dry run")
+            except Exception as e:
+                logger.warning(f"Dry run failed: {e} - continuing with full execution")
+            
+            logger.info("=" * 70)
+            
             # Execute the strategy
-            logger.info(f"Starting execution (timeout: {self.timeout_seconds}s)...")
+            logger.info(f"Starting full execution (timeout: {self.timeout_seconds}s)...")
             
             output, stderr = self._run_strategy(strategy_file)
             
@@ -329,6 +363,19 @@ class BotExecutor:
                 return self.execute_bot(strategy_file=str(strategy_file)), None
             
             diagnostic_file = Path(diagnostic_path)
+            
+            # Validate diagnostic file has valid syntax
+            try:
+                import ast
+                diagnostic_code = diagnostic_file.read_text(encoding='utf-8')
+                ast.parse(diagnostic_code)
+            except SyntaxError as syntax_err:
+                logger.error(f"Diagnostic version has syntax error: {syntax_err}")
+                logger.warning("Falling back to regular execution without diagnostics")
+                if diagnostic_file.exists():
+                    diagnostic_file.unlink()
+                return self.execute_bot(strategy_file=str(strategy_file)), None
+            
             logger.info(f"✓ Created diagnostic version: {diagnostic_file.name}")
             logger.info(f"  Injected {injection_summary.get('total_points', 0)} diagnostic points")
             

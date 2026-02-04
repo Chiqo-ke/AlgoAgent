@@ -1536,6 +1536,48 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=False, methods=['post'])
+    def _validate_generated_code(self, code: str) -> tuple[bool, str]:
+        """
+        Validate that generated code contains actual trading logic.
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        import re
+        
+        # Check 1: Code must have broker.buy() or broker.sell() calls
+        has_buy = bool(re.search(r'\bbroker\.buy\s*\(', code))
+        has_sell = bool(re.search(r'\bbroker\.sell\s*\(', code))
+        
+        if not (has_buy or has_sell):
+            return False, "Code does not contain any buy() or sell() calls - strategy won't trade"
+        
+        # Check 2: Code must have conditional logic INSIDE strategy (not just if __name__)
+        # Look for if/elif statements that are NOT the main block
+        conditional_patterns = [
+            r'if\s+(?!__name__)',  # if not followed by __name__
+            r'\belif\s+',  # elif statements
+        ]
+        has_conditionals = any(re.search(pattern, code) for pattern in conditional_patterns)
+        
+        if not has_conditionals:
+            return False, "Code lacks conditional logic (if statements) - strategy needs decision logic"
+        
+        # Check 3: Code must have a main method that calls broker.run()
+        has_main = bool(re.search(r'if\s+__name__\s*==\s*[\'"]__main__[\'"]', code))
+        has_run = bool(re.search(r'\bbroker\.run\s*\(', code))
+        
+        if not (has_main and has_run):
+            return False, "Code missing main execution block with broker.run() call"
+        
+        # Check 4: Code should have strategy function definition
+        has_strategy_func = bool(re.search(r'def\s+\w+_strategy\s*\(', code))
+        
+        if not has_strategy_func:
+            return False, "Code missing strategy function definition"
+        
+        return True, ""
+    
     def generate_strategy_unified(self, request):
         """
         UNIFIED Strategy Code Generation Endpoint
@@ -1680,6 +1722,22 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     description=description,
                     strategy_name=strategy_name
                 )
+            
+            # ===== VALIDATE GENERATED CODE =====
+            logger.info("[UNIFIED] Validating generated code for trading logic...")
+            is_valid, validation_error = self._validate_generated_code(strategy_code)
+            
+            if not is_valid:
+                logger.error(f"[UNIFIED] ❌ Code validation failed: {validation_error}")
+                return Response({
+                    'success': False,
+                    'error': 'Generated code validation failed',
+                    'validation_error': validation_error,
+                    'details': 'The AI generated syntactically correct code but it lacks trading logic. Please refine your strategy description to include clear buy/sell conditions.',
+                    'generated_code': strategy_code  # Return code for debugging
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            logger.info("[UNIFIED] ✅ Code validation passed - contains trading logic")
             
             # ===== SAVE TO FILE =====
             import re
