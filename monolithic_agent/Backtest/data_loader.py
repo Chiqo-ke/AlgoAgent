@@ -54,7 +54,7 @@ try:
     
     from tvscraper.mcp_scraper import MCPTradingViewScraper
     TV_SCRAPER_AVAILABLE = True
-    logger.info("✅ TVscraper available as yfinance fallback")
+    logger.info("TVscraper available as data source")
 except ImportError as e:
     TV_SCRAPER_AVAILABLE = False
     logger.warning(f"TVscraper not available: {e}")
@@ -75,7 +75,8 @@ def fetch_market_data(
     interval: str = "1d"
 ) -> pd.DataFrame:
     """
-    Fetch market data using DataFetcher (yfinance) with TVscraper fallback.
+    Fetch market data preferring TVscraper as the primary source.
+    Falls back to yfinance only if TVscraper is unavailable or fails.
     
     Args:
         ticker: Stock ticker symbol (e.g., 'AAPL')
@@ -85,15 +86,24 @@ def fetch_market_data(
     Returns:
         DataFrame with DatetimeIndex and OHLCV columns
     """
-    if not DATA_FETCHER_AVAILABLE:
-        # Try TVscraper if yfinance not available
-        if TV_SCRAPER_AVAILABLE:
-            logger.warning("DataFetcher not available, using TVscraper fallback immediately")
-            return fetch_market_data_with_tvscraper(ticker, period, interval)
-        raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
-    
     logger.info(f"Fetching {ticker} data: period={period}, interval={interval}")
-    
+
+    # 1) Try TVscraper first (primary source)
+    if TV_SCRAPER_AVAILABLE:
+        try:
+            logger.info("Using TVscraper as primary data source")
+            return fetch_market_data_with_tvscraper(ticker, period, interval)
+        except Exception as tv_error:
+            logger.warning(f"TVscraper primary fetch failed: {tv_error}")
+            # If yfinance is not available, re-raise
+            if not DATA_FETCHER_AVAILABLE:
+                raise
+            logger.info("Falling back to yfinance after TVscraper failure")
+
+    # 2) Use yfinance if available
+    if not DATA_FETCHER_AVAILABLE:
+        raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
+
     try:
         fetcher = DataFetcher()
         df = fetcher.fetch_historical_data(ticker, period=period, interval=interval)
@@ -123,24 +133,13 @@ def fetch_market_data(
         # Sort by datetime
         df = df.sort_index()
         
-        logger.info(f"Fetched {len(df)} rows for {ticker}")
+        logger.info(f"Fetched {len(df)} rows for {ticker} using yfinance fallback")
         
         return df
         
     except Exception as e:
-        # If yfinance fails, try TVscraper fallback
-        logger.warning(f"⚠️ yfinance failed: {e}")
-        
-        if TV_SCRAPER_AVAILABLE:
-            logger.info("🔄 Attempting TVscraper fallback...")
-            try:
-                return fetch_market_data_with_tvscraper(ticker, period, interval)
-            except Exception as fallback_error:
-                logger.error(f"❌ TVscraper fallback also failed: {fallback_error}")
-                raise ValueError(f"Both yfinance and TVscraper failed to fetch data for {ticker}") from e
-        else:
-            # No fallback available
-            raise
+        logger.warning(f"yfinance failed: {e}")
+        raise
 
 
 def fetch_market_data_with_tvscraper(
@@ -162,7 +161,7 @@ def fetch_market_data_with_tvscraper(
     if not TV_SCRAPER_AVAILABLE:
         raise RuntimeError("TVscraper not available as fallback")
     
-    logger.info(f"🔄 Using TVscraper fallback for {ticker} (period={period}, interval={interval})")
+    logger.info(f"Using TVscraper for {ticker} (period={period}, interval={interval})")
     
     try:
         # Initialize scraper
@@ -230,12 +229,12 @@ def fetch_market_data_with_tvscraper(
         # Sort by datetime
         df = df.sort_index()
         
-        logger.info(f"✅ TVscraper fetched {len(df)} rows for {ticker}")
+        logger.info(f"TVscraper fetched {len(df)} rows for {ticker}")
         
         return df
         
     except Exception as e:
-        logger.error(f"❌ TVscraper fallback failed: {e}")
+        logger.error(f"TVscraper fetch failed: {e}")
         raise
 
 
@@ -503,7 +502,7 @@ def _stream_data(df: pd.DataFrame, ticker: str) -> Generator[Tuple[datetime, Dic
     """
     total_bars = len(df)
     
-    logger.info(f"🔄 Streaming {total_bars} bars for {ticker} (sequential mode)")
+    logger.info(f"Streaming {total_bars} bars for {ticker} (sequential mode)")
     
     for i, (timestamp, row) in enumerate(df.iterrows()):
         # Build market data dictionary in format expected by strategies
@@ -717,7 +716,7 @@ if __name__ == "__main__":
             interval='1d'
         )
         
-        print(f"   ✅ Loaded {len(df)} rows")
+        print(f"   [OK] Loaded {len(df)} rows")
         print(f"   Columns: {list(df.columns)}")
         print(f"   Date range: {metadata['date_range'][0]} to {metadata['date_range'][1]}")
         print(f"   Source: {metadata['source']}")
@@ -725,7 +724,7 @@ if __name__ == "__main__":
         print(df.head())
         
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
         import traceback
         traceback.print_exc()
     
@@ -739,9 +738,9 @@ if __name__ == "__main__":
             interval='1h'
         )
         
-        print(f"   ✅ Loaded {len(df)} rows for MSFT")
+        print(f"   [OK] Loaded {len(df)} rows for MSFT")
         print(f"   Columns: {list(df.columns)}")
         print(f"   Date range: {metadata['date_range'][0]} to {metadata['date_range'][1]}")
         
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   [ERROR] Error: {e}")
