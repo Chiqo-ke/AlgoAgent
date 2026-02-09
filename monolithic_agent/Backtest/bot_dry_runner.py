@@ -32,13 +32,13 @@ class BotDryRunner:
     Much faster than full backtest while catching most errors.
     """
     
-    def __init__(self, venv_python: str = None, timeout: int = 30):
+    def __init__(self, venv_python: str = None, timeout: int = 150):
         """
         Initialize dry runner.
         
         Args:
             venv_python: Path to Python executable (default: current Python)
-            timeout: Maximum execution time in seconds (default: 30)
+            timeout: Maximum execution time in seconds (default: 150)
         """
         self.venv_python = venv_python or sys.executable
         self.timeout = timeout
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run bot with limited data for quick validation')
     parser.add_argument('bot_file', type=Path, help='Path to bot script')
     parser.add_argument('--max-bars', type=int, default=10, help='Number of bars to process')
-    parser.add_argument('--timeout', type=int, default=30, help='Timeout in seconds')
+    parser.add_argument('--timeout', type=int, default=150, help='Timeout in seconds')
     
     args = parser.parse_args()
     

@@ -74,7 +74,7 @@ class BotExecutor:
     def __init__(
         self,
         results_dir: Optional[str] = None,
-        timeout_seconds: int = 300,
+        timeout_seconds: int = 900,
         verbose: bool = True,
         venv_path: Optional[Path] = None
     ):
@@ -83,7 +83,7 @@ class BotExecutor:
         
         Args:
             results_dir: Directory to store execution results (default: codes/results/)
-            timeout_seconds: Max time to wait for bot execution (default: 300s)
+            timeout_seconds: Max time to wait for bot execution (default: 900s)
             verbose: Enable detailed logging (default: True)
             venv_path: Path to virtual environment (default: C:/Users/nyaga/Documents/.venv)
         """
@@ -239,7 +239,7 @@ class BotExecutor:
             try:
                 from .bot_dry_runner import BotDryRunner
                 
-                dry_runner = BotDryRunner(venv_python=self.python_executable, timeout=30)
+                dry_runner = BotDryRunner(venv_python=self.python_executable, timeout=150)
                 dry_success, dry_message, dry_details = dry_runner.dry_run(strategy_file, max_bars=10)
                 
                 if not dry_success:
@@ -1016,14 +1016,14 @@ class BotExecutor:
 
 def get_bot_executor(
     results_dir: Optional[str] = None,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 900,
     venv_path: Optional[Path] = None
 ) -> BotExecutor:
     """Convenience function to get BotExecutor instance
     
     Args:
         results_dir: Directory for results
-        timeout_seconds: Execution timeout
+        timeout_seconds: Execution timeout (default: 900s)
         venv_path: Path to virtual environment (default: C:/Users/nyaga/Documents/.venv)
     """
     return BotExecutor(
@@ -1047,7 +1047,7 @@ if __name__ == "__main__":
     parser.add_argument('-d', '--description', help='Strategy description')
     parser.add_argument('--symbol', default='AAPL', help='Test symbol (default: AAPL)')
     parser.add_argument('--days', type=int, default=365, help='Test period in days (default: 365)')
-    parser.add_argument('--timeout', type=int, default=300, help='Execution timeout in seconds (default: 300)')
+    parser.add_argument('--timeout', type=int, default=900, help='Execution timeout in seconds (default: 900)')
     parser.add_argument('--history', action='store_true', help='Show execution history')
     parser.add_argument('--summary', action='store_true', help='Show performance summary')
     

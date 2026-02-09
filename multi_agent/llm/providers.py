@@ -5,35 +5,28 @@ Supports:
 - Google Gemini
 - OpenAI
 - Anthropic Claude
-- Other providers (extensible)
+- Azure OpenAI
+- GitHub Models
+- OpenCode (unified access to multiple providers)
 """
 import os
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Generator
 from abc import ABC, abstractmethod
 
+# Import enhanced base classes
+from .base_provider import (
+    LLMProviderBase,
+    LLMResponse,
+    LLMUsage,
+    ProviderError,
+    RateLimitError,
+    AuthenticationError,
+    ProviderUnavailableError,
+    SafetyBlockError
+)
+
 logger = logging.getLogger(__name__)
-
-
-class ProviderError(Exception):
-    """Base error for provider operations."""
-    pass
-
-
-class RateLimitError(ProviderError):
-    """Raised on 429 rate limit errors."""
-    
-    def __init__(self, message: str, retry_after: Optional[int] = None):
-        super().__init__(message)
-        self.retry_after = retry_after  # Seconds
-
-
-class SafetyBlockError(ProviderError):
-    """Raised when content is blocked by safety filters."""
-    
-    def __init__(self, message: str, safety_ratings: Optional[List[Dict[str, Any]]] = None):
-        super().__init__(message)
-        self.safety_ratings = safety_ratings  # Safety rating details
 
 
 class ProviderClient(ABC):
@@ -451,12 +444,181 @@ class AzureOpenAIClient(ProviderClient):
             raise ProviderError(f"Azure OpenAI error: {str(e)}")
 
 
+class GitHubModelsClient(ProviderClient):
+    """
+    GitHub Models API client.
+    
+    GitHub Models provides free AI models through an OpenAI-compatible API.
+    Requires a GitHub Personal Access Token with 'models:read' permission.
+    
+    Endpoint: https://models.inference.ai.azure.com
+    Models: gpt-4o, o1-mini, o1, mistral-large, phi-4, and more
+    
+    See: https://docs.github.com/en/github-models
+    """
+    
+    def chat_completion(
+        self,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send GitHub Models chat completion request."""
+        try:
+            from openai import OpenAI
+            from openai import RateLimitError as OpenAIRateLimitError
+        except ImportError:
+            raise ProviderError("openai not installed (pip install openai>=1.0.0)")
+        
+        try:
+            # GitHub Models endpoint (OpenAI-compatible)
+            endpoint = "https://models.inference.ai.azure.com"
+            
+            # Create OpenAI client configured for GitHub Models
+            client = OpenAI(
+                api_key=api_key,  # GitHub Personal Access Token
+                base_url=endpoint
+            )
+            
+            # Send chat completion request
+            response = client.chat.completions.create(
+                model=model,  # e.g., "gpt-4o", "o1-mini", "mistral-large"
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Extract response
+            content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            
+            # Get token usage
+            tokens = {
+                'input': response.usage.prompt_tokens,
+                'output': response.usage.completion_tokens,
+                'total': response.usage.total_tokens
+            }
+            
+            return {
+                'content': content,
+                'model': model,
+                'tokens': tokens,
+                'finish_reason': finish_reason
+            }
+            
+        except OpenAIRateLimitError as e:
+            # Extract retry-after from headers if available
+            retry_after = None
+            if hasattr(e, 'response') and e.response:
+                retry_after = e.response.headers.get('Retry-After')
+                if retry_after:
+                    retry_after = int(retry_after)
+            
+            raise RateLimitError(str(e), retry_after=retry_after)
+            
+        except Exception as e:
+            logger.error(f"GitHub Models API error: {e}")
+            raise ProviderError(f"GitHub Models error: {str(e)}")
+
+
+class OpenCodeClient(ProviderClient):
+    """
+    OpenCode.ai unified provider client.
+    
+    Provides access to multiple LLM providers (Claude, GPT-4, Gemini, Llama, etc.)
+    through a single OpenAI-compatible API endpoint.
+    
+    Endpoint: https://opencode.ai/api/v1
+    Get API key: https://opencode.ai
+    
+    Supported models:
+    - claude-sonnet-4-20250514 (Anthropic Claude Sonnet 4)
+    - gpt-4o, gpt-4o-mini (OpenAI)
+    - gemini-2.0-flash-exp (Google Gemini)
+    - llama-3.1-405b (Meta Llama)
+    - mistral-large (Mistral AI)
+    """
+    
+    def chat_completion(
+        self,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send OpenCode chat completion request."""
+        try:
+            from openai import OpenAI
+            from openai import RateLimitError as OpenAIRateLimitError
+        except ImportError:
+            raise ProviderError("openai not installed (pip install openai>=1.0.0)")
+        
+        try:
+            # OpenCode endpoint (OpenAI-compatible)
+            endpoint = "https://opencode.ai/api/v1"
+            
+            # Create OpenAI client configured for OpenCode
+            client = OpenAI(
+                api_key=api_key,  # OpenCode API key
+                base_url=endpoint
+            )
+            
+            # Send chat completion request
+            response = client.chat.completions.create(
+                model=model,  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Extract response
+            content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            
+            # Get token usage
+            tokens = {
+                'input': response.usage.prompt_tokens,
+                'output': response.usage.completion_tokens,
+                'total': response.usage.total_tokens
+            }
+            
+            return {
+                'content': content,
+                'model': model,
+                'tokens': tokens,
+                'finish_reason': finish_reason
+            }
+            
+        except OpenAIRateLimitError as e:
+            # Extract retry-after from headers if available
+            retry_after = None
+            if hasattr(e, 'response') and e.response:
+                retry_after = e.response.headers.get('Retry-After')
+                if retry_after:
+                    retry_after = int(retry_after)
+            
+            raise RateLimitError(str(e), retry_after=retry_after)
+            
+        except Exception as e:
+            if "401" in str(e) or "Unauthorized" in str(e):
+                raise ProviderError(f"OpenCode authentication error: {str(e)}")
+            logger.error(f"OpenCode API error: {e}")
+            raise ProviderError(f"OpenCode error: {str(e)}")
+
+
 # Provider registry
 _PROVIDERS: Dict[str, ProviderClient] = {
     'gemini': GeminiClient(),
     'openai': OpenAIClient(),
     'anthropic': AnthropicClient(),
-    'azure-openai': AzureOpenAIClient()
+    'azure-openai': AzureOpenAIClient(),
+    'github-models': GitHubModelsClient(),
+    'opencode': OpenCodeClient()
 }
 
 

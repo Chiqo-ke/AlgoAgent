@@ -1,0 +1,12 @@
+TVscraper Fetch Metadata
+========================
+Ticker: MSFT
+Interval: 1h
+Period: 1mo
+Bars Requested: 720
+Bars Received: 720
+Data Source: TVscraper (TradingView)
+Fetch Time: 2026-02-09 16:31:46
+
+First Timestamp: 2026-01-10T16:31:46.208093
+Last Timestamp: 2026-02-09T15:31:46.208093

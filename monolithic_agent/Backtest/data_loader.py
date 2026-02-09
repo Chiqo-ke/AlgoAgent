@@ -29,6 +29,9 @@ import sys
 PARENT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(PARENT_DIR))
 
+# Initialize logger first
+logger = logging.getLogger(__name__)
+
 try:
     from Data.data_fetcher import DataFetcher
     from Data.indicator_calculator import compute_indicator, describe_indicator
@@ -38,10 +41,23 @@ try:
 except ImportError as e:
     DATA_FETCHER_AVAILABLE = False
     INDICATORS_AVAILABLE = False
-    logging.warning(f"Data fetcher or indicator calculator not available: {e}")
+    logger.warning(f"Data fetcher or indicator calculator not available: {e}")
 
-
-logger = logging.getLogger(__name__)
+# Try to import TVscraper as fallback for when yfinance fails
+try:
+    # Add TVscraper to path if not already installed as package
+    # Path: Backtest -> monolithic_agent -> AlgoAgent -> Documents -> TVscraper
+    TV_SCRAPER_PATH = Path(__file__).parent.parent.parent.parent / "TVscraper"
+    if TV_SCRAPER_PATH.exists() and str(TV_SCRAPER_PATH) not in sys.path:
+        sys.path.insert(0, str(TV_SCRAPER_PATH))
+        logger.info(f"Added TVscraper to path: {TV_SCRAPER_PATH}")
+    
+    from tvscraper.mcp_scraper import MCPTradingViewScraper
+    TV_SCRAPER_AVAILABLE = True
+    logger.info("✅ TVscraper available as yfinance fallback")
+except ImportError as e:
+    TV_SCRAPER_AVAILABLE = False
+    logger.warning(f"TVscraper not available: {e}")
 
 
 class DataFormat:
@@ -59,7 +75,7 @@ def fetch_market_data(
     interval: str = "1d"
 ) -> pd.DataFrame:
     """
-    Fetch market data using DataFetcher (yfinance).
+    Fetch market data using DataFetcher (yfinance) with TVscraper fallback.
     
     Args:
         ticker: Stock ticker symbol (e.g., 'AAPL')
@@ -70,41 +86,157 @@ def fetch_market_data(
         DataFrame with DatetimeIndex and OHLCV columns
     """
     if not DATA_FETCHER_AVAILABLE:
+        # Try TVscraper if yfinance not available
+        if TV_SCRAPER_AVAILABLE:
+            logger.warning("DataFetcher not available, using TVscraper fallback immediately")
+            return fetch_market_data_with_tvscraper(ticker, period, interval)
         raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
     
     logger.info(f"Fetching {ticker} data: period={period}, interval={interval}")
     
-    fetcher = DataFetcher()
-    df = fetcher.fetch_historical_data(ticker, period=period, interval=interval)
+    try:
+        fetcher = DataFetcher()
+        df = fetcher.fetch_historical_data(ticker, period=period, interval=interval)
+        
+        if df.empty:
+            raise ValueError(f"No data returned for {ticker} with period={period}, interval={interval}")
+        
+        # Ensure datetime index
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        
+        # Validate required columns
+        missing = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
+        
+        # Keep only OHLCV columns (drop Adj Close if present)
+        df = df[DataFormat.REQUIRED_COLUMNS]
+        
+        # Convert to numeric, coerce errors
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Drop rows with NaN values
+        df = df.dropna()
+        
+        # Sort by datetime
+        df = df.sort_index()
+        
+        logger.info(f"Fetched {len(df)} rows for {ticker}")
+        
+        return df
+        
+    except Exception as e:
+        # If yfinance fails, try TVscraper fallback
+        logger.warning(f"⚠️ yfinance failed: {e}")
+        
+        if TV_SCRAPER_AVAILABLE:
+            logger.info("🔄 Attempting TVscraper fallback...")
+            try:
+                return fetch_market_data_with_tvscraper(ticker, period, interval)
+            except Exception as fallback_error:
+                logger.error(f"❌ TVscraper fallback also failed: {fallback_error}")
+                raise ValueError(f"Both yfinance and TVscraper failed to fetch data for {ticker}") from e
+        else:
+            # No fallback available
+            raise
+
+
+def fetch_market_data_with_tvscraper(
+    ticker: str,
+    period: str = "1mo",
+    interval: str = "1d"
+) -> pd.DataFrame:
+    """
+    Fallback: Fetch market data using TVscraper when yfinance fails.
     
-    if df.empty:
-        raise ValueError(f"No data returned for {ticker} with period={period}, interval={interval}")
+    Args:
+        ticker: Stock ticker symbol (e.g., 'AAPL')
+        period: Time period (e.g., '1mo', '3mo', '6mo', '1y')
+        interval: Data interval (e.g., '1m', '5m', '1h', '1d')
     
-    # Ensure datetime index
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
+    Returns:
+        DataFrame with DatetimeIndex and OHLCV columns
+    """
+    if not TV_SCRAPER_AVAILABLE:
+        raise RuntimeError("TVscraper not available as fallback")
     
-    # Validate required columns
-    missing = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
+    logger.info(f"🔄 Using TVscraper fallback for {ticker} (period={period}, interval={interval})")
     
-    # Keep only OHLCV columns (drop Adj Close if present)
-    df = df[DataFormat.REQUIRED_COLUMNS]
-    
-    # Convert to numeric, coerce errors
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # Drop rows with NaN values
-    df = df.dropna()
-    
-    # Sort by datetime
-    df = df.sort_index()
-    
-    logger.info(f"Fetched {len(df)} rows for {ticker}")
-    
-    return df
+    try:
+        # Initialize scraper
+        scraper = MCPTradingViewScraper()
+        
+        # Initialize browser (required for TVscraper)
+        if not scraper.init_browser():
+            raise RuntimeError("Failed to initialize browser for TVscraper")
+        
+        # Navigate to TradingView
+        if not scraper.navigate_to_tradingview():
+            raise RuntimeError("Failed to navigate to TradingView")
+        
+        # Set symbol
+        scraper.change_symbol(ticker)
+        
+        # Map interval to TradingView timeframe format
+        timeframe_map = {
+            "1m": "1m", "2m": "2m", "3m": "3m", "5m": "5m",
+            "15m": "15m", "30m": "30m", "60m": "1h", "90m": "90m",
+            "1h": "1h", "1d": "1d", "1w": "1w", "1wk": "1w",
+            "1mo": "1M"
+        }
+        tv_timeframe = timeframe_map.get(interval, interval)
+        scraper.change_timeframe(tv_timeframe)
+        
+        # Calculate approximate bars count based on period
+        period_to_bars = {
+            "1d": 24, "5d": 120, "1mo": 720, "3mo": 2160,
+            "6mo": 4320, "1y": 8760, "2y": 17520, "5y": 43800
+        }
+        bars_count = period_to_bars.get(period, 720)  # Default to 1 month
+        
+        # Fetch historical data
+        logger.info(f"Fetching {bars_count} bars from TradingView...")
+        historical_data = scraper.get_historical_data(bars_count=bars_count)
+        
+        if not historical_data:
+            raise ValueError(f"No data returned from TVscraper for {ticker}")
+        
+        # Convert TVscraper data format to DataFrame
+        data_rows = []
+        for bar in historical_data:
+            data_rows.append({
+                'timestamp': pd.to_datetime(bar['timestamp']),
+                'Open': float(bar['open']),
+                'High': float(bar['high']),
+                'Low': float(bar['low']),
+                'Close': float(bar['close']),
+                'Volume': float(bar.get('volume', 0))
+            })
+        
+        # Create DataFrame
+        df = pd.DataFrame(data_rows)
+        df.set_index('timestamp', inplace=True)
+        df.index.name = None  # Remove index name to match yfinance format
+        
+        # Ensure correct data types
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Drop rows with NaN values
+        df = df.dropna()
+        
+        # Sort by datetime
+        df = df.sort_index()
+        
+        logger.info(f"✅ TVscraper fetched {len(df)} rows for {ticker}")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"❌ TVscraper fallback failed: {e}")
+        raise
 
 
 def fetch_market_data_by_date_range(
