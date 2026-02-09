@@ -553,9 +553,89 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             
             # Create temporary file with strategy code
+            # SAFETY NET: Ensure code has correct path setup for execution from temp directory
+            code = strategy.strategy_code
+            
+            # Check if code has proper 3-level path setup AND correct imports
+            has_correct_path = 'parent.parent.parent' in code
+            has_correct_imports = 'from Backtest.' in code
+            has_wrong_imports = (
+                'import data_loader' in code or
+                'import sim_broker' in code or
+                'from data_loader import' in code or
+                'from sim_broker import' in code or
+                'from config import' in code
+            )
+            
+            needs_fix = not has_correct_path or not has_correct_imports or has_wrong_imports
+            
+            # ALWAYS ensure correct path setup for temp file execution
+            # Get absolute path to monolithic_agent directory
+            from pathlib import Path
+            monolithic_agent_dir = Path(__file__).resolve().parent.parent  # views.py -> strategy_api -> monolithic_agent
+            
+            # Replace relative parent.parent.parent with absolute path
+            if 'parent.parent.parent' in code:
+                # Replace the relative path logic with absolute path
+                old_path_setup = '''parent_dir = Path(__file__).parent.parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))'''
+                
+                new_path_setup = f'''# Absolute path to monolithic_agent (for temp file execution)
+monolithic_agent_dir = Path(r"{monolithic_agent_dir}")
+if str(monolithic_agent_dir) not in sys.path:
+    sys.path.insert(0, str(monolithic_agent_dir))'''
+                
+                code = code.replace(old_path_setup, new_path_setup)
+                logger.info("[EXECUTE] Replaced relative path with absolute path for temp execution")
+            
+            if needs_fix:
+                logger.warning(f"[EXECUTE] Code needs fixing - path:{has_correct_path}, imports_ok:{has_correct_imports}, wrong_imports:{has_wrong_imports}")
+                
+                # If no path setup exists, inject it
+                if 'parent.parent.parent' not in code and 'monolithic_agent_dir' not in code:
+                    path_setup = f'''
+import sys
+from pathlib import Path
+
+# Path setup: Absolute path for temp file execution
+monolithic_agent_dir = Path(r"{monolithic_agent_dir}")
+if str(monolithic_agent_dir) not in sys.path:
+    sys.path.insert(0, str(monolithic_agent_dir))
+
+'''
+                # Find where to inject (after docstring or at start)
+                if '"""' in code:
+                    # Find end of docstring
+                    parts = code.split('"""', 2)
+                    if len(parts) >= 3:
+                        code = parts[0] + '"""' + parts[1] + '"""' + path_setup + parts[2]
+                else:
+                    # No docstring, add at top
+                    code = path_setup + code
+                
+                # Fix ALL wrong import patterns
+                code = code.replace('import data_loader', 'from Backtest import data_loader')
+                code = code.replace('import sim_broker', 'from Backtest import sim_broker')
+                code = code.replace('import config', 'from Backtest import config')
+                code = code.replace('from sim_broker import', 'from Backtest.sim_broker import')
+                code = code.replace('from config import', 'from Backtest.config import')
+                code = code.replace('from canonical_schema import', 'from Backtest.canonical_schema import')
+                code = code.replace('from data_loader import', 'from Backtest.data_loader import')
+                code = code.replace('from pattern_logger import', 'from Backtest.pattern_logger import')
+                code = code.replace('from signal_logger import', 'from Backtest.signal_logger import')
+                
+                logger.info("[EXECUTE] Applied import fixes to strategy code")
+            
+            # Debug: Log first 1000 chars of code being executed
+            logger.info(f"[EXECUTE] Code preview (first 1000 chars):\n{code[:1000]}")
+            logger.info(f"[EXECUTE] Import check - has 'import data_loader': {'import data_loader' in code}")
+            logger.info(f"[EXECUTE] Import check - has 'from Backtest.data_loader': {'from Backtest.data_loader' in code}")
+            
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tmp_file:
-                tmp_file.write(strategy.strategy_code)
+                tmp_file.write(code)
                 tmp_file_path = tmp_file.name
+                logger.info(f"[EXECUTE] Temp file created: {tmp_file_path}")
             
             try:
                 executor = BotExecutor()
@@ -792,8 +872,12 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     logger.warning(f"Failed to auto-create template: {e}")
                     # Don't fail the entire request if template creation fails
             
-            # Trigger async validation
-            self._trigger_async_validation(strategy)
+            # Perform synchronous validation (includes auto-fix if needed)
+            logger.info(f"[VALIDATION] Starting validation for strategy {strategy.id}: {strategy.name}")
+            validation_result = self._validate_strategy_sync(strategy)
+            
+            # Refresh strategy from DB to get updated status after validation
+            strategy.refresh_from_db()
             
             serializer = StrategySerializer(strategy)
             response_data = serializer.data
@@ -806,8 +890,14 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     'message': 'Template automatically created for tracking strategy evolution'
                 }
             
-            # Add validation status message
-            response_data['validation_message'] = 'Strategy is being validated in the background. Check status before backtesting.'
+            # Add validation result to response
+            response_data['validation'] = {
+                'status': strategy.status,
+                'valid': validation_result.get('valid', False),
+                'auto_fixed': validation_result.get('auto_fixed', False),
+                'errors': validation_result.get('errors', []),
+                'message': 'Strategy validated and ready for backtesting' if strategy.status == 'valid' else 'Strategy validation failed'
+            }
             
             return Response(response_data, status=status.HTTP_201_CREATED)
             
@@ -818,10 +908,163 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
+    def _validate_strategy_sync(self, strategy):
+        """
+        Synchronously validate strategy with auto-fix capability
+        Returns validation result dict with auto_fixed flag
+        """
+        try:
+            logger.info(f"[VALIDATION] Validating strategy {strategy.id}: {strategy.name}")
+            
+            # Import validator
+            sys.path.insert(0, str(PARENT_DIR / "Backtest"))
+            from Backtest.strategy_validator import StrategyValidator
+            
+            validator = StrategyValidator()
+            result = validator.validate_strategy_code(
+                strategy_code=strategy.strategy_code,
+                strategy_name=strategy.name,
+                test_symbol='AAPL',
+                test_period_days=365  # 1 year test
+            )
+            
+            auto_fixed = False
+            
+            # Update strategy status based on validation
+            if result['valid']:
+                strategy.status = 'valid'
+                strategy.last_validated = timezone.now()
+                logger.info(f"[VALIDATION] Strategy {strategy.id} is VALID ({result['trades_executed']} trades)")
+            else:
+                strategy.status = 'invalid'
+                logger.warning(f"[VALIDATION] Strategy {strategy.id} is INVALID: {result['errors']}")
+                
+                # Auto-fix attempt for validation failures
+                logger.info(f"[AUTO-FIX] Attempting to fix validation errors for strategy {strategy.id}")
+                
+                try:
+                    # Check if it's a missing component error (class/method)
+                    errors_str = str(result.get('errors', []))
+                    is_missing_class = 'Strategy class definition' in errors_str
+                    is_missing_method = 'method' in errors_str.lower()
+                    
+                    if is_missing_class or is_missing_method:
+                        logger.info("[AUTO-FIX] Detected missing class/method - attempting regeneration with stronger constraints")
+                        
+                        # Import generator
+                        from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                        
+                        # Build enhanced prompt with error context
+                        error_context = f"""
+CRITICAL: Previous generation failed validation with these errors:
+{chr(10).join(result.get('errors', []))}
+
+You MUST generate COMPLETE, EXECUTABLE code with:
+1. A complete Strategy class (class StrategyName:)
+2. An __init__() method
+3. An on_bar() method with trading logic
+4. A run_backtest() function that executes the strategy
+
+CRITICAL IMPORT REQUIREMENTS (MUST FOLLOW EXACTLY):
+```python
+import sys
+from pathlib import Path
+
+# Add parent directory to path (codes -> Backtest -> monolithic_agent)
+parent_dir = Path(__file__).parent.parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+# Import from Backtest package:
+from Backtest.sim_broker import SimBroker
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import load_market_data
+```
+
+FORBIDDEN (will cause import errors):
+❌ import data_loader  # Wrong
+❌ import sim_broker  # Wrong  
+❌ from data_loader import  # Wrong
+❌ parent.parent  # Wrong - need 3 levels
+
+DO NOT generate placeholder code or incomplete classes.
+GENERATE THE COMPLETE, EXECUTABLE STRATEGY CODE with correct imports.
+
+Original request: {strategy.description}
+"""
+                        
+                        # Regenerate with error context
+                        generator = CopilotStrategyGenerator()
+                        fixed_code = generator.generate_strategy_code(error_context)
+                        
+                        # Update strategy with fixed code
+                        strategy.strategy_code = fixed_code
+                        strategy.save(update_fields=['strategy_code'])
+                        
+                        logger.info("[AUTO-FIX] Regenerated code, re-validating...")
+                        
+                        # Re-validate
+                        result2 = validator.validate_strategy_code(
+                            strategy_code=fixed_code,
+                            strategy_name=strategy.name,
+                            test_symbol='AAPL',
+                            test_period_days=365
+                        )
+                        
+                        if result2['valid']:
+                            strategy.status = 'valid'
+                            auto_fixed = True
+                            result = result2  # Use new result
+                            logger.info(f"[AUTO-FIX] SUCCESS! Strategy {strategy.id} fixed and validated")
+                        else:
+                            logger.warning(f"[AUTO-FIX] Fix attempt failed: {result2['errors']}")
+                
+                except Exception as fix_error:
+                    logger.error(f"[AUTO-FIX] Auto-fix failed: {fix_error}")
+                    logger.error(traceback.format_exc())
+            
+            strategy.save(update_fields=['status', 'last_validated'])
+            
+            # Create or update StrategyValidation record
+            StrategyValidation.objects.update_or_create(
+                strategy=strategy,
+                validation_type='backtest',
+                defaults={
+                    'status': 'passed' if result['valid'] else 'failed',
+                    'score': result.get('performance_score', 0),
+                    'passed_checks': result.get('passed_checks', []),
+                    'failed_checks': result.get('errors', []),
+                    'warnings': result.get('warnings', []),
+                    'recommendations': result.get('suggestions', []),
+                    'validation_config': {'test_period': '1 year', 'framework': 'backtesting.py'},
+                    'execution_time': result.get('execution_time', 0),
+                    'completed_at': timezone.now(),
+                }
+            )
+            
+            logger.info(f"[VALIDATION] Strategy {strategy.id} validation complete: {strategy.status}")
+            
+            # Add auto_fixed flag to result
+            result['auto_fixed'] = auto_fixed
+            return result
+            
+        except Exception as e:
+            logger.error(f"[VALIDATION] Error validating strategy {strategy.id}: {e}")
+            logger.error(traceback.format_exc())
+            # Mark as invalid on error
+            strategy.status = 'invalid'
+            strategy.save(update_fields=['status'])
+            return {
+                'valid': False,
+                'auto_fixed': False,
+                'errors': [f'Validation error: {str(e)}']
+            }
+    
     def _trigger_async_validation(self, strategy):
         """
-        Trigger async validation for newly created strategy
-        Runs validation in background thread to avoid blocking API response
+        DEPRECATED: Use _validate_strategy_sync instead for synchronous validation
+        Kept for backward compatibility with other endpoints
         """
         import threading
         
@@ -850,6 +1093,66 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                 else:
                     strategy.status = 'invalid'
                     logger.warning(f"[VALIDATION] Strategy {strategy.id} is INVALID: {result['errors']}")
+                    
+                    # NEW: Auto-fix attempt for validation failures
+                    logger.info(f"[AUTO-FIX] Attempting to fix validation errors for strategy {strategy.id}")
+                    
+                    try:
+                        # Check if it's a missing component error (class/method)
+                        errors_str = str(result.get('errors', []))
+                        is_missing_class = 'Strategy class definition' in errors_str
+                        is_missing_method = 'method' in errors_str.lower()
+                        
+                        if is_missing_class or is_missing_method:
+                            logger.info("[AUTO-FIX] Detected missing class/method - attempting regeneration with stronger constraints")
+                            
+                            # Import generator
+                            from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
+                            
+                            # Build enhanced prompt with error context
+                            error_context = f"""
+CRITICAL: Previous generation failed validation with these errors:
+{chr(10).join(result.get('errors', []))}
+
+You MUST generate:
+1. A complete Strategy class (class StrategyName:)
+2. An __init__() method
+3. An on_bar() method with trading logic
+4. A run_backtest() function that executes the strategy
+
+DO NOT generate placeholder code or incomplete classes.
+GENERATE THE COMPLETE, EXECUTABLE STRATEGY CODE.
+
+Original request: {strategy.description}
+"""
+                            
+                            # Regenerate with error context
+                            generator = CopilotStrategyGenerator()
+                            fixed_code = generator.generate_strategy_code(error_context)
+                            
+                            # Update strategy with fixed code
+                            strategy.strategy_code = fixed_code
+                            strategy.save(update_fields=['strategy_code'])
+                            
+                            logger.info("[AUTO-FIX] Regenerated code, re-validating...")
+                            
+                            # Re-validate
+                            result2 = validator.validate_strategy_code(
+                                strategy_code=fixed_code,
+                                strategy_name=strategy.name,
+                                test_symbol='AAPL',
+                                test_period_days=365
+                            )
+                            
+                            if result2['valid']:
+                                strategy.status = 'valid'
+                                logger.info(f"[AUTO-FIX] SUCCESS! Strategy {strategy.id} fixed and validated")
+                            else:
+                                logger.warning(f"[AUTO-FIX] Fix attempt failed: {result2['errors']}")
+                    
+                    except Exception as fix_error:
+                        logger.error(f"[AUTO-FIX] Auto-fix failed: {fix_error}")
+                        logger.error(traceback.format_exc())
                 
                 strategy.save(update_fields=['status', 'last_validated'])
                 
@@ -1545,12 +1848,15 @@ class StrategyAPIViewSet(viewsets.ViewSet):
         """
         import re
         
-        # Check 1: Code must have broker.buy() or broker.sell() calls
-        has_buy = bool(re.search(r'\bbroker\.buy\s*\(', code))
-        has_sell = bool(re.search(r'\bbroker\.sell\s*\(', code))
+        # Check 1: Code must have broker.submit_signal() calls (CORRECT SimBroker API)
+        has_submit_signal = bool(re.search(r'\bbroker\.submit_signal\s*\(', code))
+        has_create_signal = bool(re.search(r'\bcreate_signal\s*\(', code))
         
-        if not (has_buy or has_sell):
-            return False, "Code does not contain any buy() or sell() calls - strategy won't trade"
+        if not has_submit_signal:
+            return False, "Code does not contain broker.submit_signal() calls - strategy won't trade"
+        
+        if not has_create_signal:
+            return False, "Code missing create_signal() calls - required for signal generation"
         
         # Check 2: Code must have conditional logic INSIDE strategy (not just if __name__)
         # Look for if/elif statements that are NOT the main block
@@ -1563,21 +1869,29 @@ class StrategyAPIViewSet(viewsets.ViewSet):
         if not has_conditionals:
             return False, "Code lacks conditional logic (if statements) - strategy needs decision logic"
         
-        # Check 3: Code must have a main method that calls broker.run()
+        # Check 3: Code must have a main execution block
+        # Accept either broker.run() OR if __name__ == "__main__" with function call or backtest execution
         has_main = bool(re.search(r'if\s+__name__\s*==\s*[\'"]__main__[\'"]', code))
         has_run = bool(re.search(r'\bbroker\.run\s*\(', code))
+        has_run_backtest = bool(re.search(r'\brun_backtest\s*\(', code))
         
-        if not (has_main and has_run):
-            return False, "Code missing main execution block with broker.run() call"
+        if not has_main:
+            return False, "Code missing if __name__ == '__main__' block"
         
-        # Check 4: Code should have strategy function definition
-        has_strategy_func = bool(re.search(r'def\s+\w+_strategy\s*\(', code))
+        # Accept if it has broker.run() OR run_backtest() call
+        if not (has_run or has_run_backtest):
+            return False, "Code missing execution call (broker.run() or run_backtest())"
         
-        if not has_strategy_func:
-            return False, "Code missing strategy function definition"
+        # Check 4: Code should have class or function definitions (not just inline code)
+        has_class = bool(re.search(r'class\s+\w+', code))
+        has_function = bool(re.search(r'def\s+\w+\s*\(', code))
+        
+        if not (has_class or has_function):
+            return False, "Code missing class or function definitions - needs proper structure"
         
         return True, ""
     
+    @action(detail=False, methods=['post'])
     def generate_strategy_unified(self, request):
         """
         UNIFIED Strategy Code Generation Endpoint
@@ -1725,10 +2039,47 @@ class StrategyAPIViewSet(viewsets.ViewSet):
             
             # ===== VALIDATE GENERATED CODE =====
             logger.info("[UNIFIED] Validating generated code for trading logic...")
+            
+            # DEBUG: Log what's being validated
+            logger.info("="*80)
+            logger.info("[DEBUG] VALIDATION INPUT")
+            logger.info("="*80)
+            logger.info(f"Code length: {len(strategy_code)} chars")
+            logger.info(f"First 800 chars:\n{strategy_code[:800]}")
+            logger.info("="*80)
+            
             is_valid, validation_error = self._validate_generated_code(strategy_code)
             
             if not is_valid:
                 logger.error(f"[UNIFIED] ❌ Code validation failed: {validation_error}")
+                
+                # DEBUG: Log detailed validation failure info
+                import re
+                logger.error("="*80)
+                logger.error("[DEBUG] VALIDATION FAILURE DETAILS")
+                logger.error("="*80)
+                
+                # Perform regex checks separately to avoid f-string raw string issues
+                has_submit_signal = bool(re.search(r'\bbroker\.submit_signal\s*\(', strategy_code))
+                has_create_signal = bool(re.search(r'\bcreate_signal\s*\(', strategy_code))
+                has_if = bool(re.search(r'if\s+(?!__name__)', strategy_code))
+                has_elif = bool(re.search(r'\belif\s+', strategy_code))
+                has_main = bool(re.search(r'if\s+__name__\s*==\s*[\'"]__main__[\'"]', strategy_code))
+                has_run = bool(re.search(r'\bbroker\.run\s*\(', strategy_code))
+                has_run_backtest = bool(re.search(r'\brun_backtest\s*\(', strategy_code))
+                has_class = bool(re.search(r'class\s+\w+', strategy_code))
+                has_function = bool(re.search(r'def\s+\w+\s*\(', strategy_code))
+                
+                logger.error(f"Has 'broker.submit_signal': {has_submit_signal}")
+                logger.error(f"Has 'create_signal': {has_create_signal}")
+                logger.error(f"Has 'if' (not __name__): {has_if}")
+                logger.error(f"Has 'elif': {has_elif}")
+                logger.error(f"Has main block: {has_main}")
+                logger.error(f"Has broker.run: {has_run}")
+                logger.error(f"Has run_backtest: {has_run_backtest}")
+                logger.error(f"Has class definition: {has_class}")
+                logger.error(f"Has function definition: {has_function}")
+                logger.error("="*80)
                 return Response({
                     'success': False,
                     'error': 'Generated code validation failed',
@@ -1784,22 +2135,26 @@ class StrategyAPIViewSet(viewsets.ViewSet):
                     # Use longer timeout (600s = 10 minutes) for backtests
                     executor = BotExecutor(timeout_seconds=600)
                     
-                    # Get test configuration
-                    test_symbol = test_config.get('symbol', 'AAPL')
+                    # Get test configuration - use multiple symbols for better pattern detection
+                    test_symbols = test_config.get('symbols', 'AAPL,TSLA,MSFT')  # Test on 3 symbols by default
                     test_period = test_config.get('period', '1y')
                     test_interval = test_config.get('interval', '1d')
                     
                     # Convert period string to days
-                    period_to_days = {
+                    period_to_days= {
                         '1mo': 30, '3mo': 90, '6mo': 180,
                         '1y': 365, '2y': 730, '5y': 1825, 'max': 3650
                     }
                     test_period_days = period_to_days.get(test_period, 365)
                     
-                    logger.info(f"[UNIFIED] Auto-executing... (Symbol: {test_symbol}, Period: {test_period})")
+                    # Log multi-symbol testing
+                    symbols_list = test_symbols.split(',') if isinstance(test_symbols, str) else test_symbols
+                    logger.info(f"[UNIFIED] Auto-executing... (Symbols: {test_symbols}, Period: {test_period})")
+                    logger.info(f"[UNIFIED] Testing on {len(symbols_list)} symbols to find trading opportunities")
+                    
                     execution_result = executor.execute_bot(
                         strategy_file=str(python_file),
-                        test_symbol=test_symbol,
+                        test_symbol=test_symbols,  # Pass all symbols (executor will set as env var)
                         test_period_days=test_period_days,
                         parameters={'test_period': test_period, 'test_interval': test_interval},
                         save_results=True

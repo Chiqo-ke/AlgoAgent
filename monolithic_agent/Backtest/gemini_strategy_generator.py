@@ -379,25 +379,22 @@ Strategy: {strategy_name}
 Description: {description}
 \"\"\"
 
-# Imports - use direct module imports to avoid Django initialization
+# Imports - use Backtest package imports
 import sys
 from pathlib import Path
 
-parent_dir = Path(__file__).parent.parent
+# Go up 3 levels: codes -> Backtest -> monolithic_agent
+parent_dir = Path(__file__).parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-# Direct imports (NOT from Backtest package)
-from sim_broker import SimBroker
-from config import BacktestConfig
-from canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from data_loader import load_market_data
-from pattern_logger import PatternLogger
-from signal_logger import SignalLogger
+# Import from Backtest package
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
-from Backtest.data_loader import fetch_market_data, add_indicators
+from Backtest.data_loader import load_market_data
+from Backtest.pattern_logger import PatternLogger
+from Backtest.signal_logger import SignalLogger
 from datetime import datetime
 import pandas as pd
 import logging

@@ -503,6 +503,12 @@ class BotExecutor:
             env = os.environ.copy()
             env['DJANGO_SETTINGS_MODULE'] = 'monolithic_agent.settings'
             
+            # Set symbols for multi-symbol testing
+            if self.test_symbol:
+                # Support both single symbol (backward compat) and multiple symbols
+                env['BACKTEST_SYMBOLS'] = self.test_symbol
+                logger.info(f"Setting backtest symbols: {self.test_symbol}")
+            
             # Set date range environment variables if provided
             if self.start_date:
                 env['BACKTEST_START_DATE'] = self.start_date

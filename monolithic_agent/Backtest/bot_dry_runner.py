@@ -84,13 +84,13 @@ class BotDryRunner:
 import sys
 from pathlib import Path
 
-# Add Backtest to path
+# Add Backtest to path (go up to monolithic_agent)
 backtest_dir = Path(r"{bot_file.parent.parent}")
 if str(backtest_dir) not in sys.path:
     sys.path.insert(0, str(backtest_dir))
 
 # Monkey-patch data_loader to return limited data
-import data_loader
+from Backtest import data_loader
 
 original_load_market_data = data_loader.load_market_data
 

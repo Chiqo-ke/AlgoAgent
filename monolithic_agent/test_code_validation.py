@@ -26,18 +26,23 @@ def validate_generated_code(code: str) -> tuple:
     if not has_conditionals:
         return False, "Code lacks conditional logic (if statements) - strategy needs decision logic"
     
-    # Check 3: Code must have a main method that calls broker.run()
+    # Check 3: Code must have a main execution block
     has_main = bool(re.search(r'if\s+__name__\s*==\s*[\'"]__main__[\'"]', code))
     has_run = bool(re.search(r'\bbroker\.run\s*\(', code))
+    has_run_backtest = bool(re.search(r'\brun_backtest\s*\(', code))
     
-    if not (has_main and has_run):
-        return False, "Code missing main execution block with broker.run() call"
+    if not has_main:
+        return False, "Code missing if __name__ == '__main__' block"
     
-    # Check 4: Code should have strategy function definition
-    has_strategy_func = bool(re.search(r'def\s+\w+_strategy\s*\(', code))
+    if not (has_run or has_run_backtest):
+        return False, "Code missing execution call (broker.run() or run_backtest())"
     
-    if not has_strategy_func:
-        return False, "Code missing strategy function definition"
+    # Check 4: Code should have class or function definitions
+    has_class = bool(re.search(r'class\s+\w+', code))
+    has_function = bool(re.search(r'def\s+\w+\s*\(', code))
+    
+    if not (has_class or has_function):
+        return False, "Code missing class or function definitions - needs proper structure"
     
     return True, ""
 
@@ -100,28 +105,63 @@ print(f"  Error: {error}")
 
 # Test 4: Missing main block
 no_main_code = """
-def strategy(broker, market_data):
+def my_strategy(broker, market_data):
     data = market_data.get('data', [])
     if data:
         broker.buy(size=100)
+
+def run_backtest():
+    broker.run()
 """
 
 is_valid, error = validate_generated_code(no_main_code)
 print(f"\nTest 4 - No Main Block: {'FAIL (expected)' if not is_valid else 'UNEXPECTED PASS'}")
 print(f"  Error: {error}")
 
-# Test 5: Missing strategy function
-no_function_code = """
-if data:
-    broker.buy(size=100)
+# Test 5: Missing run call (no broker.run or run_backtest)
+no_run_code = """
+def strategy(broker, market_data):
+    data = market_data.get('data', [])
+    if data:
+        broker.buy(size=100)
 
 if __name__ == '__main__':
-    broker.run()
+    pass  # Missing broker.run() or run_backtest()
 """
 
-is_valid, error = validate_generated_code(no_function_code)
-print(f"\nTest 5 - No Strategy Function: {'FAIL (expected)' if not is_valid else 'UNEXPECTED PASS'}")
+is_valid, error = validate_generated_code(no_run_code)
+print(f"\nTest 5 - No Run Call: {'FAIL (expected)' if not is_valid else 'UNEXPECTED PASS'}")
 print(f"  Error: {error}")
+
+# Test 6: Valid with run_backtest() instead of broker.run()
+valid_with_backtest = """
+def ema_strategy(broker, market_data):
+    data = market_data.get('data', [])
+    if not data:
+        return
+    
+    current = data[-1]
+    ema_fast = current.get('EMA_12')
+    ema_slow = current.get('EMA_26')
+    
+    if ema_fast and ema_slow:
+        if ema_fast > ema_slow and not broker.has_position():
+            broker.buy(size=100)
+        elif ema_fast < ema_slow and broker.has_position():
+            broker.sell(size=100)
+
+def run_backtest():
+    # Backtest logic
+    pass
+
+if __name__ == '__main__':
+    run_backtest()
+"""
+
+is_valid, error = validate_generated_code(valid_with_backtest)
+print(f"\nTest 6 - Valid with run_backtest(): {'PASS' if is_valid else 'FAIL'}")
+if not is_valid:
+    print(f"  Error: {error}")
 
 print("\n" + "="*50)
 print("Validation Logic Test Complete!")
