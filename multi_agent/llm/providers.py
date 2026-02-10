@@ -5,35 +5,28 @@ Supports:
 - Google Gemini
 - OpenAI
 - Anthropic Claude
-- Other providers (extensible)
+- Azure OpenAI
+- GitHub Copilot
+- OpenCode (unified access to multiple providers)
 """
 import os
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Generator
 from abc import ABC, abstractmethod
 
+# Import enhanced base classes
+from .base_provider import (
+    LLMProviderBase,
+    LLMResponse,
+    LLMUsage,
+    ProviderError,
+    RateLimitError,
+    AuthenticationError,
+    ProviderUnavailableError,
+    SafetyBlockError
+)
+
 logger = logging.getLogger(__name__)
-
-
-class ProviderError(Exception):
-    """Base error for provider operations."""
-    pass
-
-
-class RateLimitError(ProviderError):
-    """Raised on 429 rate limit errors."""
-    
-    def __init__(self, message: str, retry_after: Optional[int] = None):
-        super().__init__(message)
-        self.retry_after = retry_after  # Seconds
-
-
-class SafetyBlockError(ProviderError):
-    """Raised when content is blocked by safety filters."""
-    
-    def __init__(self, message: str, safety_ratings: Optional[List[Dict[str, Any]]] = None):
-        super().__init__(message)
-        self.safety_ratings = safety_ratings  # Safety rating details
 
 
 class ProviderClient(ABC):
@@ -451,12 +444,200 @@ class AzureOpenAIClient(ProviderClient):
             raise ProviderError(f"Azure OpenAI error: {str(e)}")
 
 
+class GitHubCopilotClient(ProviderClient):
+    """
+    GitHub Copilot API client.
+    
+    GitHub Copilot provides access to multiple AI models through chat completions API.
+    Uses OAuth authentication (device flow) with 'read:user' scope.
+    
+    Endpoint: https://api.githubcopilot.com/chat/completions
+    Models: claude-sonnet-4.5, gpt-5.2-codex, gpt-5.1-codex, claude-opus-4.5, etc.
+    
+    See: https://docs.github.com/en/copilot
+    """
+    
+    def chat_completion(
+        self,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send GitHub Copilot chat completion request."""
+        try:
+            import requests
+        except ImportError:
+            raise ProviderError("requests not installed (pip install requests>=2.31.0)")
+        
+        try:
+            # GitHub Copilot API endpoint
+            endpoint = "https://api.githubcopilot.com/chat/completions"
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",  # OAuth access token
+                "Content-Type": "application/json",
+                "User-Agent": "AlgoAgent-MultiAgent/1.0",
+                "X-Initiator": "user",
+                "Openai-Intent": "conversation-edits"
+            }
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            # Send request to Copilot API
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
+            
+            # Handle rate limiting
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                raise RateLimitError("Rate limit exceeded", retry_after=retry_after)
+            
+            # Handle auth errors
+            if response.status_code == 401:
+                raise AuthenticationError("Invalid OAuth token - please re-authenticate")
+            
+            # Handle other errors
+            if response.status_code != 200:
+                raise ProviderError(f"Copilot API HTTP {response.status_code}: {response.text}")
+            
+            data = response.json()
+            
+            # Extract response
+            content = data["choices"][0]["message"]["content"]
+            finish_reason = data["choices"][0].get("finish_reason", "stop")
+            
+            # Get token usage
+            usage = data.get("usage", {})
+            tokens = {
+                'input': usage.get('prompt_tokens', 0),
+                'output': usage.get('completion_tokens', 0),
+                'total': usage.get('total_tokens', 0)
+            }
+            
+            return {
+                'content': content,
+                'model': model,
+                'tokens': tokens,
+                'finish_reason': finish_reason
+            }
+            
+        except RateLimitError:
+            raise
+        except AuthenticationError:
+            raise
+        except Exception as e:
+            logger.error(f"GitHub Copilot API error: {e}")
+            raise ProviderError(f"GitHub Copilot error: {str(e)}")
+
+
+class OpenCodeClient(ProviderClient):
+    """
+    OpenCode.ai unified provider client.
+    
+    Provides access to multiple LLM providers (Claude, GPT-4, Gemini, Llama, etc.)
+    through a single OpenAI-compatible API endpoint.
+    
+    Endpoint: https://opencode.ai/api/v1
+    Get API key: https://opencode.ai
+    
+    Supported models:
+    - claude-sonnet-4-20250514 (Anthropic Claude Sonnet 4)
+    - gpt-4o, gpt-4o-mini (OpenAI)
+    - gemini-2.0-flash-exp (Google Gemini)
+    - llama-3.1-405b (Meta Llama)
+    - mistral-large (Mistral AI)
+    """
+    
+    def chat_completion(
+        self,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Send OpenCode chat completion request."""
+        try:
+            from openai import OpenAI
+            from openai import RateLimitError as OpenAIRateLimitError
+        except ImportError:
+            raise ProviderError("openai not installed (pip install openai>=1.0.0)")
+        
+        try:
+            # OpenCode endpoint (OpenAI-compatible)
+            endpoint = "https://opencode.ai/api/v1"
+            
+            # Create OpenAI client configured for OpenCode
+            client = OpenAI(
+                api_key=api_key,  # OpenCode API key
+                base_url=endpoint
+            )
+            
+            # Send chat completion request
+            response = client.chat.completions.create(
+                model=model,  # e.g., "claude-sonnet-4-20250514", "gpt-4o"
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # Extract response
+            content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            
+            # Get token usage
+            tokens = {
+                'input': response.usage.prompt_tokens,
+                'output': response.usage.completion_tokens,
+                'total': response.usage.total_tokens
+            }
+            
+            return {
+                'content': content,
+                'model': model,
+                'tokens': tokens,
+                'finish_reason': finish_reason
+            }
+            
+        except OpenAIRateLimitError as e:
+            # Extract retry-after from headers if available
+            retry_after = None
+            if hasattr(e, 'response') and e.response:
+                retry_after = e.response.headers.get('Retry-After')
+                if retry_after:
+                    retry_after = int(retry_after)
+            
+            raise RateLimitError(str(e), retry_after=retry_after)
+            
+        except Exception as e:
+            if "401" in str(e) or "Unauthorized" in str(e):
+                raise ProviderError(f"OpenCode authentication error: {str(e)}")
+            logger.error(f"OpenCode API error: {e}")
+            raise ProviderError(f"OpenCode error: {str(e)}")
+
+
 # Provider registry
 _PROVIDERS: Dict[str, ProviderClient] = {
     'gemini': GeminiClient(),
     'openai': OpenAIClient(),
     'anthropic': AnthropicClient(),
-    'azure-openai': AzureOpenAIClient()
+    'azure-openai': AzureOpenAIClient(),
+    'github-copilot': GitHubCopilotClient(),
+    'opencode': OpenCodeClient()
 }
 
 

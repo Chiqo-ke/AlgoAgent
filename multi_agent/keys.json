@@ -1,243 +1,102 @@
 {
   "keys": [
     {
-      "key_id": "flash_01",
-      "provider": "gemini",
-      "model_name": "gemini-2.0-flash",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
+      "key_id": "opencode-claude-01",
+      "model_name": "claude-sonnet-4-20250514",
+      "provider": "opencode",
+      "rpm": 60,
+      "tpm": 100000,
+      "rpd": 1000,
+      "active": false,
       "tags": {
-        "tier": "free",
-        "pool": "flash",
-        "workload": "light",
-        "priority": 1
-      }
-    },
-    {
-      "key_id": "flash_02",
-      "provider": "gemini",
-      "model_name": "gemini-2.0-flash",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "flash",
-        "workload": "light",
-        "priority": 1
-      }
-    },
-    {
-      "key_id": "flash_03",
-      "provider": "gemini",
-      "model_name": "gemini-2.0-flash",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "flash",
-        "workload": "light",
-        "priority": 1
-      }
-    },
-    {
-      "key_id": "pro_01",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
+        "tier": "premium",
+        "pool": "opencode",
         "workload": "heavy",
-        "priority": 2
+        "priority": 10,
+        "use_case": "code_generation",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
       }
     },
     {
-      "key_id": "pro_02",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_03",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_04",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_05",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_06",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_07",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_08",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_09",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_10",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "pro_11",
-      "provider": "gemini",
-      "model_name": "gemini-2.5-pro",
-      "rpm": 15,
-      "tpm": 1000000,
-      "rpd": 1500,
-      "active": true,
-      "tags": {
-        "tier": "free",
-        "pool": "pro",
-        "workload": "heavy",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "azure-gpt4o-mini-01",
-      "provider": "azure-openai",
-      "model_name": "gpt-4o-mini",
-      "rpm": 450,
-      "tpm": 200000,
-      "rpd": 30000,
-      "active": true,
-      "tags": {
-        "tier": "azure",
-        "pool": "azure-fallback",
-        "workload": "light",
-        "priority": 2
-      }
-    },
-    {
-      "key_id": "azure-gpt4o-01",
-      "provider": "azure-openai",
+      "key_id": "opencode-gpt4o-01",
       "model_name": "gpt-4o",
-      "rpm": 450,
-      "tpm": 450000,
-      "rpd": 30000,
+      "provider": "opencode",
+      "rpm": 60,
+      "tpm": 150000,
+      "rpd": 1000,
+      "active": false,
+      "tags": {
+        "tier": "premium",
+        "pool": "opencode",
+        "workload": "medium",
+        "priority": 10,
+        "use_case": "general",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
+      }
+    },
+    {
+      "key_id": "opencode-gemini-01",
+      "model_name": "gemini-2.0-flash-exp",
+      "provider": "opencode",
+      "rpm": 60,
+      "tpm": 150000,
+      "rpd": 1000,
+      "active": false,
+      "tags": {
+        "tier": "premium",
+        "pool": "opencode",
+        "workload": "light",
+        "priority": 10,
+        "use_case": "fast_completion",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
+      }
+    },
+    {
+      "key_id": "github-copilot-01",
+      "provider": "github-copilot",
+      "model_name": "claude-sonnet-4.5",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
       "active": true,
       "tags": {
-        "tier": "azure",
-        "pool": "azure-fallback",
+        "tier": "copilot",
+        "pool": "github",
+        "workload": "heavy",
+        "priority": 1,
+        "use_case": "code_generation"
+      }
+    },
+    {
+      "key_id": "github-copilot-02",
+      "provider": "github-copilot",
+      "model_name": "gpt-5.2-codex",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
+      "active": true,
+      "tags": {
+        "tier": "copilot",
+        "pool": "github",
+        "workload": "heavy",
+        "priority": 2,
+        "use_case": "general"
+      }
+    },
+    {
+      "key_id": "github-copilot-03",
+      "provider": "github-copilot",
+      "model_name": "gpt-5.1-codex",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
+      "active": true,
+      "tags": {
+        "tier": "copilot",
+        "pool": "github",
         "workload": "medium",
-        "priority": 2
+        "priority": 3,
+        "use_case": "fast_completion"
       }
     }
   ],
@@ -247,9 +106,9 @@
     "enable_fallback": true,
     "conversation_ttl_seconds": 86400,
     "workload_model_mapping": {
-      "light": ["gemini-2.0-flash", "gpt-4o-mini"],
-      "medium": ["gemini-2.0-flash", "gemini-2.5-pro", "gpt-4o"],
-      "heavy": ["gemini-2.5-pro", "gpt-4o"]
+      "light": ["gpt-5.1-codex", "claude-sonnet-4.5"],
+      "medium": ["gpt-5.1-codex", "gpt-5.2-codex"],
+      "heavy": ["claude-sonnet-4.5", "gpt-5.2-codex"]
     }
   }
 }

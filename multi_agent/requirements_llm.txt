@@ -4,6 +4,7 @@
 # Core dependencies
 redis>=5.0.0
 google-generativeai>=0.3.0
+requests>=2.31.0  # For GitHub device flow authentication
 
 # Optional providers (install as needed)
 openai>=1.0.0

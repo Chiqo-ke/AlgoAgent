@@ -175,8 +175,11 @@ class StrategyValidator:
         errors = []
         import re
         
-        # Detect framework being used
-        is_simbroker = bool(re.search(r'from\s+Backtest\.sim_broker\s+import\s+SimBroker', code))
+        # Detect framework being used - support both old and new import patterns
+        is_simbroker = bool(
+            re.search(r'from\s+Backtest\.sim_broker\s+import\s+SimBroker', code) or
+            re.search(r'from\s+sim_broker\s+import\s+SimBroker', code)  # NEW: Direct import
+        )
         is_backtesting_py = bool(re.search(r'from\s+backtesting\s+import\s+Strategy', code))
         
         if is_simbroker:
@@ -226,8 +229,11 @@ class StrategyValidator:
         }
         
         try:
-            # Detect framework
-            is_simbroker = bool(re.search(r'from\s+Backtest\.sim_broker\s+import\s+SimBroker', strategy_code))
+            # Detect framework - support both old and new import patterns
+            is_simbroker = bool(
+                re.search(r'from\s+Backtest\.sim_broker\s+import\s+SimBroker', strategy_code) or
+                re.search(r'from\s+sim_broker\s+import\s+SimBroker', strategy_code)  # NEW: Direct import
+            )
             
             if is_simbroker:
                 # Use SimBroker execution (runs the strategy as-is)

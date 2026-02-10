@@ -81,7 +81,7 @@ class CoderAgent:
     Workflow:
     1. Load contract from contract_path
     2. Validate contract schema
-    3. Generate code using strategy template + Gemini
+    3. Generate code using strategy template + GitHub Copilot
     4. Run static checks (mypy, flake8)
     5. Run unit tests with fixtures
     6. Commit artifacts and publish results
@@ -94,7 +94,7 @@ class CoderAgent:
         gemini_api_key: Optional[str] = None,
         workspace_root: Path = None,
         temperature: float = 0.1,
-        model_name: str = "gemini-2.5-flash"
+        model_name: str = "claude-sonnet-4.5"
     ):
         """
         Initialize Coder Agent.
@@ -963,20 +963,19 @@ if __name__ == '__main__':
         
         # Define model cascade based on task type
         if is_fix_task:
-            # For fix/debug tasks: Try experimental/lenient models first
+            # For fix/debug tasks: Try most capable models first
             model_cascade = [
-                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
-                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
-                ("gemini-2.0-flash-thinking-exp-01-21", "Gemini 2.0 Flash Thinking Experimental"),
-                ("gemini-exp-1206", "Gemini Experimental 1206")
+                ("claude-sonnet-4.5", "GitHub Copilot Claude Sonnet 4.5"),
+                ("gpt-5.2-codex", "GitHub Copilot GPT-5.2 Codex"),
+                ("gpt-5.1-codex", "GitHub Copilot GPT-5.1 Codex")
             ]
-            print(f"[CoderAgent] 🔧 Fix task detected - trying {len(model_cascade)} models in cascade")
+            print(f"[CoderAgent] 🔧 Fix task detected - trying {len(model_cascade)} Copilot models in cascade")
         else:
-            # For normal generation: Try standard models first (cheaper)
+            # For normal generation: Try best code generation models
             model_cascade = [
-                ("gemini-2.5-flash", "Gemini 2.5 Flash"),
-                ("gemini-2.5-pro", "Gemini 2.5 Pro"),
-                ("gemini-2.0-flash-exp", "Gemini 2.0 Flash Experimental"),
+                ("claude-sonnet-4.5", "GitHub Copilot Claude Sonnet 4.5"),
+                ("gpt-5.2-codex", "GitHub Copilot GPT-5.2 Codex"),
+                ("gpt-5.1-codex", "GitHub Copilot GPT-5.1 Codex")
             ]
         
         # Try each model in sequence
@@ -1077,7 +1076,7 @@ if __name__ == '__main__':
         raise ValueError(f"All models in cascade failed. Last error: {last_error}")
     
     def _generate_from_template(self, task: Dict[str, Any], contract: Dict[str, Any]) -> str:
-        """Generate code from template (fallback without Gemini)."""
+        """Generate code from template (fallback when LLM unavailable)."""
         # Use basic template substitution
         template = self._get_strategy_template()
         

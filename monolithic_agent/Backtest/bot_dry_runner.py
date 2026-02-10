@@ -32,13 +32,13 @@ class BotDryRunner:
     Much faster than full backtest while catching most errors.
     """
     
-    def __init__(self, venv_python: str = None, timeout: int = 30):
+    def __init__(self, venv_python: str = None, timeout: int = 150):
         """
         Initialize dry runner.
         
         Args:
             venv_python: Path to Python executable (default: current Python)
-            timeout: Maximum execution time in seconds (default: 30)
+            timeout: Maximum execution time in seconds (default: 150)
         """
         self.venv_python = venv_python or sys.executable
         self.timeout = timeout
@@ -84,13 +84,13 @@ class BotDryRunner:
 import sys
 from pathlib import Path
 
-# Add Backtest to path
+# Add Backtest to path (go up to monolithic_agent)
 backtest_dir = Path(r"{bot_file.parent.parent}")
 if str(backtest_dir) not in sys.path:
     sys.path.insert(0, str(backtest_dir))
 
 # Monkey-patch data_loader to return limited data
-import data_loader
+from Backtest import data_loader
 
 original_load_market_data = data_loader.load_market_data
 
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run bot with limited data for quick validation')
     parser.add_argument('bot_file', type=Path, help='Path to bot script')
     parser.add_argument('--max-bars', type=int, default=10, help='Number of bars to process')
-    parser.add_argument('--timeout', type=int, default=30, help='Timeout in seconds')
+    parser.add_argument('--timeout', type=int, default=150, help='Timeout in seconds')
     
     args = parser.parse_args()
     

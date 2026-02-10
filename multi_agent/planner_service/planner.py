@@ -297,7 +297,7 @@ Be thorough. Output only valid JSON matching the schema above EXACTLY.
 class PlannerService:
     """Planner service that creates todo lists from natural language."""
     
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "claude-sonnet-4.5"):
         """
         Initialize planner service.
         

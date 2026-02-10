@@ -163,21 +163,17 @@ Follow these specifications EXACTLY to avoid runtime errors.
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-import os
 
-# Path setup: codes -> Backtest -> monolithic_agent
+# Path setup: codes -> Backtest -> monolithic_agent (3 levels)
 parent_dir = Path(__file__).parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-# Django settings (required)
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'algoagent_api.settings')
-
-# Correct imports (note: sim_broker with underscore!)
+# Import from Backtest package
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
-from Backtest.canonical_schema import OrderSide, OrderAction
-from Backtest import tools
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import load_market_data
 ```
 
 ## CRITICAL: Broker Initialization
@@ -185,16 +181,34 @@ from Backtest import tools
 ```python
 # Step 1: Create config object
 config = BacktestConfig(
-    symbol="AAPL",
-    start_date="2024-01-01",
-    end_date="2024-12-31",
     start_cash=100000.0,
-    commission=0.001,
-    slippage=0.0005
+    fee_flat=1.0,
+    fee_pct=0.001,
+    slippage_pct=0.0005
 )
 
 # Step 2: Initialize broker with config
-broker = SimBroker(config)  # ✅ Pass config object, NOT individual parameters
+broker = SimBroker(config)  # ✅ Pass config object
+```
+
+## CRITICAL: Strategy Class Structure
+
+```python
+class MyStrategy:
+    def __init__(self, broker, symbol="AAPL", strategy_id="my_strat", **params):
+        self.broker = broker
+        self.symbol = symbol
+        self.strategy_id = strategy_id
+        # Your parameters here
+    
+    def on_bar(self, timestamp, data):
+        # Process each bar
+        symbol_data = data.get(self.symbol)
+        if not symbol_data:
+            return
+        
+        # Your trading logic here
+        # Call broker.submit_signal() to place trades
 ```
 
 ## CRITICAL: Signal Schema
@@ -478,12 +492,23 @@ CRITICAL RULES:
         
         logger.info(f"Calling Copilot API with model: {self.model_name}")
         
+        # DEBUG: Log the full prompt and system prompt
+        logger.info("="*80)
+        logger.info("[DEBUG] COPILOT API REQUEST")
+        logger.info("="*80)
+        logger.info(f"System Prompt Length: {len(system_prompt or self.system_prompt)} chars")
+        logger.info(f"System Prompt Preview: {(system_prompt or self.system_prompt)[:200]}...")
+        logger.info("-"*80)
+        logger.info(f"User Prompt Length: {len(prompt)} chars")
+        logger.info(f"User Prompt:\n{prompt[:500]}...") if len(prompt) > 500 else logger.info(f"User Prompt:\n{prompt}")
+        logger.info("="*80)
+        
         try:
             response = requests.post(
                 self.COPILOT_API_URL,
                 headers=headers,
                 json=payload,
-                timeout=60
+                timeout=120  # Increased timeout for complex code generation
             )
             response.raise_for_status()
             
@@ -493,6 +518,16 @@ CRITICAL RULES:
             if "choices" in data and len(data["choices"]) > 0:
                 generated_text = data["choices"][0]["message"]["content"]
                 logger.info(f"✓ Copilot API call successful ({len(generated_text)} chars)")
+                
+                # DEBUG: Log raw response preview
+                logger.info("="*80)
+                logger.info("[DEBUG] COPILOT API RESPONSE")
+                logger.info("="*80)
+                logger.info(f"Response Length: {len(generated_text)} chars")
+                logger.info(f"First 800 chars:\n{generated_text[:800]}")
+                logger.info(f"Last 400 chars:\n{generated_text[-400:]}")
+                logger.info("="*80)
+                
                 return generated_text
             else:
                 raise ValueError("Invalid response format from Copilot API")
@@ -667,17 +702,20 @@ parent_dir = Path(__file__).parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-# Use ONLY these imports (NEVER use 'from sim_broker import'):
+# Import from Backtest package:
 from Backtest.sim_broker import SimBroker
-from Backtest import tools
+from Backtest.config import BacktestConfig
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+from Backtest.data_loader import load_market_data
+from Backtest.pattern_logger import PatternLogger
+from Backtest.signal_logger import SignalLogger
 ```
 
 FORBIDDEN IMPORTS (will cause errors):
-❌ from simbroker import SimBroker
-❌ from sim_broker import SimBroker
-❌ import simbroker
-❌ import sim_broker
-❌ from Backtest.sim_broker import *
+❌ from sim_broker import SimBroker  # Wrong - need Backtest prefix
+❌ from config import BacktestConfig  # Wrong - need Backtest prefix
+❌ import simbroker  # Wrong module name
+❌ parent.parent  # Wrong - need 3 levels not 2
 
 Requirements:
 1. Use the SimBroker API as defined in the system prompt
@@ -724,15 +762,36 @@ def my_strategy(broker, market_data):
     pass  # ❌ No trading
 ```
 
-Return ONLY the Python code with REAL trading logic, no explanations or markdown formatting.
+CRITICAL OUTPUT REQUIREMENTS:
+1. Return COMPLETE Python code including ALL required components
+2. MUST include: imports, Strategy class with __init__ and on_bar methods, run_backtest function
+3. DO NOT return partial code, summaries, or explanations
+4. The code must be immediately executable without modifications
+5. Include docstrings and comments for clarity
+
+Generate the COMPLETE, EXECUTABLE strategy code now:
 """
         
         try:
             # Call Copilot API
+            logger.info("[DEBUG] Calling Copilot API with enhanced prompt...")
             generated_code = self._call_copilot_api(enhanced_prompt)
             
             # Extract code from markdown if present
+            logger.info("[DEBUG] Extracting code from response...")
             code = self._extract_code_from_response(generated_code)
+            
+            # DEBUG: Log extraction results
+            logger.info("="*80)
+            logger.info("[DEBUG] CODE EXTRACTION RESULTS")
+            logger.info("="*80)
+            logger.info(f"Extracted Code Length: {len(code)} chars")
+            logger.info(f"Contains 'broker.buy': {'broker.buy' in code}")
+            logger.info(f"Contains 'broker.sell': {'broker.sell' in code}")
+            logger.info(f"Contains 'def ' (functions): {code.count('def ')} function definitions")
+            logger.info(f"Contains 'if ' (conditionals): {code.count('if ')} if statements")
+            logger.info(f"First 600 chars of code:\n{code[:600]}")
+            logger.info("="*80)
             
             return code
             

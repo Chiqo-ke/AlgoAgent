@@ -4,6 +4,73 @@
 
 {
   "keys": [
+    # ============================================
+    # GITHUB MODELS (GitHub Copilot / OpenCode)
+    # ============================================
+    # Free tier with GitHub authentication
+    # Setup: Run `python scripts/github_device_auth.py`
+    # This automatically authenticates and saves your token
+    # Endpoint: https://models.inference.ai.azure.com
+    
+    # For gpt-4o-mini (recommended for most tasks)
+    {
+      "key_id": "github-models-01",
+      "model_name": "gpt-4o-mini",
+      "provider": "github-models",
+      "rpm": 15,
+      "tpm": 150000,
+      "rpd": 150,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "workload": "medium",
+        "priority": 1
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    },
+    
+    # For gpt-4o (complex reasoning tasks)
+    {
+      "key_id": "github-models-02",
+      "model_name": "gpt-4o",
+      "provider": "github-models",
+      "rpm": 15,
+      "tpm": 150000,
+      "rpd": 150,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "workload": "heavy",
+        "priority": 1
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    },
+    
+    # For Phi-4 (lightweight tasks)
+    {
+      "key_id": "github-models-03",
+      "model_name": "Phi-4",
+      "provider": "github-models",
+      "rpm": 15,
+      "tpm": 150000,
+      "rpd": 150,
+      "active": true,
+      "tags": {
+        "tier": "free",
+        "workload": "light",
+        "priority": 1
+      },
+      "created_at": "2025-11-11T00:00:00Z",
+      "updated_at": "2025-11-11T00:00:00Z"
+    },
+    
+    # ============================================
+    # GOOGLE GEMINI (Legacy - can be removed)
+    # ============================================
+    # Keep these if you want Gemini as fallback
+    
     {
       "key_id": "gemini-flash-01",
       "model_name": "gemini-2.5-flash",
@@ -15,7 +82,7 @@
       "tags": {
         "tier": "free",
         "pool": "flash",
-        "priority": "high"
+        "priority": 2
       },
       "created_at": "2025-11-11T00:00:00Z",
       "updated_at": "2025-11-11T00:00:00Z"
@@ -31,7 +98,7 @@
       "tags": {
         "tier": "free",
         "pool": "flash",
-        "priority": "medium"
+        "priority": 2
       },
       "created_at": "2025-11-11T00:00:00Z",
       "updated_at": "2025-11-11T00:00:00Z"
@@ -47,7 +114,7 @@
       "tags": {
         "tier": "free",
         "pool": "pro",
-        "priority": "high"
+        "priority": 2
       },
       "created_at": "2025-11-11T00:00:00Z",
       "updated_at": "2025-11-11T00:00:00Z"
