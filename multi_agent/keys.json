@@ -7,13 +7,14 @@
       "rpm": 60,
       "tpm": 100000,
       "rpd": 1000,
-      "active": true,
+      "active": false,
       "tags": {
         "tier": "premium",
         "pool": "opencode",
         "workload": "heavy",
-        "priority": 1,
-        "use_case": "code_generation"
+        "priority": 10,
+        "use_case": "code_generation",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
       }
     },
     {
@@ -23,13 +24,14 @@
       "rpm": 60,
       "tpm": 150000,
       "rpd": 1000,
-      "active": true,
+      "active": false,
       "tags": {
         "tier": "premium",
         "pool": "opencode",
         "workload": "medium",
-        "priority": 2,
-        "use_case": "general"
+        "priority": 10,
+        "use_case": "general",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
       }
     },
     {
@@ -39,58 +41,62 @@
       "rpm": 60,
       "tpm": 150000,
       "rpd": 1000,
-      "active": true,
+      "active": false,
       "tags": {
         "tier": "premium",
         "pool": "opencode",
         "workload": "light",
-        "priority": 3,
-        "use_case": "fast_completion"
+        "priority": 10,
+        "use_case": "fast_completion",
+        "disabled_reason": "Replaced by GitHub Models/Copilot"
       }
     },
     {
-      "key_id": "github-models-01",
-      "provider": "github-models",
-      "model_name": "gpt-4o-mini",
-      "rpm": 15,
-      "tpm": 150000,
-      "rpd": 150,
-      "active": false,
+      "key_id": "github-copilot-01",
+      "provider": "github-copilot",
+      "model_name": "claude-sonnet-4.5",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
+      "active": true,
       "tags": {
-        "tier": "free",
-        "pool": "github",
-        "workload": "medium",
-        "priority": 4
-      }
-    },
-    {
-      "key_id": "github-models-02",
-      "provider": "github-models",
-      "model_name": "gpt-4o",
-      "rpm": 15,
-      "tpm": 150000,
-      "rpd": 150,
-      "active": false,
-      "tags": {
-        "tier": "free",
+        "tier": "copilot",
         "pool": "github",
         "workload": "heavy",
-        "priority": 5
+        "priority": 1,
+        "use_case": "code_generation"
       }
     },
     {
-      "key_id": "github-models-03",
-      "provider": "github-models",
-      "model_name": "Phi-4",
-      "rpm": 15,
-      "tpm": 150000,
-      "rpd": 150,
-      "active": false,
+      "key_id": "github-copilot-02",
+      "provider": "github-copilot",
+      "model_name": "gpt-5.2-codex",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
+      "active": true,
       "tags": {
-        "tier": "free",
+        "tier": "copilot",
         "pool": "github",
-        "workload": "light",
-        "priority": 3
+        "workload": "heavy",
+        "priority": 2,
+        "use_case": "general"
+      }
+    },
+    {
+      "key_id": "github-copilot-03",
+      "provider": "github-copilot",
+      "model_name": "gpt-5.1-codex",
+      "rpm": 60,
+      "tpm": 200000,
+      "rpd": 1000,
+      "active": true,
+      "tags": {
+        "tier": "copilot",
+        "pool": "github",
+        "workload": "medium",
+        "priority": 3,
+        "use_case": "fast_completion"
       }
     }
   ],
@@ -100,9 +106,9 @@
     "enable_fallback": true,
     "conversation_ttl_seconds": 86400,
     "workload_model_mapping": {
-      "light": ["Phi-4", "gpt-4o-mini"],
-      "medium": ["gpt-4o-mini", "gpt-4o"],
-      "heavy": ["gpt-4o"]
+      "light": ["gpt-5.1-codex", "claude-sonnet-4.5"],
+      "medium": ["gpt-5.1-codex", "gpt-5.2-codex"],
+      "heavy": ["claude-sonnet-4.5", "gpt-5.2-codex"]
     }
   }
 }

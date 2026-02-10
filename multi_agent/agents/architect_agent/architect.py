@@ -49,7 +49,7 @@ class ArchitectAgent:
     5. Publishes contract for Coder agent
     """
     
-    def __init__(self, message_bus: MessageBus, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, message_bus: MessageBus, api_key: Optional[str] = None, model_name: str = "claude-sonnet-4.5"):
         """
         Initialize architect agent.
         
@@ -230,15 +230,15 @@ Output valid JSON only with structure:
             # Check if it's a safety filter error
             if 'safety' in error_str.lower() or 'finish_reason' in error_str:
                 print(f"[Architect] Safety filter triggered with {self.model_name}")
-                print(f"[Architect] 🔄 Retrying with Gemini 2.5 Pro...")
+                print(f"[Architect] 🔄 Retrying with GPT-5.2 Codex...")
                 
-                # Attempt 2: Retry with Gemini Pro
+                # Attempt 2: Retry with different Copilot model
                 try:
                     if self.use_router:
                         response_data = self.router.send_chat(
                             conv_id=self.conversation_id,
                             prompt=safe_prompt,
-                            model_preference="gemini-2.5-pro",  # Force Pro model
+                            model_preference="gpt-5.2-codex",  # Alternative Copilot model
                             expected_completion_tokens=2048,
                             max_output_tokens=4096,
                             temperature=0.3

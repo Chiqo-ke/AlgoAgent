@@ -6,7 +6,7 @@ Supports:
 - OpenAI
 - Anthropic Claude
 - Azure OpenAI
-- GitHub Models
+- GitHub Copilot
 - OpenCode (unified access to multiple providers)
 """
 import os
@@ -444,17 +444,17 @@ class AzureOpenAIClient(ProviderClient):
             raise ProviderError(f"Azure OpenAI error: {str(e)}")
 
 
-class GitHubModelsClient(ProviderClient):
+class GitHubCopilotClient(ProviderClient):
     """
-    GitHub Models API client.
+    GitHub Copilot API client.
     
-    GitHub Models provides free AI models through an OpenAI-compatible API.
-    Requires a GitHub Personal Access Token with 'models:read' permission.
+    GitHub Copilot provides access to multiple AI models through chat completions API.
+    Uses OAuth authentication (device flow) with 'read:user' scope.
     
-    Endpoint: https://models.inference.ai.azure.com
-    Models: gpt-4o, o1-mini, o1, mistral-large, phi-4, and more
+    Endpoint: https://api.githubcopilot.com/chat/completions
+    Models: claude-sonnet-4.5, gpt-5.2-codex, gpt-5.1-codex, claude-opus-4.5, etc.
     
-    See: https://docs.github.com/en/github-models
+    See: https://docs.github.com/en/copilot
     """
     
     def chat_completion(
@@ -466,40 +466,65 @@ class GitHubModelsClient(ProviderClient):
         temperature: float = 0.7,
         **kwargs
     ) -> Dict[str, Any]:
-        """Send GitHub Models chat completion request."""
+        """Send GitHub Copilot chat completion request."""
         try:
-            from openai import OpenAI
-            from openai import RateLimitError as OpenAIRateLimitError
+            import requests
         except ImportError:
-            raise ProviderError("openai not installed (pip install openai>=1.0.0)")
+            raise ProviderError("requests not installed (pip install requests>=2.31.0)")
         
         try:
-            # GitHub Models endpoint (OpenAI-compatible)
-            endpoint = "https://models.inference.ai.azure.com"
+            # GitHub Copilot API endpoint
+            endpoint = "https://api.githubcopilot.com/chat/completions"
             
-            # Create OpenAI client configured for GitHub Models
-            client = OpenAI(
-                api_key=api_key,  # GitHub Personal Access Token
-                base_url=endpoint
+            headers = {
+                "Authorization": f"Bearer {api_key}",  # OAuth access token
+                "Content-Type": "application/json",
+                "User-Agent": "AlgoAgent-MultiAgent/1.0",
+                "X-Initiator": "user",
+                "Openai-Intent": "conversation-edits"
+            }
+            
+            payload = {
+                "model": model,
+                "messages": messages,
+                "stream": False,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            # Send request to Copilot API
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=60
             )
             
-            # Send chat completion request
-            response = client.chat.completions.create(
-                model=model,  # e.g., "gpt-4o", "o1-mini", "mistral-large"
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
+            # Handle rate limiting
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                raise RateLimitError("Rate limit exceeded", retry_after=retry_after)
+            
+            # Handle auth errors
+            if response.status_code == 401:
+                raise AuthenticationError("Invalid OAuth token - please re-authenticate")
+            
+            # Handle other errors
+            if response.status_code != 200:
+                raise ProviderError(f"Copilot API HTTP {response.status_code}: {response.text}")
+            
+            data = response.json()
             
             # Extract response
-            content = response.choices[0].message.content
-            finish_reason = response.choices[0].finish_reason
+            content = data["choices"][0]["message"]["content"]
+            finish_reason = data["choices"][0].get("finish_reason", "stop")
             
             # Get token usage
+            usage = data.get("usage", {})
             tokens = {
-                'input': response.usage.prompt_tokens,
-                'output': response.usage.completion_tokens,
-                'total': response.usage.total_tokens
+                'input': usage.get('prompt_tokens', 0),
+                'output': usage.get('completion_tokens', 0),
+                'total': usage.get('total_tokens', 0)
             }
             
             return {
@@ -509,19 +534,13 @@ class GitHubModelsClient(ProviderClient):
                 'finish_reason': finish_reason
             }
             
-        except OpenAIRateLimitError as e:
-            # Extract retry-after from headers if available
-            retry_after = None
-            if hasattr(e, 'response') and e.response:
-                retry_after = e.response.headers.get('Retry-After')
-                if retry_after:
-                    retry_after = int(retry_after)
-            
-            raise RateLimitError(str(e), retry_after=retry_after)
-            
+        except RateLimitError:
+            raise
+        except AuthenticationError:
+            raise
         except Exception as e:
-            logger.error(f"GitHub Models API error: {e}")
-            raise ProviderError(f"GitHub Models error: {str(e)}")
+            logger.error(f"GitHub Copilot API error: {e}")
+            raise ProviderError(f"GitHub Copilot error: {str(e)}")
 
 
 class OpenCodeClient(ProviderClient):
@@ -617,7 +636,7 @@ _PROVIDERS: Dict[str, ProviderClient] = {
     'openai': OpenAIClient(),
     'anthropic': AnthropicClient(),
     'azure-openai': AzureOpenAIClient(),
-    'github-models': GitHubModelsClient(),
+    'github-copilot': GitHubCopilotClient(),
     'opencode': OpenCodeClient()
 }
 
