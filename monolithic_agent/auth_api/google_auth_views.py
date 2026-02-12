@@ -19,6 +19,7 @@ import logging
 import os
 
 from .models import UserProfile
+from allauth.socialaccount.models import SocialAccount
 
 logger = logging.getLogger(__name__)
 
@@ -146,15 +147,25 @@ def google_auth_callback(request):
                 'error': 'Email not provided by Google'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create or get user
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={
-                'username': email.split('@')[0] + '_' + google_id[:8],
-                'first_name': first_name,
-                'last_name': last_name,
-            }
-        )
+        # Prefer lookup by SocialAccount UID to avoid duplicate users
+        social_account = SocialAccount.objects.filter(
+            provider='google',
+            uid=google_id
+        ).select_related('user').first()
+
+        if social_account:
+            user = social_account.user
+            created = False
+        else:
+            # Create or get user by email as fallback
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'username': email.split('@')[0] + '_' + google_id[:8],
+                    'first_name': first_name,
+                    'last_name': last_name,
+                }
+            )
         
         if created:
             logger.info(f"Created new user from Google OAuth: {user.username}")
@@ -175,6 +186,21 @@ def google_auth_callback(request):
                 user.profile.last_active = timezone.now()
                 user.profile.save()
         
+        # Create or update the SocialAccount record
+        SocialAccount.objects.update_or_create(
+            user=user,
+            provider='google',
+            defaults={
+                'uid': google_id,
+                'extra_data': {
+                    'email': email,
+                    'given_name': first_name,
+                    'family_name': last_name,
+                    'picture': picture,
+                }
+            }
+        )
+
         # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         
