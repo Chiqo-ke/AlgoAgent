@@ -163,41 +163,46 @@ def fetch_market_data_with_tvscraper(
     
     logger.info(f"Using TVscraper for {ticker} (period={period}, interval={interval})")
     
+    # Suppress stdout to avoid emoji encoding errors on Windows
+    import io
+    import contextlib
+    
     try:
-        # Initialize scraper
-        scraper = MCPTradingViewScraper()
+        # Initialize scraper with stdout suppression
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            scraper = MCPTradingViewScraper()
         
-        # Initialize browser (required for TVscraper)
-        if not scraper.init_browser():
-            raise RuntimeError("Failed to initialize browser for TVscraper")
-        
-        # Navigate to TradingView
-        if not scraper.navigate_to_tradingview():
-            raise RuntimeError("Failed to navigate to TradingView")
-        
-        # Set symbol
-        scraper.change_symbol(ticker)
-        
-        # Map interval to TradingView timeframe format
-        timeframe_map = {
-            "1m": "1m", "2m": "2m", "3m": "3m", "5m": "5m",
-            "15m": "15m", "30m": "30m", "60m": "1h", "90m": "90m",
-            "1h": "1h", "1d": "1d", "1w": "1w", "1wk": "1w",
-            "1mo": "1M"
-        }
-        tv_timeframe = timeframe_map.get(interval, interval)
-        scraper.change_timeframe(tv_timeframe)
-        
-        # Calculate approximate bars count based on period
-        period_to_bars = {
-            "1d": 24, "5d": 120, "1mo": 720, "3mo": 2160,
-            "6mo": 4320, "1y": 8760, "2y": 17520, "5y": 43800
-        }
-        bars_count = period_to_bars.get(period, 720)  # Default to 1 month
-        
-        # Fetch historical data
-        logger.info(f"Fetching {bars_count} bars from TradingView...")
-        historical_data = scraper.get_historical_data(bars_count=bars_count)
+            # Initialize browser (required for TVscraper)
+            if not scraper.init_browser():
+                raise RuntimeError("Failed to initialize browser for TVscraper")
+            
+            # Navigate to TradingView
+            if not scraper.navigate_to_tradingview():
+                raise RuntimeError("Failed to navigate to TradingView")
+            
+            # Set symbol
+            scraper.change_symbol(ticker)
+            
+            # Map interval to TradingView timeframe format
+            timeframe_map = {
+                "1m": "1m", "2m": "2m", "3m": "3m", "5m": "5m",
+                "15m": "15m", "30m": "30m", "60m": "1h", "90m": "90m",
+                "1h": "1h", "1d": "1d", "1w": "1w", "1wk": "1w",
+                "1mo": "1M"
+            }
+            tv_timeframe = timeframe_map.get(interval, interval)
+            scraper.change_timeframe(tv_timeframe)
+            
+            # Calculate approximate bars count based on period
+            period_to_bars = {
+                "1d": 24, "5d": 120, "1mo": 720, "3mo": 2160,
+                "6mo": 4320, "1y": 8760, "2y": 17520, "5y": 43800
+            }
+            bars_count = period_to_bars.get(period, 720)  # Default to 1 month
+            
+            # Fetch historical data
+            logger.info(f"Fetching {bars_count} bars from TradingView...")
+            historical_data = scraper.get_historical_data(bars_count=bars_count)
         
         if not historical_data:
             raise ValueError(f"No data returned from TVscraper for {ticker}")
@@ -234,8 +239,10 @@ def fetch_market_data_with_tvscraper(
         return df
         
     except Exception as e:
-        logger.error(f"TVscraper fetch failed: {e}")
-        raise
+        # Remove emoji characters from error message to avoid encoding issues
+        error_msg = str(e).encode('ascii', errors='ignore').decode('ascii')
+        logger.error(f"TVscraper fetch failed: {error_msg}")
+        raise RuntimeError(f"TVscraper fetch failed: {error_msg}") from e
 
 
 def fetch_market_data_by_date_range(
