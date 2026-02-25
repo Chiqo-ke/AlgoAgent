@@ -23,24 +23,24 @@ class CopilotAuthError(Exception):
 class CopilotAuthManager:
     """
     Manages GitHub Copilot OAuth authentication using device flow.
-    
-    Single account authentication with automatic token refresh.
+    Authenticate once via `python manage.py copilot_auth`; the token is stored
+    in the database and refreshed automatically.
     """
-    
+
     # GitHub OAuth endpoints
     DEVICE_CODE_URL = "https://github.com/login/device/code"
     ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
-    
+
     # OpenCode's GitHub OAuth client ID (from opencode codebase)
     DEFAULT_CLIENT_ID = "Ov23li8tweQw6odWQebz"
-    
+
     # Token expiration buffer (refresh 30 mins before expiry)
     REFRESH_BUFFER_SECONDS = 1800
-    
+
     def __init__(self, client_id: Optional[str] = None):
         """
         Initialize Copilot auth manager.
-        
+
         Args:
             client_id: GitHub OAuth client ID (defaults to OpenCode's ID)
         """
@@ -156,7 +156,9 @@ class CopilotAuthManager:
                         "access_token": data["access_token"],
                         "refresh_token": data.get("refresh_token"),
                         "expires_at": datetime.now() + timedelta(seconds=data.get("expires_in", 28800)),
-                        "obtained_at": datetime.now()
+                        "obtained_at": datetime.now(),
+                        "token_source": "oauth",
+                        "scope": data.get("scope", "")
                     }
                     return data
                     
@@ -170,15 +172,15 @@ class CopilotAuthManager:
     def authenticate(self, timeout: int = 300) -> Dict[str, Any]:
         """
         Complete device flow authentication.
-        
+
         Prints verification URL and user code, then waits for user to authorize.
-        
+
         Args:
             timeout: Max time to wait for user authorization (seconds)
-            
+
         Returns:
             Dict with token data including success status
-            
+
         Raises:
             CopilotAuthError: If authentication fails
         """
@@ -280,7 +282,9 @@ class CopilotAuthManager:
                 "access_token": data["access_token"],
                 "refresh_token": data.get("refresh_token", refresh_token),
                 "expires_at": datetime.now() + timedelta(seconds=data.get("expires_in", 28800)),
-                "obtained_at": datetime.now()
+                "obtained_at": datetime.now(),
+                "token_source": "oauth",
+                "scope": data.get("scope", "")
             }
             
             return data
@@ -292,14 +296,14 @@ class CopilotAuthManager:
     def get_valid_token(self, stored_token_data: Optional[Dict[str, Any]] = None) -> str:
         """
         Get a valid access token, refreshing if necessary.
-        
+
         Args:
             stored_token_data: Previously stored token data from database
                               (should include access_token, refresh_token, expires_at)
-        
+
         Returns:
             Valid access token
-            
+
         Raises:
             CopilotAuthError: If token retrieval/refresh fails
         """
@@ -343,10 +347,10 @@ class CopilotAuthManager:
     def is_token_valid(self, stored_token_data: Optional[Dict[str, Any]] = None) -> bool:
         """
         Check if stored token is still valid.
-        
+
         Args:
             stored_token_data: Token data from database
-            
+
         Returns:
             True if token is valid, False otherwise
         """

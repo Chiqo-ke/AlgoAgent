@@ -107,7 +107,7 @@ class CopilotStrategyGenerator:
     
     def __init__(
         self,
-        model_name: str = 'claude-sonnet-4.5',
+        model_name: str = 'gpt-4o',
         use_template_fallback: bool = True
     ):
         """
@@ -533,6 +533,12 @@ CRITICAL RULES:
                 raise ValueError("Invalid response format from Copilot API")
                 
         except requests.exceptions.HTTPError as e:
+            response_text = ""
+            if e.response is not None:
+                try:
+                    response_text = (e.response.text or "")[:1000]
+                except Exception:
+                    response_text = ""
             if e.response.status_code == 401:
                 # Token expired or invalid
                 logger.error("Copilot authentication failed - token may be expired")
@@ -541,8 +547,18 @@ CRITICAL RULES:
                 # Rate limit
                 logger.error("Copilot API rate limit exceeded")
                 raise CopilotAuthError("Rate limit exceeded. Please try again later.")
+            elif e.response.status_code == 400 and "Personal Access Tokens are not supported" in response_text:
+                logger.error(f"Copilot API rejected PAT token: {response_text}")
+                raise CopilotAuthError(
+                    "PAT tokens are not supported by api.githubcopilot.com/chat/completions. "
+                    "Use OAuth device auth via `python manage.py copilot_auth` and remove "
+                    "GITHUB_COPILOT_PAT/GH_TOKEN from this service environment."
+                )
             else:
-                logger.error(f"Copilot API error: {e}")
+                if response_text:
+                    logger.error(f"Copilot API error: {e} | body: {response_text}")
+                else:
+                    logger.error(f"Copilot API error: {e}")
                 raise
         except requests.RequestException as e:
             logger.error(f"Failed to call Copilot API: {e}")

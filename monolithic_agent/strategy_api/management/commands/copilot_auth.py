@@ -5,10 +5,10 @@ Usage:
     python manage.py copilot_auth
 
 This will:
-1. Initiate OAuth device flow
-2. Display verification URL and code
+1. Initiate OAuth device flow via github.com/login/device
+2. Display verification URL and one-time code
 3. Wait for user authorization
-4. Store tokens in database
+4. Store the OAuth token in the database
 """
 
 from django.core.management.base import BaseCommand
@@ -25,8 +25,8 @@ from strategy_api.models import CopilotAuth
 
 
 class Command(BaseCommand):
-    help = 'Authenticate with GitHub Copilot and store tokens'
-    
+    help = 'Authenticate with GitHub Copilot via OAuth device flow and store token'
+
     def add_arguments(self, parser):
         parser.add_argument(
             '--timeout',
@@ -37,16 +37,16 @@ class Command(BaseCommand):
         parser.add_argument(
             '--check',
             action='store_true',
-            help='Check if valid token exists without authenticating'
+            help='Check if a valid OAuth token exists without authenticating'
         )
-    
+
     def handle(self, *args, **options):
         timeout = options['timeout']
         check_only = options['check']
-        
-        # Check existing token
+        auth_manager = get_auth_manager()
+
         if check_only:
-            self._check_token()
+            self._check_token(auth_manager)
             return
         
         self.stdout.write(self.style.WARNING(
@@ -56,9 +56,6 @@ class Command(BaseCommand):
         ))
         
         try:
-            # Get auth manager
-            auth_manager = get_auth_manager()
-            
             # Check if valid token already exists
             existing_token = CopilotAuth.get_latest_token()
             if existing_token and auth_manager.is_token_valid(existing_token):
@@ -113,8 +110,8 @@ class Command(BaseCommand):
             traceback.print_exc()
             sys.exit(1)
     
-    def _check_token(self):
-        """Check if valid token exists"""
+    def _check_token(self, auth_manager):
+        """Check if a valid OAuth token exists in the database."""
         try:
             token_data = CopilotAuth.get_latest_token()
             
@@ -123,7 +120,6 @@ class Command(BaseCommand):
                 self.stdout.write("Run: python manage.py copilot_auth")
                 return
             
-            auth_manager = get_auth_manager()
             is_valid = auth_manager.is_token_valid(token_data)
             
             if is_valid:
@@ -135,3 +131,5 @@ class Command(BaseCommand):
                 
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error checking token: {e}"))
+
+
