@@ -740,6 +740,9 @@ Requirements:
 4. Generate complete, runnable Python code
 5. Follow best practices for trading strategies
 6. Use available indicators when appropriate
+7. Load market data ONLY via `load_market_data` from `Backtest.data_loader`
+8. Do NOT import or call DataFetcher, yfinance, TVscraper, requests, or any external data API
+9. Assume backtest data is read from local warehouse CSV files under Data/data
 
 CRITICAL TRADING LOGIC REQUIREMENTS (MUST IMPLEMENT):
 ⚠️ The strategy MUST contain actual trading logic that places trades:

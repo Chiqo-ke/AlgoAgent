@@ -1,0 +1,100 @@
+
+[INFO] Step 1 — Login as 'algotrader'
+  HTTP 200
+[PASS] Logged in. Token: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik…
+
+[INFO] Step 2 — Generate EMA Crossover strategy (EURUSD 1h)
+  HTTP 200
+[PASS] Strategy generated.
+  ai_provider : copilot
+  file_name   : ema_crossover_eurusd_4.py
+  file_path   : C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\codes\ema_crossover_eurusd_4.py
+
+[INFO] Step 3 — Inspect generated file / returned code
+  Read 8516 chars from disk: C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\codes\ema_crossover_eurusd_4.py
+
+────────────────────────────────────────────────────────────
+  First 60 lines of generated code:
+────────────────────────────────────────────────────────────
+    1 | """
+    2 | Strategy: EMA Crossover EURUSD
+    3 | Description: EMA crossover strategy for EURUSD on 1-hour timeframe. Buy when fast EMA (9) crosses above slow EMA (21), and sell when fast EMA crosses below slow EMA.
+    4 | Generated: 2023-10-10
+    5 | Location: codes/ directory
+    6 | """
+    7 | 
+    8 | # Add parent directory to path for imports
+    9 | import sys
+   10 | from pathlib import Path
+   11 | # IMPORTANT: Go up 3 levels (codes -> Backtest -> monolithic_agent) to add monolithic_agent to path
+   12 | parent_dir = Path(__file__).parent.parent.parent
+   13 | if str(parent_dir) not in sys.path:
+   14 |     sys.path.insert(0, str(parent_dir))
+   15 | 
+   16 | # Import from Backtest package
+   17 | from Backtest.sim_broker import SimBroker
+   18 | from Backtest.config import BacktestConfig
+   19 | from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
+   20 | from Backtest.data_loader import load_market_data
+   21 | from Backtest.pattern_logger import PatternLogger
+   22 | from Backtest.signal_logger import SignalLogger
+   23 | from datetime import datetime
+   24 | import os  # For environment variable access (multi-symbol testing)
+   25 | 
+   26 | class EMACrossoverStrategy:
+   27 |     """EMA Crossover Strategy for EURUSD on 1-hour timeframe."""
+   28 |     
+   29 |     def __init__(self, broker: SimBroker, strategy_id: str = "ema_crossover", **params):
+   30 |         self.broker = broker
+   31 |         self.strategy_id = strategy_id
+   32 |         
+   33 |         # Initialize loggers for pattern and signal tracking
+   34 |         self.pattern_logger = PatternLogger(strategy_id)
+   35 |         self.signal_logger = SignalLogger(strategy_id)
+   36 |         
+   37 |         # Initialize parameters
+   38 |         self.in_position = False
+   39 |         self.position_size = 0
+   40 |         self.entry_price = None
+   41 |         self.stop_loss = None
+   42 |         self.take_profit = None
+   43 |         
+   44 |         # Risk management and position sizing
+   45 |         self.stop_loss_pct = params.get("stop_loss_pct", 0.015)  # 1.5% default
+   46 |         self.take_profit_pct = params.get("take_profit_pct", 0.03)  # 3% default
+   47 |         self.risk_per_trade = params.get("risk_per_trade", 0.01)  # 1% of portfolio
+   48 | 
+   49 |     def on_bar(self, timestamp: datetime, market_data: dict):
+   50 |         """
+   51 |         Process each bar of market data sequentially.
+   52 |         Evaluate entry and exit conditions based on EMA crossover.
+   53 |         """
+   54 |         # Process each symbol in the market data
+   55 |         for symbol, symbol_data in market_data.items():
+   56 |             # Extract market data
+   57 |             close = symbol_data.get('close')
+   58 |             ema_fast = symbol_data.get('ema_9')
+   59 |             ema_slow = symbol_data.get('ema_21')
+   60 | 
+────────────────────────────────────────────────────────────
+
+[INFO] Step 4 — Warehouse compliance audit
+
+  ✔ REQUIRED patterns:
+    [PASS] load_market_data imported from Backtest.data_loader
+    [PASS] load_market_data called
+    [PASS] Path setup (3-level parent)
+    [PASS] SimBroker import
+
+  ✘ FORBIDDEN patterns (must be absent):
+    [PASS] DataFetcher 
+    [PASS] yfinance 
+    [PASS] TVscraper 
+    [PASS] import yf 
+    [PASS] requests.get 
+    [PASS] raw data_loader import (no package) 
+
+============================================================
+  [PASS] ALL CHECKS PASSED — bot script loads from warehouse correctly
+============================================================
+

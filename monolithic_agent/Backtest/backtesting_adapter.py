@@ -397,17 +397,15 @@ def fetch_and_prepare_data(
     Returns:
         Prepared DataFrame
     """
-    logger.info(f"Fetching data for {symbol} from {start_date} to {end_date}")
-    
-    # Import DataFetcher
-    from Data.data_fetcher import DataFetcher
-    
-    fetcher = DataFetcher()
-    df = fetcher.fetch_data_by_date_range(
+    logger.info(f"Loading warehouse data for {symbol} from {start_date} to {end_date}")
+
+    from Backtest.data_loader import fetch_market_data_by_date_range
+
+    df = fetch_market_data_by_date_range(
         ticker=symbol,
         start_date=start_date,
         end_date=end_date,
-        interval=interval
+        interval=interval,
     )
     
     if df.empty:

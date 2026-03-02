@@ -609,7 +609,7 @@ class BacktestAPIViewSet(viewsets.ViewSet):
                             # Use SimBroker framework
                             from Backtest.sim_broker import SimBroker
                             from Backtest.config import BacktestConfig
-                            from Backtest.data_loader import load_market_data
+                            from Backtest.data_loader import fetch_market_data_by_date_range
                             
                             logger.info(f"Running backtest with SimBroker framework")
                             
@@ -621,52 +621,17 @@ class BacktestAPIViewSet(viewsets.ViewSet):
                             
                             broker = SimBroker(config)
                             
-                            # Load data using correct parameters
-                            # Convert date range to period string
-                            from datetime import datetime as dt
-                            if isinstance(start_date, str):
-                                start_dt = dt.fromisoformat(start_date)
-                            else:
-                                start_dt = start_date
-                            
-                            if isinstance(end_date, str):
-                                end_dt = dt.fromisoformat(end_date)
-                            else:
-                                end_dt = end_date
-                            
-                            # Calculate days difference
-                            days_diff = (end_dt - start_dt).days
-                            
-                            # Map to period string
-                            if days_diff <= 7:
-                                period = '1wk'
-                            elif days_diff <= 30:
-                                period = '1mo'
-                            elif days_diff <= 90:
-                                period = '3mo'
-                            elif days_diff <= 180:
-                                period = '6mo'
-                            elif days_diff <= 365:
-                                period = '1y'
-                            elif days_diff <= 730:
-                                period = '2y'
-                            else:
-                                period = '5y'
-                            
-                            logger.info(f"Loading data for {symbol}, period={period}, interval={timeframe}")
-                            
-                            result = load_market_data(
-                                ticker=symbol,
-                                period=period,
-                                interval=timeframe
+                            logger.info(
+                                f"Loading warehouse data for {symbol}, start={start_date}, "
+                                f"end={end_date}, interval={timeframe}"
                             )
-                            
-                            # load_market_data returns (df, metadata) tuple
-                            if isinstance(result, tuple):
-                                df, metadata = result
-                            else:
-                                df = result
-                                metadata = {}
+
+                            df = fetch_market_data_by_date_range(
+                                ticker=symbol,
+                                start_date=str(start_date),
+                                end_date=str(end_date),
+                                interval=timeframe,
+                            )
                             
                             if df is None or len(df) == 0:
                                 raise ValueError(f"No data available for {symbol}")

@@ -211,6 +211,12 @@ from canonical_schema import ...  # CORRECT - direct import
 
 ## Data Loading Modes
 
+### CRITICAL DATA SOURCE POLICY (MUST FOLLOW)
+
+- Backtest market data must be loaded from local warehouse CSV files in `Data/data` through `load_market_data`.
+- Do not import or call `DataFetcher`, `yfinance`, `TVscraper`, `requests`, or any external/live data source.
+- If data for a symbol/timeframe is unavailable, skip that symbol and continue.
+
 The system supports TWO data loading modes:
 
 ### 1. STREAMING MODE (Default - Sequential)
