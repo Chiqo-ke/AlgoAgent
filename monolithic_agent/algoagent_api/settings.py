@@ -223,11 +223,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8081",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
-    "https://algo-rho.vercel.app",   # Production frontend
-    "https://www.algoai.biz",        # Production domain
-    "https://algoai.biz",            # Production domain (without www)
-    "http://chiqoke254.pythonanywhere.com",
-    "https://ps283t0p-8000.uks1.devtunnels.ms",
+    "https://algo-rho.vercel.app",  # Production frontend (Vercel)
+    "https://www.algoai.biz",  # Production domain (www)
+    "https://algoai.biz",  # Production domain (apex)
+    "https://api.algoai.biz",  # API subdomain
+    "http://chiqoke254.pythonanywhere.com",  # PythonAnywhere backend (for admin access)
+    "https://ps283t0p-8000.uks1.devtunnels.ms",  # Dev tunnel
 ]
 
 CSRF_TRUSTED_ORIGINS = [
