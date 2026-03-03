@@ -54,6 +54,7 @@ class BotExecutionResult:
     win_rate: Optional[float] = None
     max_drawdown: Optional[float] = None
     sharpe_ratio: Optional[float] = None
+    net_profit: Optional[float] = None
     
     # Execution details
     output_log: Optional[str] = None
@@ -280,6 +281,7 @@ class BotExecutor:
             result.win_rate = parsed_results.get('win_rate')
             result.max_drawdown = parsed_results.get('max_drawdown')
             result.sharpe_ratio = parsed_results.get('sharpe_ratio')
+            result.net_profit = parsed_results.get('net_profit')
             result.output_log = output
             result.stderr_log = stderr
             result.json_results = parsed_results.get('json_results')
@@ -558,6 +560,7 @@ class BotExecutor:
             'win_rate': None,
             'max_drawdown': None,
             'sharpe_ratio': None,
+            'net_profit': None,
             'json_results': None
         }
         
@@ -578,6 +581,7 @@ class BotExecutor:
                     result['win_rate'] = json_match.get('win_rate') or json_match.get('Win Rate [%]')
                     result['max_drawdown'] = json_match.get('max_drawdown') or json_match.get('Max. Drawdown [%]')
                     result['sharpe_ratio'] = json_match.get('sharpe_ratio') or json_match.get('Sharpe Ratio')
+                    result['net_profit'] = json_match.get('net_profit') or json_match.get('Net Profit')
                 
                 return result
             
@@ -604,7 +608,15 @@ class BotExecutor:
                 elif 'win rate' in line_lower or 'win_rate' in line_lower:
                     try:
                         value = float(line.split()[-1].strip('%'))
-                        result['win_rate'] = value / 100  # Convert to decimal
+                        result['win_rate'] = value  # Already a percentage (0-100)
+                    except (ValueError, IndexError):
+                        pass
+                
+                elif 'net profit' in line_lower or 'net_profit' in line_lower:
+                    try:
+                        # Handles: "Net Profit: $1234.56 (30.5%)" or "Net Profit: 1234.56"
+                        raw = line.split('$')[-1].split('(')[0].strip().replace(',', '')
+                        result['net_profit'] = float(raw)
                     except (ValueError, IndexError):
                         pass
                 

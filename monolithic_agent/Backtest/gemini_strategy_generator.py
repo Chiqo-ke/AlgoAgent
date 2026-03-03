@@ -28,14 +28,20 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
 
 # Django integration for template access
+# Only attempt if running inside the Django server (apps already ready).
+# Never call django.setup() from a standalone bot script — it boots all apps
+# (Redis, DB connections) and either hangs or raises unexpected errors.
 try:
     import django
     from django.apps import apps
-    if not apps.ready:
-        django.setup()
-    from strategy_api.models import StrategyTemplate
-    DJANGO_AVAILABLE = True
-except (ImportError, RuntimeError, AttributeError):
+    if apps.ready:
+        # Already running inside Django — safe to import models
+        from strategy_api.models import StrategyTemplate
+        DJANGO_AVAILABLE = True
+    else:
+        # Not inside Django — skip; don't call django.setup()
+        raise ImportError("Django apps not ready — standalone execution")
+except Exception:
     DJANGO_AVAILABLE = False
     StrategyTemplate = None
     logger.warning("Django not available - template fallback disabled")
@@ -340,20 +346,20 @@ Generate a complete, runnable Python trading strategy with the following require
 - Replace: ✓ → [OK] | ❌ → [ERROR] | ⚠️ → [WARNING]
 
 **Requirements:**
-1. Use direct module imports (NOT from Backtest package - causes Django errors)
-2. Use EXACTLY 2-level path traversal: Path(__file__).parent.parent
-3. Use fetch_market_data() to load data dynamically  
-4. Use compute_indicator() for EACH indicator separately (cannot reuse same key)
-5. Extract indicator PERIODS from description (e.g., "30 and 70" means EMA_30 and EMA_70)
-6. Access indicators with LOWERCASE keys in STREAMING mode: 'ema_12', 'ema_26', 'rsi_14'
-7. Create a strategy class with __init__ and on_bar methods
-8. Use create_signal() to emit trading signals
-9. Include a run_backtest() function with symbol, period, interval parameters
-10. Use user-specified periods in run_backtest() defaults (NOT hardcoded 12/26)
-11. Export results and print metrics (ASCII text only, NO emojis)
+1. Use `from Backtest.xxx import` package imports with 3-level path traversal
+2. Use EXACTLY 3-level path traversal: `Path(__file__).parent.parent.parent`
+3. Use `load_market_data(ticker, indicators, period='max', interval='1d', stream=True)` for data
+4. Use multi-period indicator format: `{{'EMA': {{'periods': [12, 26]}}, 'RSI': {{'periods': [14]}}}}`
+5. Extract indicator PERIODS from description (e.g., "30 and 70" means ema_30 and ema_70)
+6. Access indicators with LOWERCASE keys in STREAMING mode: `'ema_12'`, `'ema_26'`, `'rsi_14'`
+7. Create a strategy class with `__init__` and `on_bar` methods
+8. Use `create_signal(reason=...)` — `reason` is a first-class field, NOT inside `meta`
+9. Call `signal_logger.log_signal(timestamp=..., symbol=..., ...)` with keyword args, NOT a dict
+10. Use user-specified periods in defaults (NOT hardcoded 12/26 unless description says so)
+11. Print metrics with ASCII text only (NO emojis, NO unicode symbols)
 12. Include complete code with no placeholders
 13. Add docstrings and comments
-14. Handle edge cases (no position, empty data, NaN indicators)
+14. Handle edge cases (no position, empty data, NaN indicators, FileNotFoundError)
 
 **CRITICAL - INDICATOR NAMING:**
 - Indicator functions create columns like: EMA_{{period}}, SMA_{{period}}, RSI_{{period}}
@@ -402,103 +408,168 @@ import logging
 logger = logging.getLogger(__name__)
 
 class {strategy_name}:
-    def __init__(self, broker: SimBroker, symbol: str = "AAPL", **params):
+    def __init__(self, broker: SimBroker, symbol: str = "AAPL", strategy_id: str = "{strategy_name}_001", **params):
         self.broker = broker
         self.symbol = symbol
-        self.params = params
+        self.strategy_id = strategy_id
+        self.pattern_logger = PatternLogger(strategy_id)
+        self.signal_logger = SignalLogger(strategy_id)
+        self.in_position = False
         self.position_size = 0
-        # Initialize strategy state
+        self.entry_price = None
+        # Strategy parameters (extract from params with sensible defaults)
         pass
     
     def on_bar(self, timestamp: datetime, data: dict):
-        # Strategy logic here
-        # Access indicator values from data[self.symbol]
-        # Use broker.submit_signal() to send trades
+        symbol_data = data.get(self.symbol)
+        if not symbol_data:
+            return
+        ohlcv = {{'open': symbol_data.get('open'), 'high': symbol_data.get('high'),
+                  'low': symbol_data.get('low'), 'close': symbol_data.get('close'),
+                  'volume': symbol_data.get('volume')}}
+        if any(v is None for v in ohlcv.values()):
+            return
+        # Access indicators with LOWERCASE keys (streaming delivers lowercase)
+        # e.g. ema_fast = symbol_data.get('ema_12')
+        # Strategy logic here - call _generate_entry_signal / _generate_exit_signal
         pass
+    
+    def _generate_entry_signal(self, timestamp, ohlcv, indicators, reason):
+        size = 100
+        signal = create_signal(
+            signal_id=f"entry_{{self.symbol}}_{{timestamp.strftime('%Y%m%d_%H%M%S')}}",
+            timestamp=timestamp, symbol=self.symbol,
+            side=OrderSide.BUY, action=OrderAction.ENTRY,
+            order_type=OrderType.MARKET, size=size,
+            price=ohlcv['close'], reason=reason
+        )
+        order_id = self.broker.submit_signal(signal.to_dict())
+        if order_id:
+            self.signal_logger.log_signal(
+                timestamp=timestamp, symbol=self.symbol,
+                side=OrderSide.BUY, action=OrderAction.ENTRY,
+                order_type=OrderType.MARKET, size=size,
+                price=ohlcv['close'], reason=reason,
+                market_data=ohlcv, indicator_values=indicators,
+            )
+            self.in_position = True
+            self.position_size = size
+            self.entry_price = ohlcv['close']
+            print(f"[ENTRY] {{self.symbol}} BUY {{size}} @ ${{ohlcv['close']:.2f}}")
+    
+    def _generate_exit_signal(self, timestamp, ohlcv, indicators, reason):
+        size = self.position_size
+        signal = create_signal(
+            signal_id=f"exit_{{self.symbol}}_{{timestamp.strftime('%Y%m%d_%H%M%S')}}",
+            timestamp=timestamp, symbol=self.symbol,
+            side=OrderSide.SELL, action=OrderAction.EXIT,
+            order_type=OrderType.MARKET, size=size,
+            price=ohlcv['close'], reason=reason
+        )
+        order_id = self.broker.submit_signal(signal.to_dict())
+        if order_id:
+            self.signal_logger.log_signal(
+                timestamp=timestamp, symbol=self.symbol,
+                side=OrderSide.SELL, action=OrderAction.EXIT,
+                order_type=OrderType.MARKET, size=size,
+                price=ohlcv['close'], reason=reason,
+                market_data=ohlcv, indicator_values=indicators,
+            )
+            self.in_position = False
+            self.position_size = 0
+            self.entry_price = None
+            print(f"[EXIT] {{self.symbol}} SELL {{size}} @ ${{ohlcv['close']:.2f}}")
+    
+    def finalize(self):
+        self.pattern_logger.close()
+        self.signal_logger.close()
 
-def run_backtest(
-    symbol: str = "AAPL",
-    period: str = "1y", 
-    interval: str = "1d",
-    cash: float = 10000,
-    commission: float = 0.002
-):
-    \"\"\"
-    Run backtest with dynamic data loading
+
+def run_backtest():
+    test_symbols = os.environ.get('BACKTEST_SYMBOLS', 'AAPL,TSLA,MSFT').split(',')
+    all_metrics = []
+    total_trades = 0
     
-    Args:
-        symbol: Trading symbol (e.g., 'AAPL', 'EURUSD')
-        period: Data period (e.g., '1mo', '3mo', '1y', '2y')
-        interval: Data interval (e.g., '1m', '5m', '1h', '1d')
-        cash: Initial cash
-        commission: Commission rate
-    \"\"\"
-    # 1. Fetch market data using DataLoader
-    df = fetch_market_data(symbol, period=period, interval=interval)
-    
-    # 2. Add required indicators (example with EMA)
-    # Note: add_indicators() takes dict of {{indicator_name: params}}
-    # For multiple indicators of same type, call separately
-    df_with_ema20, _ = add_indicators(df, {{'EMA': {{'timeperiod': 20}}}})
-    df_with_indicators, _ = add_indicators(df_with_ema20, {{'RSI': {{'timeperiod': 14}}}})
-    
-    # Or use this pattern for multiple EMAs:
-    # result_df = df.copy()
-    # for period in [12, 26]:
-    #     temp_df, _ = add_indicators(df, {{'EMA': {{'timeperiod': period}}}})
-    #     result_df = result_df.join(temp_df, rsuffix=f'_{{period}}')
-    # df_with_indicators = result_df
-    
-    # 3. Setup SimBroker
-    config = BacktestConfig(
-        initial_capital=cash,
-        commission_rate=commission
-    )
-    broker = SimBroker(config)
-    
-    # 4. Initialize strategy
-    strategy = {strategy_name}(broker, symbol=symbol)
-    
-    # 5. Run simulation row by row
-    for timestamp, row in df_with_indicators.iterrows():
-        broker.step_to(timestamp)
+    for test_symbol in test_symbols:
+        test_symbol = test_symbol.strip()
+        print("\\n" + "=" * 70)
+        print(f"TESTING SYMBOL: {{test_symbol}}")
+        print("=" * 70)
         
-        # Prepare data dict
-        data = {{
-            symbol: {{
-                'open': row['Open'],
-                'high': row['High'],
-                'low': row['Low'],
-                'close': row['Close'],
-                'volume': row['Volume'],
-                **{{k: row[k] for k in row.index if k not in ['Open', 'High', 'Low', 'Close', 'Volume']}}
-            }}
+        config = BacktestConfig(start_cash=100000, fee_flat=1.0, fee_pct=0.001, slippage_pct=0.0005)
+        broker = SimBroker(config)
+        strategy = {strategy_name}(broker, symbol=test_symbol, strategy_id=f"{strategy_name}_{{test_symbol}}")
+        print(f"[OK] Strategy initialized for {{test_symbol}}")
+        
+        # Multi-period indicator format -- use actual periods from description
+        indicators = {{
+            'EMA': {{'periods': [12, 26]}},   # streaming keys: ema_12, ema_26
+            'RSI': {{'periods': [14]}}         # streaming key:  rsi_14
         }}
         
-        strategy.on_bar(timestamp, data)
+        print(f"[LOADING] Loading data in STREAMING mode...")
+        try:
+            data_stream = load_market_data(
+                ticker=test_symbol,
+                indicators=indicators,
+                period='max',
+                interval='1d',
+                stream=True
+            )
+        except FileNotFoundError:
+            print(f"[WARNING] Data file not found for {{test_symbol}}, skipping...")
+            continue
+        except Exception as e:
+            print(f"[ERROR] Failed to load data for {{test_symbol}}: {{e}}")
+            continue
+        
+        bar_count = 0
+        last_progress = -1
+        for timestamp, market_data, progress_pct in data_stream:
+            bar_count += 1
+            strategy.on_bar(timestamp, market_data)
+            broker.step_to(timestamp, market_data)
+            current_progress = int(progress_pct / 10) * 10
+            if current_progress != last_progress and current_progress > 0:
+                print(f"  Progress: {{current_progress}}% ({{bar_count}} bars)")
+                last_progress = current_progress
+        
+        print(f"[OK] Processed {{bar_count}} bars for {{test_symbol}}")
+        strategy.finalize()
+        
+        metrics = broker.compute_metrics()
+        metrics['symbol'] = test_symbol
+        all_metrics.append(metrics)
+        total_trades += metrics.get('total_trades', 0)
+        
+        print(f"\\nRESULTS FOR {{test_symbol}}")
+        print(f"Total Trades: {{metrics['total_trades']}}")
+        print(f"Return: {{metrics['total_return_pct']:.2f}}%")
+        if metrics['total_trades'] > 0:
+            print(f"Win Rate: {{metrics['win_rate'] * 100:.1f}}%")
     
-    # 6. Get results
-    metrics = broker.compute_metrics()
+    print("\\n" + "=" * 70)
+    print("AGGREGATE BACKTEST RESULTS (ALL SYMBOLS)")
+    print("=" * 70)
+    print(f"Symbols Tested: {{', '.join([m['symbol'] for m in all_metrics])}}")
+    print(f"Total Trades Across All Symbols: {{total_trades}}")
     
-    # 7. Print results
-    print("\\n" + "="*70)
-    print(f"BACKTEST RESULTS: {{symbol}} ({{period}}, {{interval}})")
-    print("="*70)
-    for key, value in metrics.items():
-        print(f"  {{key}}: {{value}}")
-    print("="*70)
+    if total_trades == 0:
+        print("\\n[WARNING] NO TRADES EXECUTED")
+    else:
+        print("\\n[PASS] Strategy generated trades successfully")
     
-    return metrics
+    for m in all_metrics:
+        print(f"\\n{{m['symbol']}}: {{m['total_return_pct']:.2f}}% | Trades: {{m['total_trades']}}")
+    print("=" * 70)
+    
+    if all_metrics:
+        return max(all_metrics, key=lambda x: x.get('total_return_pct', -999))
+    return None
+
 
 if __name__ == "__main__":
-    # Run with default parameters (can be changed by user)
-    results = run_backtest(
-        symbol="AAPL",  # Change to any symbol
-        period="1y",    # Change period: '1mo', '3mo', '6mo', '1y', '2y', '5y'
-        interval="1d",  # Change interval: '1m', '5m', '15m', '1h', '1d'
-        cash=10000,
-        commission=0.002
-    )
+    metrics = run_backtest()
 ```
 
 CRITICAL RULES:

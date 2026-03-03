@@ -107,7 +107,7 @@ class CopilotStrategyGenerator:
     
     def __init__(
         self,
-        model_name: str = 'gpt-4o',
+        model_name: str = 'claude-sonnet-4.5',
         use_template_fallback: bool = True
     ):
         """

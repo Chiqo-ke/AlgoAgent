@@ -14,7 +14,8 @@ Last Updated: 2025-12-04
 # Add parent directory to path for imports
 import sys
 from pathlib import Path
-parent_dir = Path(__file__).parent.parent
+# Go up 3 levels: codes -> Backtest -> monolithic_agent
+parent_dir = Path(__file__).parent.parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 

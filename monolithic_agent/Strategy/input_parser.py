@@ -15,9 +15,10 @@ class InputParser:
     ACTION_KEYWORDS = {
         'enter': ['buy', 'enter', 'long', 'go long', 'open position', 'purchase'],
         'exit': ['sell', 'exit', 'close', 'close position', 'liquidate'],
+        'risk': ['stop loss', 'take profit', 'trailing stop', 'stop-loss', 'take-profit', 'sl ', 'tp ', 'stoploss', 'takeprofit'],
         'modify': ['adjust', 'modify', 'change', 'update'],
         'hold': ['hold', 'wait', 'maintain'],
-        'cancel': ['cancel', 'abort', 'stop']
+        'cancel': ['cancel', 'abort']
     }
     
     # Trigger/condition keywords
@@ -395,7 +396,13 @@ class InputParser:
         new_params = self._extract_parameters(additional_text)
         if new_params:
             existing_params = step.get("params", [])
-            step["params"] = existing_params + new_params
+            # Deduplicate by (name, value) to avoid duplicate EMA/SMA entries
+            existing_keys = {(p['name'], p['value']) for p in existing_params}
+            for p in new_params:
+                if (p['name'], p['value']) not in existing_keys:
+                    existing_params.append(p)
+                    existing_keys.add((p['name'], p['value']))
+            step["params"] = existing_params
         
         return step
 
