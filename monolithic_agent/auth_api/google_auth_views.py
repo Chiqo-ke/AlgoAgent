@@ -13,7 +13,6 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.shortcuts import redirect
-from django.utils import timezone
 import requests
 import logging
 import os
@@ -172,20 +171,21 @@ def google_auth_callback(request):
             # Set unusable password for OAuth users
             user.set_unusable_password()
             user.save()
-            
-            # Create user profile with default preferences
-            UserProfile.objects.create(
-                user=user,
-                trading_goals='New user authenticated via Google',
-                risk_parameters={'auth_method': 'google'}
-            )
         else:
             logger.info(f"Existing user logged in via Google: {user.username}")
-            # Update last active
-            if hasattr(user, 'profile'):
-                user.profile.last_active = timezone.now()
-                user.profile.save()
-        
+
+        # The post_save signal (models.py) auto-creates a UserProfile on user creation.
+        # get_or_create is the safety net in case it didn't run (e.g. found via SocialAccount).
+        # Touching the profile refreshes last_active (auto_now=True).
+        profile, _ = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={
+                'trading_goals': 'Authenticated via Google',
+                'risk_parameters': {'auth_method': 'google'},
+            }
+        )
+        profile.save()  # refreshes last_active via auto_now=True
+
         # Create or update the SocialAccount record
         SocialAccount.objects.update_or_create(
             user=user,
