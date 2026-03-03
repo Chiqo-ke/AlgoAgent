@@ -8,7 +8,7 @@ workflows
 C extensions
 *.so
 
-*.csv
+#*.csv
 
 __pycache__
 
@@ -125,7 +125,7 @@ Desktop.ini
 
 # Model files and data
 models/
-Data/data/*.csv
+#Data/data/*.csv
 Data/data/*.json
 Data/data/*.pkl
 *.joblib
@@ -161,7 +161,7 @@ monolithic_agent/Backtest/codes/temp/
 monolithic_agent/Backtest/codes/generated_by_keys_*/
 
 # Backtest chronicle files (signals and patterns)
-monolithic_agent/Backtest/signals/*.csv
+#monolithic_agent/Backtest/signals/*.csv
 monolithic_agent/Backtest/signals/*.json
 !monolithic_agent/Backtest/signals/README.md
 

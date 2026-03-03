@@ -1,0 +1,11 @@
+timestamp,symbol,step_id,step_title,pattern_condition,pattern_found,close,open,high,low,volume,indicator_values,notes
+2010-06-29 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.592665,1.266665,1.666665,1.169331,281749481.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-06-30 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.588665,1.719331,2.027945,1.553332,257916256.99999997,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-01 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.463999,1.666665,1.727998,1.351332,123448068.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-02 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.279999,1.533332,1.539999,1.247333,77127212.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-06 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.073999,1.333332,1.333332,1.055332,103189558.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-07 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.053332,1.093332,1.108666,0.998666,103873813.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-08 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.164,1.075999,1.167999,1.037999,115793200.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-09 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.159998,1.171999,1.193331,1.103332,60879150.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-12 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.136666,1.196665,1.204666,1.133332,33053583.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",
+2010-07-13 16:30:00,TSLA,entry_check,Entry Pattern Check,EMA_12 > EMA_26 AND RSI < 70,False,1.209332,1.159586,1.242665,1.126665,40200940.0,"{'ema_12': np.float64(nan), 'ema_26': np.float64(nan), 'rsi_14': np.float64(nan)}",

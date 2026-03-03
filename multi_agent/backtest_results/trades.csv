@@ -1,0 +1,3 @@
+trade_id,order_id,symbol,side,entry_price,volume,sl,tp,open_time,close_time,close_price,profit,commission_entry,commission_exit,slippage_entry,slippage_exit,reason_close,magic,comment,total_commission,net_profit
+dafaf962-a8c9-4edc-9537-9fefb879a7cb,e496d9a8-2d4a-4804-8af0-1b9f0cb89439,AAPL,sell,98.1398,0.01,99.2868,95.39320000000001,2024-01-02 00:00:00,2024-01-02 00:00:00,99.287,-1147.2000000000123,0.07,0.07,-0.0002,0.0002,sl,0,,0.14,-1147.3400000000124
+e463f96f-7ef4-4367-9a74-809767b45663,cab64f11-2b1c-49d3-b4c8-96f0abfa8664,AAPL,buy,105.3802,0.01,103.3116,107.5284,2024-02-10 00:00:00,2024-02-12 00:00:00,107.5282,2147.999999999996,0.07,0.07,0.0002,-0.0002,tp,0,,0.14,2147.859999999996

@@ -12,7 +12,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     UserRegistrationView, UserLoginView, logout_view, current_user_view,
     UserProfileViewSet, AIContextViewSet, ChatSessionViewSet,
-    ai_chat_view, health_check, change_password_view
+    ai_chat_view, health_check, change_password_view, frontend_error_log
 )
 from .google_auth_views import google_auth_redirect, google_auth_callback
 
@@ -40,7 +40,10 @@ urlpatterns = [
     
     # Health check
     path('health/', health_check, name='health'),
-    
+
+    # Frontend error log receiver
+    path('logs/frontend-errors/', frontend_error_log, name='frontend-error-log'),
+
     # ViewSet routes
     path('', include(router.urls)),
 ]

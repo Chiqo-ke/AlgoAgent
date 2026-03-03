@@ -1,0 +1,2 @@
+symbol,timeframe,ohlc_open,ohlc_high,ohlc_low,ohlc_close,volume,change_absolute,change_percent,indicators,timestamp
+MSFT,1 hour,1.18208,1.18225,1.18124,1.18133,9140,-0.00076,-0.06,"['EMA', 'EMA']",2026-02-08T00:00:00.000Z

@@ -45,7 +45,13 @@ SECRET_KEY = 'django-insecure-ic)b377zj54kad&)o__t(#)8l&i-4n664+nw3j8_u&-q00ux12
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'testserver', 'chiqoke254.pythonanywhere.com', 'ps283t0p-8000.uks1.devtunnels.ms', '.algoai.biz']
+ALLOWED_HOSTS = [
+    'localhost', '127.0.0.1', '0.0.0.0', 'testserver',
+    'chiqoke254.pythonanywhere.com',
+    'ps283t0p-8000.uks1.devtunnels.ms',
+    '.algoai.biz',          # covers api.algoai.biz, www.algoai.biz
+    '62.171.182.188',       # VPS public IP
+]
 
 
 # Application definition
@@ -217,17 +223,83 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8081",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
-    "https://algo-rho.vercel.app",  # Production frontend
-    "https://www.algoai.biz",  # Production domain
-    "https://algoai.biz",  # Production domain (without www)
-    "http://chiqoke254.pythonanywhere.com",  # PythonAnywhere backend (for admin access)
-    "https://ps283t0p-8000.uks1.devtunnels.ms",  # Dev tunnel
+    "https://algo-rho.vercel.app",   # Production frontend
+    "https://www.algoai.biz",        # Production domain
+    "https://algoai.biz",            # Production domain (without www)
+    "http://chiqoke254.pythonanywhere.com",
+    "https://ps283t0p-8000.uks1.devtunnels.ms",
 ]
 
-CORS_ALLOW_ALL_ORIGINS = False  # Set to True for development only
+CSRF_TRUSTED_ORIGINS = [
+    "https://api.algoai.biz",
+    "https://www.algoai.biz",
+    "https://algoai.biz",
+    "https://algo-rho.vercel.app",
+]
+
+# Trust the X-Forwarded-Proto header set by nginx reverse proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Allow credentials to be included in CORS requests
 CORS_ALLOW_CREDENTIALS = True
+
+# ============================================================
+# Logging — frontend errors go to logs/frontend_errors.log
+# ============================================================
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+        'frontend': {
+            'format': '{asctime} {levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'frontend_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'frontend_errors.log'),
+            'maxBytes': 5 * 1024 * 1024,  # 5 MB per file
+            'backupCount': 5,
+            'formatter': 'frontend',
+        },
+        'django_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'django.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB per file
+            'backupCount': 3,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'frontend': {
+            'handlers': ['console', 'frontend_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'django': {
+            'handlers': ['console', 'django_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['console', 'django_file'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+    },
+}
 
 # JWT Configuration
 from datetime import timedelta

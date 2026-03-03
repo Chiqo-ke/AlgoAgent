@@ -436,3 +436,58 @@ def health_check(request):
         'user': request.user.username if request.user.is_authenticated else 'anonymous',
         'timestamp': timezone.now()
     })
+
+
+# ========================================
+# Frontend Error Logging
+# ========================================
+
+frontend_logger = logging.getLogger('frontend')
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def frontend_error_log(request):
+    """
+    Receive error/warn logs from the React frontend.
+    Called by src/lib/logger.ts sendErrorToBackend().
+    Logs are written to logs/frontend_errors.log and Django console.
+    """
+    try:
+        data = request.data
+        level = data.get('level', 'error')
+        category = data.get('category', 'general')
+        message = data.get('message', '')
+        url = data.get('url', '')
+        user_agent = data.get('user_agent', '')
+        error_message = data.get('error_message')
+        error_stack = data.get('error_stack')
+        context = data.get('context')
+        timestamp = data.get('timestamp')
+
+        log_line = (
+            f"[FRONTEND:{category.upper()}] {message} | "
+            f"url={url} | ts={timestamp}"
+        )
+        if error_message:
+            log_line += f" | error={error_message}"
+
+        if level == 'warn':
+            frontend_logger.warning(log_line, extra={
+                'context': context,
+                'user_agent': user_agent,
+                'stack': error_stack,
+            })
+        else:
+            frontend_logger.error(log_line, extra={
+                'context': context,
+                'user_agent': user_agent,
+                'stack': error_stack,
+            })
+            if error_stack:
+                frontend_logger.error(f"[FRONTEND:STACK] {error_stack}")
+
+        return Response({'status': 'logged'}, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        logger.error(f"Failed to process frontend error log: {e}")
+        return Response({'status': 'error'}, status=status.HTTP_400_BAD_REQUEST)
