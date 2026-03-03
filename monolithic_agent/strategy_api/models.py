@@ -437,7 +437,9 @@ class CopilotAuth(models.Model):
             "access_token": latest.access_token,
             "refresh_token": latest.refresh_token,
             "expires_at": latest.expires_at,
-            "obtained_at": latest.updated_at
+            "obtained_at": latest.updated_at,
+            "client_id": latest.client_id,
+            "github_user": latest.github_user
         }
     
     @classmethod

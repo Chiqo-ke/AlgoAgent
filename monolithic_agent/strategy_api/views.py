@@ -556,6 +556,21 @@ class StrategyViewSet(viewsets.ModelViewSet):
             # SAFETY NET: Ensure code has correct path setup for execution from temp directory
             code = strategy.strategy_code
             
+            # If strategy_code is still the canonical JSON (set at create time, before code generation),
+            # try to load the actual generated Python from disk.
+            is_canonical_json = code and (code.strip().startswith('{') or '"strategy_id"' in code[:120])
+            if is_canonical_json:
+                generated_path = (strategy.parameters or {}).get('generated_code_path')
+                if generated_path and os.path.exists(generated_path):
+                    with open(generated_path, 'r', encoding='utf-8') as _f:
+                        code = _f.read()
+                    logger.info(f"[EXECUTE] Loaded Python code from disk: {generated_path}")
+                else:
+                    return Response({
+                        'error': 'Strategy code not yet generated',
+                        'details': 'Please generate the strategy code first before running a backtest.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
             # Check if code has proper 3-level path setup AND correct imports
             has_correct_path = 'parent.parent.parent' in code
             has_correct_imports = 'from Backtest.' in code
@@ -668,6 +683,7 @@ if str(monolithic_agent_dir) not in sys.path:
                     'total_return_pct': result.return_pct or 0,
                     'sharpe_ratio': result.sharpe_ratio or 0,
                     'max_drawdown': result.max_drawdown or 0,
+                    'net_profit': result.net_profit or 0,
                     'trades': [],  # Will be populated if available
                     'equity_curve': []  # Will be populated if available
                 }
@@ -693,6 +709,23 @@ if str(monolithic_agent_dir) not in sys.path:
         except Exception as e:
             logger.error(f"Error in execute: {e}")
             logger.error(traceback.format_exc())
+            # Save a failed result record so the frontend doesn't display stale data
+            try:
+                from .models import LatestBacktestResult as _LBR
+                _LBR.save_result(pk, {
+                    'symbol': request.data.get('test_symbol', 'UNKNOWN'),
+                    'period': request.data.get('period', '1y'),
+                    'total_trades': 0,
+                    'win_rate': 0,
+                    'total_return_pct': 0,
+                    'sharpe_ratio': None,
+                    'max_drawdown': 0,
+                    'net_profit': 0,
+                    'trades': [],
+                    'equity_curve': [],
+                })
+            except Exception:
+                pass
             return Response({
                 'error': 'Execution failed',
                 'details': str(e)
@@ -2136,7 +2169,8 @@ Original request: {strategy.description}
                     executor = BotExecutor(timeout_seconds=600)
                     
                     # Get test configuration - use multiple symbols for better pattern detection
-                    test_symbols = test_config.get('symbols', 'AAPL,TSLA,MSFT')  # Test on 3 symbols by default
+                    # Accept 'symbols' (multi) or 'symbol' (single) from frontend
+                    test_symbols = test_config.get('symbols') or test_config.get('symbol', 'AAPL,TSLA,MSFT')
                     test_period = test_config.get('period', '1y')
                     test_interval = test_config.get('interval', '1d')
                     
@@ -2183,7 +2217,7 @@ Original request: {strategy.description}
                         if not is_parse_error_only:
                             try:
                                 result_data = {
-                                    'symbol': test_symbol,
+                                    'symbol': test_symbols,
                                     'period': test_period,
                                     'total_trades': execution_result.trades or 0,
                                     'win_rate': execution_result.win_rate or 0,
@@ -2256,7 +2290,7 @@ Original request: {strategy.description}
                                 if execution_result.success and strategy_id:
                                     try:
                                         result_data = {
-                                            'symbol': test_symbol,
+                                            'symbol': test_symbols,
                                             'period': test_period,
                                             'total_trades': execution_result.trades or 0,
                                             'win_rate': execution_result.win_rate or 0,
@@ -2351,6 +2385,9 @@ Original request: {strategy.description}
                     strategy.parameters['fix_attempts'] = len(fix_history)
                     strategy.parameters['ai_provider'] = actual_provider
                     
+                    # Write generated Python back so execute endpoint has real code
+                    strategy.strategy_code = strategy_code
+                    
                     # Update strategy status based on validation result
                     if validation_status == 'passed':
                         strategy.status = 'valid'
@@ -2358,7 +2395,7 @@ Original request: {strategy.description}
                         strategy.status = 'invalid'
                     # Keep 'validating' status if validation_status is 'not_executed'
                     
-                    strategy.save(update_fields=['parameters', 'status'])
+                    strategy.save(update_fields=['parameters', 'status', 'strategy_code'])
                     logger.info(f"[UNIFIED] Updated strategy {strategy_id} status to '{strategy.status}' with validation_status '{validation_status}'")
                 except Strategy.DoesNotExist:
                     logger.warning(f"[UNIFIED] Strategy {strategy_id} not found for update")

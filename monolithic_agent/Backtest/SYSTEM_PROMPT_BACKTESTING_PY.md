@@ -40,6 +40,12 @@ SCRIPT EXECUTION CONTEXT:
 
 ## CRITICAL: Import Guidelines
 
+## CRITICAL DATA SOURCE POLICY
+
+- Backtest data must come from local warehouse CSV files in `Data/data`.
+- Always load project symbol data via `Backtest.backtesting_adapter.fetch_and_prepare_data` or `Backtest.data_loader`.
+- Do not import or call `DataFetcher`, `yfinance`, `TVscraper`, or external HTTP data APIs in generated strategies.
+
 ALWAYS follow this import pattern in ALL generated code:
 
 ```python
@@ -55,15 +61,15 @@ if str(parent_dir) not in sys.path:
 
 # NOW you can import from monolithic_agent modules:
 # Available modules from monolithic_agent/:
-# - Data.data_fetcher (for fetching historical data)
-# - Backtest.xxx (other backtest modules)
+# - Backtest.backtesting_adapter (warehouse-backed data loading)
+# - Backtest.data_loader (warehouse CSV loader)
 # - backtesting (external package - already installed)
 
 # CORRECT imports:
 from backtesting import Strategy, Backtest
 from backtesting.lib import crossover
 from backtesting.test import GOOG
-from Data.data_fetcher import DataFetcher  # Now accessible after path setup
+# Use Backtest adapter/loader for project symbol data
 ```
 
 **NEVER do these (they will fail):**

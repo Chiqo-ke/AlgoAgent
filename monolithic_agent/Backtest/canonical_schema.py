@@ -83,6 +83,7 @@ class Signal:
     size_type: str = SizeType.SHARES
     price: Optional[float] = None  # Required for LIMIT/STOP_LIMIT
     stop_price: Optional[float] = None  # For STOP/STOP_LIMIT
+    reason: str = ""  # Human-readable reason for this signal
     risk_params: Optional[Dict[str, Any]] = None
     strategy_id: str = "default"
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -359,13 +360,15 @@ def create_signal(
     action: str,
     order_type: str,
     size: float,
+    signal_id: Optional[str] = None,
     **kwargs
 ) -> Signal:
     """
-    Helper to create a valid Signal object
+    Helper to create a valid Signal object.
+    If signal_id is not provided, one is auto-generated.
     """
     return Signal(
-        signal_id=generate_id(),
+        signal_id=signal_id if signal_id is not None else generate_id(),
         timestamp=timestamp,
         symbol=symbol,
         side=side,

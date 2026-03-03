@@ -37,6 +37,15 @@ from dataclasses import dataclass
 import re
 import time
 
+# Code-change tracking across fix iterations
+try:
+    from .code_change_logger import CodeChangeLogger
+    CODE_CHANGE_LOGGER_AVAILABLE = True
+except ImportError:
+    CODE_CHANGE_LOGGER_AVAILABLE = False
+    logger_pre = logging.getLogger(__name__)
+    logger_pre.warning("CodeChangeLogger not available - code diff tracking disabled")
+
 logger = logging.getLogger(__name__)
 
 # Import enhanced error detection
@@ -793,9 +802,22 @@ COMMON FIXES FOR {error_type}:
         logger.info(f"Diagnostic mode: {'ENABLED' if use_diagnostics else 'DISABLED'}")
         logger.info(f"{'='*70}\n")
         
+        # Initialise code-change tracker for this fix session
+        code_change_logger = None
+        if CODE_CHANGE_LOGGER_AVAILABLE:
+            try:
+                changes_dir = bot_file.parent.parent / "logs" / "code_changes"
+                code_change_logger = CodeChangeLogger(
+                    strategy_id=bot_file.stem,
+                    logs_dir=changes_dir,
+                )
+            except Exception as _ccl_err:
+                logger.warning(f"Could not initialise CodeChangeLogger: {_ccl_err}")
+        
         # Track if we're in an error loop (same error multiple times)
         error_history = []
         diagnostic_failures = 0
+        consecutive_no_ops = 0
         
         for attempt in range(max_attempts):
             logger.info(f"\n>>> ATTEMPT {attempt + 1}/{max_attempts}")
@@ -844,6 +866,10 @@ COMMON FIXES FOR {error_type}:
                         fix_attempts=attempt + 1,
                         resolution_time_seconds=resolution_time
                     )
+                
+                if code_change_logger is not None:
+                    code_change_logger.log_summary()
+                    self._code_change_summary = code_change_logger.get_summary()
                 
                 return True, current_code, self.fix_history
             
@@ -914,6 +940,35 @@ COMMON FIXES FOR {error_type}:
                 
                 break
             
+            # --- Track what actually changed in this iteration ---
+            if code_change_logger is not None:
+                error_sig = str(result.error) if result.error else ""
+                try:
+                    change = code_change_logger.record_iteration(
+                        attempt_number=attempt + 1,
+                        code_before=current_code,
+                        code_after=fixed_code,
+                        error_type=fix_record.error_type if fix_record else "unknown",
+                        error_summary=error_sig[:300],
+                    )
+                    if not change.is_meaningful_change:
+                        consecutive_no_ops += 1
+                        logger.warning(
+                            f"[CodeChangeLogger] Attempt {attempt + 1}: LLM made NO meaningful "
+                            f"change to the code (similarity={change.similarity_ratio:.4f}). "
+                            f"Consecutive no-ops: {consecutive_no_ops}"
+                        )
+                        if consecutive_no_ops >= 2:
+                            logger.error(
+                                "[CodeChangeLogger] 2 consecutive no-op fixes detected. "
+                                "The LLM is stuck - aborting iterative fix to avoid wasted cycles."
+                            )
+                            break
+                    else:
+                        consecutive_no_ops = 0
+                except Exception as _rec_err:
+                    logger.warning(f"CodeChangeLogger.record_iteration failed: {_rec_err}")
+
             # Update code and write to file
             current_code = fixed_code
             bot_file.write_text(current_code, encoding='utf-8')
@@ -925,11 +980,15 @@ COMMON FIXES FOR {error_type}:
         logger.info(f"Success: {'YES' if any(f.success for f in self.fix_history) else 'NO'}")
         logger.info(f"{'='*70}\n")
         
+        if code_change_logger is not None:
+            code_change_logger.log_summary()
+            self._code_change_summary = code_change_logger.get_summary()
+        
         return False, current_code, self.fix_history
     
     def get_fix_report(self) -> Dict[str, Any]:
-        """Get a detailed report of all fix attempts"""
-        return {
+        """Get a detailed report of all fix attempts, including code-change tracking."""
+        report = {
             'total_attempts': len(self.fix_history),
             'successful_fixes': sum(1 for f in self.fix_history if f.success),
             'error_types': list(set(f.error_type for f in self.fix_history)),
@@ -944,6 +1003,11 @@ COMMON FIXES FOR {error_type}:
                 for f in self.fix_history
             ]
         }
+        # Attach code-change summary if available
+        change_summary = getattr(self, '_code_change_summary', None)
+        if change_summary:
+            report['code_change_tracking'] = change_summary
+        return report
 
 
 if __name__ == '__main__':

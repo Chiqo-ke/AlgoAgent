@@ -1,0 +1,33 @@
+﻿C:\Users\nyaga\Documents\.venv\Scripts\python.exe : C:\Users\nyaga\Documents\Al
+goAgent\monolithic_agent\Backtest\request_router.py:20: FutureWarning: 
+At line:1 char:115
++ ... pi.settings" ; C:\Users\nyaga\Documents\.venv\Scripts\python.exe -c "
++                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\nyaga\...FutureWarning:  
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+All support for the `google.generativeai` package has ended. It will no longer 
+be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as 
+possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/READ
+ME.md
+
+  import google.generativeai as genai
+Redis connection failed - disabling key rotation: Error 10061 connecting to 
+localhost:6379. No connection could be made because the target machine 
+actively refused it.
+importing SimBroker...
+[TALib] Auto-discovering all TALib indicators...
+[TALib] Registered 148 additional TALib indicators dynamically
+[TALib] Total indicators available: 160
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+OK SimBroker
+OK data_loader
+OK config
+OK canonical_schema
+ALL IMPORTS OK

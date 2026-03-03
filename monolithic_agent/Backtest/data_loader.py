@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple, Any, Generator
 from datetime import datetime
 import logging
 import sys
+import re
 
 # Add parent directory to path for imports
 PARENT_DIR = Path(__file__).parent.parent
@@ -69,6 +70,196 @@ class DataFormat:
     OPTIONAL_COLUMNS = ['Adj Close']
 
 
+WAREHOUSE_DIR = PARENT_DIR / "Data" / "data"
+
+
+def _normalize_interval(interval: str) -> str:
+    """Normalize requested interval to warehouse filename suffix format."""
+    normalized = str(interval).strip().lower()
+    interval_aliases = {
+        "60m": "1h",
+        "1hr": "1h",
+        "1hour": "1h",
+        "120m": "2h",
+        "2hr": "2h",
+        "2hour": "2h",
+        "240m": "4h",
+        "4hr": "4h",
+        "4hour": "4h",
+        "1wk": "1w",
+    }
+    return interval_aliases.get(normalized, normalized)
+
+
+def _symbol_candidates(symbol: str) -> List[str]:
+    """Build case-insensitive symbol candidates, including alias-like variants."""
+    raw = str(symbol).strip().upper()
+    candidates = {raw}
+
+    if ":" in raw:
+        candidates.add(raw.split(":")[-1])
+
+    for sep in ("/", "-", "_", "."):
+        if sep in raw:
+            candidates.add(raw.replace(sep, ""))
+
+    normalized = set()
+    for candidate in candidates:
+        cleaned = re.sub(r"[^A-Z0-9]", "", candidate)
+        if cleaned:
+            normalized.add(cleaned)
+
+    return sorted(normalized)
+
+
+def _extract_symbol_from_filename(file_path: Path) -> str:
+    """Extract symbol segment from `<symbol>_<timeframe>.csv` filename."""
+    stem = file_path.stem
+    if "_" not in stem:
+        return stem
+    return stem.rsplit("_", 1)[0]
+
+
+def _extract_timeframe_from_filename(file_path: Path) -> str:
+    """Extract timeframe suffix from `<symbol>_<timeframe>.csv` filename."""
+    stem = file_path.stem
+    if "_" not in stem:
+        return ""
+    return stem.rsplit("_", 1)[1].lower()
+
+
+def _resolve_warehouse_file(ticker: str, interval: str) -> Optional[Path]:
+    """Resolve matching warehouse CSV using case-insensitive + alias-style matching."""
+    if not WAREHOUSE_DIR.exists():
+        logger.error(f"Warehouse directory not found: {WAREHOUSE_DIR}")
+        return None
+
+    target_interval = _normalize_interval(interval)
+    ticker_candidates = set(_symbol_candidates(ticker))
+
+    for csv_file in sorted(WAREHOUSE_DIR.glob("*.csv")):
+        file_interval = _extract_timeframe_from_filename(csv_file)
+        if file_interval != target_interval:
+            continue
+
+        file_symbol = _extract_symbol_from_filename(csv_file)
+        file_symbol_candidates = set(_symbol_candidates(file_symbol))
+
+        if ticker_candidates.intersection(file_symbol_candidates):
+            return csv_file
+
+    return None
+
+
+def _empty_ohlcv_frame() -> pd.DataFrame:
+    """Return an empty OHLCV dataframe with expected schema."""
+    empty_df = pd.DataFrame(columns=DataFormat.REQUIRED_COLUMNS)
+    empty_df.index = pd.DatetimeIndex([], tz="UTC")
+    return empty_df
+
+
+def _normalize_period_slice(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Filter dataframe by period relative to available warehouse data window."""
+    if df.empty:
+        return df
+
+    period = str(period).strip().lower()
+    if period == "max":
+        return df
+
+    duration_map = {
+        "1d": pd.Timedelta(days=1),
+        "5d": pd.Timedelta(days=5),
+        "1wk": pd.Timedelta(days=7),
+        "1mo": pd.Timedelta(days=30),
+        "3mo": pd.Timedelta(days=90),
+        "6mo": pd.Timedelta(days=180),
+        "1y": pd.Timedelta(days=365),
+        "2y": pd.Timedelta(days=730),
+        "5y": pd.Timedelta(days=1825),
+        "10y": pd.Timedelta(days=3650),
+    }
+
+    duration = duration_map.get(period)
+    if duration is None:
+        logger.warning(f"Unknown period '{period}', returning full warehouse range")
+        return df
+
+    end_ts = df.index.max()
+    start_ts = end_ts - duration
+    return df[df.index >= start_ts]
+
+
+def _load_warehouse_csv(
+    ticker: str,
+    interval: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+) -> Tuple[pd.DataFrame, Optional[Path]]:
+    """Load and normalize OHLCV data directly from local warehouse CSV."""
+    csv_file = _resolve_warehouse_file(ticker, interval)
+    if csv_file is None:
+        logger.warning(
+            f"Warehouse CSV not found for ticker={ticker}, interval={interval}. "
+            "Skipping symbol."
+        )
+        return _empty_ohlcv_frame(), None
+
+    raw_df = pd.read_csv(csv_file)
+    if raw_df.empty:
+        logger.warning(f"Warehouse CSV is empty: {csv_file.name}")
+        return _empty_ohlcv_frame(), csv_file
+
+    rename_map = {
+        "datetime": "Datetime",
+        "timestamp": "Datetime",
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+        "volume": "Volume",
+    }
+
+    normalized_columns = {col: rename_map.get(str(col).strip().lower(), col) for col in raw_df.columns}
+    df = raw_df.rename(columns=normalized_columns)
+
+    if "Datetime" not in df.columns:
+        raise ValueError(f"Missing datetime column in warehouse file: {csv_file}")
+
+    missing_cols = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Warehouse file {csv_file.name} missing required columns: {missing_cols}. "
+            f"Available: {list(df.columns)}"
+        )
+
+    df["Datetime"] = pd.to_datetime(df["Datetime"], utc=True, errors="coerce")
+    df = df.dropna(subset=["Datetime"])
+    df = df.set_index("Datetime")
+
+    for col in DataFormat.REQUIRED_COLUMNS:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=DataFormat.REQUIRED_COLUMNS)
+    df = df.sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+    df = df[DataFormat.REQUIRED_COLUMNS]
+
+    if start_date:
+        start_ts = pd.to_datetime(start_date, utc=True, errors="coerce")
+        if pd.isna(start_ts):
+            raise ValueError(f"Invalid start_date: {start_date}")
+        df = df[df.index >= start_ts]
+
+    if end_date:
+        end_ts = pd.to_datetime(end_date, utc=True, errors="coerce")
+        if pd.isna(end_ts):
+            raise ValueError(f"Invalid end_date: {end_date}")
+        df = df[df.index <= end_ts]
+
+    return df, csv_file
+
+
 def fetch_market_data(
     ticker: str,
     period: str = "1mo",
@@ -86,60 +277,20 @@ def fetch_market_data(
     Returns:
         DataFrame with DatetimeIndex and OHLCV columns
     """
-    logger.info(f"Fetching {ticker} data: period={period}, interval={interval}")
+    logger.info(f"Loading warehouse data for {ticker}: period={period}, interval={interval}")
+    df, csv_file = _load_warehouse_csv(ticker=ticker, interval=interval)
+    df = _normalize_period_slice(df, period=period)
 
-    # 1) Try TVscraper first (primary source)
-    if TV_SCRAPER_AVAILABLE:
-        try:
-            logger.info("Using TVscraper as primary data source")
-            return fetch_market_data_with_tvscraper(ticker, period, interval)
-        except Exception as tv_error:
-            logger.warning(f"TVscraper primary fetch failed: {tv_error}")
-            # If yfinance is not available, re-raise
-            if not DATA_FETCHER_AVAILABLE:
-                raise
-            logger.info("Falling back to yfinance after TVscraper failure")
+    if df.empty:
+        logger.warning(
+            f"No warehouse rows available for ticker={ticker}, interval={interval}, period={period}. "
+            "Symbol skipped."
+        )
+        return _empty_ohlcv_frame()
 
-    # 2) Use yfinance if available
-    if not DATA_FETCHER_AVAILABLE:
-        raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
-
-    try:
-        fetcher = DataFetcher()
-        df = fetcher.fetch_historical_data(ticker, period=period, interval=interval)
-        
-        if df.empty:
-            raise ValueError(f"No data returned for {ticker} with period={period}, interval={interval}")
-        
-        # Ensure datetime index
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
-        # Validate required columns
-        missing = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
-        if missing:
-            raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
-        
-        # Keep only OHLCV columns (drop Adj Close if present)
-        df = df[DataFormat.REQUIRED_COLUMNS]
-        
-        # Convert to numeric, coerce errors
-        for col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Drop rows with NaN values
-        df = df.dropna()
-        
-        # Sort by datetime
-        df = df.sort_index()
-        
-        logger.info(f"Fetched {len(df)} rows for {ticker} using yfinance fallback")
-        
-        return df
-        
-    except Exception as e:
-        logger.warning(f"yfinance failed: {e}")
-        raise
+    source_name = csv_file.name if csv_file else "unknown"
+    logger.info(f"Loaded {len(df)} rows for {ticker} from warehouse file {source_name}")
+    return df
 
 
 def fetch_market_data_with_tvscraper(
@@ -263,45 +414,25 @@ def fetch_market_data_by_date_range(
     Returns:
         DataFrame with DatetimeIndex and OHLCV columns
     """
-    if not DATA_FETCHER_AVAILABLE:
-        raise RuntimeError("DataFetcher not available. Cannot fetch market data.")
-    
-    logger.info(f"Fetching {ticker} data: start_date={start_date}, end_date={end_date}, interval={interval}")
-    
-    fetcher = DataFetcher()
-    df = fetcher.fetch_data_by_date_range(ticker, start_date=start_date, end_date=end_date, interval=interval)
-    
+    logger.info(
+        f"Loading warehouse data for {ticker}: start_date={start_date}, end_date={end_date}, interval={interval}"
+    )
+    df, csv_file = _load_warehouse_csv(
+        ticker=ticker,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
     if df.empty:
-        raise ValueError(f"No data returned for {ticker} between {start_date} and {end_date}")
-    
-    # Flatten MultiIndex columns if present
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    # Ensure datetime index
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
-    
-    # Validate required columns
-    missing = [col for col in DataFormat.REQUIRED_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}. Available: {list(df.columns)}")
-    
-    # Keep only OHLCV columns (drop Adj Close if present)
-    df = df[DataFormat.REQUIRED_COLUMNS]
-    
-    # Convert to numeric, coerce errors
-    for col in df.columns:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # Drop rows with NaN values
-    df = df.dropna()
-    
-    # Sort by datetime
-    df = df.sort_index()
-    
-    logger.info(f"Fetched {len(df)} rows for {ticker} from {start_date} to {end_date}")
-    
+        logger.warning(
+            f"No warehouse data for {ticker} between {start_date} and {end_date} "
+            f"(interval={interval}). Symbol skipped."
+        )
+        return _empty_ohlcv_frame()
+
+    source_name = csv_file.name if csv_file else "unknown"
+    logger.info(f"Loaded {len(df)} rows for {ticker} from {source_name} for requested date range")
     return df
 
 
@@ -599,7 +730,7 @@ def load_market_data(
         # Create cache filename based on ticker, indicators, period, and interval
         indicator_str = "_".join(sorted(indicators.keys()))
         timestamp = datetime.now().strftime("%Y%m%d")
-        cache_filename = f"{ticker}_{period}_{interval}_{indicator_str}_{timestamp}.parquet"
+        cache_filename = f"{ticker}_{period}_{interval}_{indicator_str}_warehouse_{timestamp}.parquet"
         cache_path = cache_dir / cache_filename
         
         # Check if cache exists and is recent (less than 1 day old)
@@ -625,12 +756,12 @@ def load_market_data(
                     logger.warning(f"Failed to load cache: {e}, fetching fresh data")
     
     # Fetch market data
-    logger.info(f"Fetching fresh data for {ticker}")
+    logger.info(f"Loading fresh warehouse data for {ticker}")
     df = fetch_market_data(ticker, period, interval)
     
     # Add indicators if requested
     indicator_metadata = {}
-    if indicators:
+    if indicators and not df.empty:
         df, indicator_metadata = add_indicators(df, indicators)
     
     # Save to cache
@@ -643,14 +774,18 @@ def load_market_data(
     
     # Build metadata
     metadata = {
-        'source': 'yfinance',
+        'source': 'warehouse',
         'ticker': ticker,
         'period': period,
         'interval': interval,
         'indicators': indicator_metadata,
         'rows': len(df),
         'columns': list(df.columns),
-        'date_range': (str(df.index.min()), str(df.index.max()))
+        'date_range': (
+            str(df.index.min()) if not df.empty else None,
+            str(df.index.max()) if not df.empty else None,
+        ),
+        'warehouse_dir': str(WAREHOUSE_DIR),
     }
     
     # Return generator if streaming mode

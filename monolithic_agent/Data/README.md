@@ -10,13 +10,15 @@ The model follows a modular architecture, ensuring clear separation of concerns 
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {
-  'background': 'transparent',
-  'primaryColor': 'transparent',
-  'primaryBorderColor': '#ffffff',
-  'primaryTextColor': '#ffffff',
-  'lineColor': '#ffffff',
-  'fontSize': '14px',
-  'tertiaryColor': 'transparent'
+    'background': '#0c1528',
+    'primaryColor': '#1f77f0',
+    'primaryBorderColor': '#56ccf2',
+    'primaryTextColor': '#f4f7fb',
+    'secondaryBorderColor': '#73d2ff',
+    'lineColor': '#e2e8ff',
+    'tertiaryColor': '#0c1528',
+    'edgeLabelBackground': '#0c1528',
+    'fontSize': '14px'
 }}}%%
 
 graph TD
@@ -35,18 +37,18 @@ graph TD
     K --> L[Updated Indicator Calculation Logic]
     L --> D
 
-    style A fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style B fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style C fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style D fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style E fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style F fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style G fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style H fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style I fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style J fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style K fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
-    style L fill:transparent,stroke:#ffffff,stroke-width:2px,color:#ffffff
+    style A fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style B fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style C fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style D fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style E fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style F fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style G fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style H fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style I fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style J fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style K fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
+    style L fill:#0f1f34,stroke:#56ccf2,stroke-width:2px,color:#f4f7fb
 
 ```
 ## Module-wise Breakdown

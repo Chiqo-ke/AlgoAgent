@@ -109,6 +109,12 @@ Completed implementations and consolidated fix summaries.
 
 ---
 
+### Personal Access Token (PAT)
+
+When you already have a GitHub PAT, set `GH_TOKEN` or `GITHUB_COPILOT_PAT` in your environment and run `python manage.py copilot_auth`. The command now seeds that PAT, skips the device login flow, and makes the token available to every Copilot-powered feature without touching any other files.
+
+---
+
 ## 🎯 Key Features
 
 ### ✅ Autonomous Bot Generation

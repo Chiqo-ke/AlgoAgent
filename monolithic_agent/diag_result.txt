@@ -1,0 +1,208 @@
+﻿C:\Users\nyaga\Documents\.venv\Scripts\python.exe : 
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:19: 
+DeprecationWarning: 'setName' deprecated - use 'set_name'
+At line:1 char:128
++ ... settings" ; C:\Users\nyaga\Documents\.venv\Scripts\python.exe -W all  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\nyaga\... use 'set_name' 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  token = pp.Word(tchar).setName("token")
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:20: 
+DeprecationWarning: 'leaveWhitespace' deprecated - use 'leave_whitespace'
+  token68 = pp.Combine(pp.Word("-._~+/" + pp.nums + pp.alphas) + 
+pp.Optional(pp.Word("=").leaveWhitespace())).setName(
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:20: 
+DeprecationWarning: 'setName' deprecated - use 'set_name'
+  token68 = pp.Combine(pp.Word("-._~+/" + pp.nums + pp.alphas) + 
+pp.Optional(pp.Word("=").leaveWhitespace())).setName(
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:24: 
+DeprecationWarning: 'setName' deprecated - use 'set_name'
+  quoted_string = 
+pp.dblQuotedString.copy().setName("quoted-string").setParseAction(unquote)
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:24: 
+DeprecationWarning: 'setParseAction' deprecated - use 'set_parse_action'
+  quoted_string = 
+pp.dblQuotedString.copy().setName("quoted-string").setParseAction(unquote)
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:25: 
+DeprecationWarning: 'setName' deprecated - use 'set_name'
+  auth_param_name = 
+token.copy().setName("auth-param-name").addParseAction(downcaseTokens)
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:25: 
+DeprecationWarning: 'addParseAction' deprecated - use 'add_parse_action'
+  auth_param_name = 
+token.copy().setName("auth-param-name").addParseAction(downcaseTokens)
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:27: 
+DeprecationWarning: 'delimitedList' deprecated - use 'DelimitedList'
+  params = pp.Dict(pp.delimitedList(pp.Group(auth_param)))
+C:\Users\nyaga\Documents\.venv\Lib\site-packages\httplib2\auth.py:33: 
+DeprecationWarning: 'delimitedList' deprecated - use 'DelimitedList'
+  www_authenticate = pp.delimitedList(pp.Group(challenge))
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\request_router.py:
+20: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer 
+be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as 
+possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/READ
+ME.md
+
+  import google.generativeai as genai
+Redis connection failed - disabling key rotation: Error 10061 connecting to 
+localhost:6379. No connection could be made because the target machine 
+actively refused it.
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:50
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.created_at = datetime.utcnow().isoformat()
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\key_rotation.py:52
+: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled 
+for removal in a future version. Use timezone-aware objects to represent 
+datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  self.updated_at = datetime.utcnow().isoformat()
+WARNING:Backtest.gemini_strategy_generator:Django not available - template 
+fallback disabled
+1 importing sim_broker
+[TALib] Auto-discovering all TALib indicators...
+[TALib] Registered 148 additional TALib indicators dynamically
+[TALib] Total indicators available: 160
+2 sim_broker OK
+3 config OK
+4 canonical_schema OK
+5 data_loader OK
+ALL IMPORTS OK

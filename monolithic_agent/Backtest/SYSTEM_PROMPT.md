@@ -193,23 +193,18 @@ import pandas as pd
 import os  # For environment variable access (multi-symbol testing)
 ```
 
-**❌ NEVER use these imports (they trigger Django initialization):**
-```python
-from Backtest.sim_broker import SimBroker  # WRONG - triggers Django setup()
-from Backtest.config import BacktestConfig  # WRONG - triggers Django setup()
-from Backtest.canonical_schema import ...  # WRONG - triggers Django setup()
-```
-
-**✅ ALWAYS use these imports:**
-```python
-from sim_broker import SimBroker  # CORRECT - direct import
-from config import BacktestConfig  # CORRECT - direct import
-from canonical_schema import ...  # CORRECT - direct import
-```
-
-**Why:** Importing from the Backtest package triggers `__init__.py` which imports `gemini_strategy_generator.py` which calls `django.setup()` without proper configuration, causing `ImproperlyConfigured` errors.
+**NOTE:** The 3-level `parent.parent.parent` path is REQUIRED because strategy files live
+in `codes/` (3 levels deep from `monolithic_agent/`). Using only 2 levels will cause
+`ModuleNotFoundError`. Using `from Backtest.xxx import` package-style imports is correct
+and expected — `__init__.py` is designed for this.
 
 ## Data Loading Modes
+
+### CRITICAL DATA SOURCE POLICY (MUST FOLLOW)
+
+- Backtest market data must be loaded from local warehouse CSV files in `Data/data` through `load_market_data`.
+- Do not import or call `DataFetcher`, `yfinance`, `TVscraper`, `requests`, or any external/live data source.
+- If data for a symbol/timeframe is unavailable, skip that symbol and continue.
 
 The system supports TWO data loading modes:
 
@@ -343,7 +338,7 @@ class StrategyNameHere:
         
         # Extract indicators
         indicators = {k: v for k, v in symbol_data.items() 
-                     if k.startswith(('EMA_', 'SMA_', 'RSI', 'MACD'))}
+                     if k.startswith(('ema_', 'sma_', 'rsi_', 'macd_', 'bb_'))}
         
         # Check entry pattern (logged for EVERY row)
         self._check_entry_pattern(timestamp, market_data, indicators)
@@ -399,6 +394,7 @@ class StrategyNameHere:
     def _generate_entry_signal(self, timestamp, market_data, indicators):
         """Generate entry trade - CORRECT VERSION"""
         size = 100
+        reason = "Pattern detected"
         
         # CRITICAL: Use create_signal() + submit_signal() (REQUIRED)
         if not self.in_position:
@@ -411,13 +407,25 @@ class StrategyNameHere:
                 order_type=OrderType.MARKET,
                 size=size,
                 price=market_data['close'],
-                reason="Pattern detected"
+                reason=reason
             )
             
             order_id = self.broker.submit_signal(signal.to_dict())
             
             if order_id:
-                # Optional: Log for debugging
+                # Log the signal
+                self.signal_logger.log_signal(
+                    timestamp=timestamp,
+                    symbol=self.symbol,
+                    side=OrderSide.BUY,
+                    action=OrderAction.ENTRY,
+                    order_type=OrderType.MARKET,
+                    size=size,
+                    price=market_data['close'],
+                    reason=reason,
+                    market_data=market_data,
+                    indicator_values=indicators,
+                )
                 print(f"[ENTRY] BUY {size} shares at {market_data['close']}")
                 
                 # Update state
@@ -428,6 +436,7 @@ class StrategyNameHere:
     def _generate_exit_signal(self, timestamp, market_data, indicators):
         """Generate exit trade - CORRECT VERSION"""
         size = self.position_size
+        reason = "Exit condition met"
         
         # CRITICAL: Use create_signal() + submit_signal() (REQUIRED)
         if self.in_position:
@@ -440,13 +449,25 @@ class StrategyNameHere:
                 order_type=OrderType.MARKET,
                 size=size,
                 price=market_data['close'],
-                reason="Exit condition met"
+                reason=reason
             )
             
             order_id = self.broker.submit_signal(signal.to_dict())
             
             if order_id:
-                # Optional: Log for debugging
+                # Log the signal
+                self.signal_logger.log_signal(
+                    timestamp=timestamp,
+                    symbol=self.symbol,
+                    side=OrderSide.SELL,
+                    action=OrderAction.EXIT,
+                    order_type=OrderType.MARKET,
+                    size=size,
+                    price=market_data['close'],
+                    reason=reason,
+                    market_data=market_data,
+                    indicator_values=indicators,
+                )
                 print(f"[EXIT] SELL {size} shares at {market_data['close']}")
                 
                 # Update state
@@ -496,29 +517,35 @@ def run_backtest():
         
         # 3. Initialize strategy with symbol
         strategy = StrategyNameHere(broker, symbol=test_symbol, strategy_id=f"strategy_{test_symbol}")
-        print(f"✓ Strategy initialized: {strategy.__class__.__name__} for {test_symbol}")
+        print(f"[OK] Strategy initialized: {strategy.__class__.__name__} for {test_symbol}")
         
-        # 4. Define indicators
+        # 4. Define indicators using multi-period format
         indicators = {
-            'SMA': {'timeperiod': 20},
-            'RSI': {'timeperiod': 14}
+            'EMA': {'periods': [12, 26]},  # Creates EMA_12 and EMA_26 -> streaming: ema_12, ema_26
+            'RSI': {'periods': [14]}       # Creates RSI_14 -> streaming: rsi_14
         }
         
         # 5. Load data in STREAMING mode
-        print(f"🔄 Loading data in STREAMING mode (sequential)...")
-        data_stream = load_market_data(
-            ticker=test_symbol,
-            indicators=indicators,
-            period='6mo',
-            interval='1d',
-            stream=True  # ✅ Enable streaming
-        )
+        print(f"[LOADING] Loading data in STREAMING mode (sequential)...")
+        try:
+            data_stream = load_market_data(
+                ticker=test_symbol,
+                indicators=indicators,
+                period='max',   # Use all available warehouse data
+                interval='1d',
+                stream=True
+            )
+        except FileNotFoundError:
+            print(f"[WARNING] Data file not found for {test_symbol}, skipping...")
+            continue
         
-        print(f"✓ Data stream initialized for {test_symbol}")
-        print(f"✓ Processing bars sequentially...")
+        print(f"[OK] Data stream initialized for {test_symbol}")
+        print(f"[OK] Processing bars sequentially...")
         
         # 6. Process each bar sequentially
         bar_count = 0
+        last_progress = -1
+        
         for timestamp, market_data, progress_pct in data_stream:
             bar_count += 1
             
@@ -526,13 +553,15 @@ def run_backtest():
             strategy.on_bar(timestamp, market_data)
             
             # Broker executes any signals
-            broker.step_to(timestamp,market_data)
+            broker.step_to(timestamp, market_data)
             
             # Show progress every 10%
-            if int(progress_pct) % 10 == 0 and bar_count > 1:
-                print(f"  Progress: {progress_pct:.1f}% ({bar_count} bars)")
+            current_progress = int(progress_pct / 10) * 10
+            if current_progress != last_progress and current_progress > 0:
+                print(f"  Progress: {current_progress}% ({bar_count} bars)")
+                last_progress = current_progress
         
-        print(f"✓ Processed {bar_count} bars sequentially for {test_symbol}")
+        print(f"[OK] Processed {bar_count} bars sequentially for {test_symbol}")
         
         # 7. Finalize strategy (close loggers)
         strategy.finalize()
@@ -550,31 +579,40 @@ def run_backtest():
         print(f"Final Equity: ${metrics['final_equity']:,.2f}")
         print(f"Total Trades: {metrics['total_trades']}")
         print(f"Return: {metrics['total_return_pct']:.2f}%")
+        if metrics['total_trades'] > 0:
+            print(f"Win Rate: {metrics['win_rate'] * 100:.1f}%")
+            print(f"Profit Factor: {metrics['profit_factor']:.2f}")
         print("=" * 70)
     
     # 10. Print aggregate results
     print("\n\n" + "=" * 70)
     print("AGGREGATE BACKTEST RESULTS (ALL SYMBOLS)")
     print("=" * 70)
-    print(f"Symbols Tested: {', '.join(test_symbols)}")
+    print(f"Symbols Tested: {', '.join([m['symbol'] for m in all_metrics])}")
     print(f"Total Trades Across All Symbols: {total_trades}")
     
     if total_trades == 0:
-        print("\n⚠️  WARNING: NO TRADES EXECUTED")
+        print("\n[WARNING] NO TRADES EXECUTED")
         print("Strategy did not find trading opportunities in any symbol.")
         print("Consider adjusting strategy parameters or testing different symbols.")
+    else:
+        print("\n[PASS] Strategy generated trades successfully")
     
     for metrics in all_metrics:
         print(f"\n{metrics['symbol']}:")
         print(f"  Net Profit: ${metrics['net_profit']:,.2f} ({metrics['total_return_pct']:.2f}%)")
         print(f"  Trades: {metrics['total_trades']}")
-        print(f"  Win Rate: {metrics['win_rate'] * 100:.1f}%")
+        if metrics['total_trades'] > 0:
+            print(f"  Win Rate: {metrics['win_rate'] * 100:.1f}%")
+            print(f"  Profit Factor: {metrics['profit_factor']:.2f}")
+            print(f"  Max Drawdown: {metrics['max_drawdown_pct'] * 100:.2f}%")
     
     print("=" * 70)
     
-    # Return aggregate metrics
-    best_symbol_metrics = max(all_metrics, key=lambda x: x.get('total_return_pct', -999))
-    return best_symbol_metrics
+    # Return best performing symbol's metrics
+    if all_metrics:
+        return max(all_metrics, key=lambda x: x.get('total_return_pct', -999))
+    return None
 
 
 if __name__ == "__main__":
@@ -908,55 +946,94 @@ if sma_value is None:
 ```python
 def on_bar(self, timestamp, market_data):
     """MUST check position state before trading"""
-    data = market_data.get('data', [])
-    if not data:
+    symbol_data = market_data.get(self.symbol)
+    if not symbol_data:
         return
     
-    current = data[-1]
+    close = symbol_data.get('close')
+    ema_fast = symbol_data.get('ema_12')  # lowercase in streaming mode
+    ema_slow = symbol_data.get('ema_26')
+    rsi = symbol_data.get('rsi_14')
     
-    # Check if we have a position (REQUIRED check)
-    if not self.broker.has_position():
-        # Entry logic - MUST call broker.buy()
-        if buy_condition_met:
-            self.broker.buy(size=100)  # ✅ REQUIRED
+    if ema_fast is None or ema_slow is None or rsi is None:
+        return
     
-    else:  # We have a position
-        # Exit logic - MUST call broker.sell()
-        if sell_condition_met:
-            self.broker.sell(size=100)  # ✅ REQUIRED
+    # ENTRY: not in position AND buy condition
+    if not self.in_position and ema_fast > ema_slow and rsi < 70:
+        signal = create_signal(
+            signal_id=f"entry_{timestamp}",
+            timestamp=timestamp,
+            symbol=self.symbol,
+            side=OrderSide.BUY,
+            action=OrderAction.ENTRY,
+            order_type=OrderType.MARKET,
+            size=100,
+            price=close,
+            reason=f"EMA crossover: {ema_fast:.2f} > {ema_slow:.2f}"
+        )
+        order_id = self.broker.submit_signal(signal.to_dict())
+        if order_id:
+            self.in_position = True
+            self.position_size = 100
+            self.entry_price = close
+    
+    # EXIT: in position AND sell condition
+    elif self.in_position and (ema_fast < ema_slow or rsi > 80):
+        signal = create_signal(
+            signal_id=f"exit_{timestamp}",
+            timestamp=timestamp,
+            symbol=self.symbol,
+            side=OrderSide.SELL,
+            action=OrderAction.EXIT,
+            order_type=OrderType.MARKET,
+            size=self.position_size,
+            price=close,
+            reason="Exit condition met"
+        )
+        order_id = self.broker.submit_signal(signal.to_dict())
+        if order_id:
+            self.in_position = False
+            self.position_size = 0
+            self.entry_price = None
 ```
 
 ### Stop Loss / Take Profit
 ```python
-def on_bar(self, timestamp, market_data):
-    data = market_data.get('data', [])
-    if not data:
-        return
-    
-    current = data[-1]
-    current_price = current['close']
-    
-    # Track entry price when buying
-    if not self.broker.has_position():
-        if buy_condition:
-            self.broker.buy(size=100)
-            self.entry_price = current_price  # Track entry
-    
-    # exit based on stop/target
-    else:
+    # EXIT: stop loss / take profit (inside elif self.in_position block)
+    elif self.in_position:
+        current_price = symbol_data.get('close')
+        
         # Stop loss: exit if price drops 2%
-        if current_price <= self.entry_price * 0.98:
-            self.broker.sell(size=100)
-            print("[STOP LOSS] Exited")
+        if self.entry_price and current_price <= self.entry_price * 0.98:
+            signal = create_signal(
+                signal_id=f"stop_{timestamp}",
+                timestamp=timestamp, symbol=self.symbol,
+                side=OrderSide.SELL, action=OrderAction.EXIT,
+                order_type=OrderType.MARKET,
+                size=self.position_size, price=current_price,
+                reason="Stop loss triggered"
+            )
+            order_id = self.broker.submit_signal(signal.to_dict())
+            if order_id:
+                self.in_position = False
+                self.position_size = 0
+                print("[STOP LOSS] Exited")
         
         # Take profit: exit if price gains 5%
-        elif current_price >= self.entry_price * 1.05:
-            self.broker.sell(size=100)
-            print("[TAKE PROFIT] Exited")
-        
-        # Normal exit condition
-        elif sell_condition:
-            self.broker.sell(size=100)
+        elif self.entry_price and current_price >= self.entry_price * 1.05:
+            signal = create_signal(
+                signal_id=f"tp_{timestamp}",
+                timestamp=timestamp, symbol=self.symbol,
+                side=OrderSide.SELL, action=OrderAction.EXIT,
+                order_type=OrderType.MARKET,
+                size=self.position_size, price=current_price,
+                reason="Take profit triggered"
+            )
+            order_id = self.broker.submit_signal(signal.to_dict())
+            if order_id:
+                self.in_position = False
+                self.position_size = 0
+                print("[TAKE PROFIT] Exited")
 ```
 
 ## Error Handling
@@ -1023,29 +1100,29 @@ Generate a **single Python file** that:
 ## Quality Checklist
 
 Before finalizing code, verify:
-- [ ] **CRITICAL: Code contains broker.buy() calls** ✅
-- [ ] **CRITICAL: Code contains broker.sell() calls** ✅
-- [ ] **CRITICAL: Has if/elif conditional logic** ✅
-- [ ] **CRITICAL: Checks broker.has_position() before trading** ✅
-- [ ] Imports use correct pattern (parent_dir setup)
-- [ ] Path setup code is present at top
-- [ ] Class name matches strategy name
-- [ ] Indicators are correctly loaded and accessed
-- [ ] Error handling for missing data/indicators
-- [ ] Has if __name__ == "__main__" block
-- [ ] Has run_backtest() function that calls broker.run()
-- [ ] Results are computed with broker.compute_metrics()
-- [ ] Code is well-commented
+- [ ] `from Backtest.xxx import` package imports with `parent.parent.parent` (3-level) path
+- [ ] Strategy class has `__init__(self, broker, symbol, strategy_id, **params)` signature
+- [ ] `on_bar` extracts indicators with **lowercase** keys: `symbol_data.get('ema_12')` NOT `'EMA_12'`
+- [ ] Entry/exit signals use `create_signal()` + `broker.submit_signal(signal.to_dict())`
+- [ ] `create_signal()` called with `reason=` string (NOT passed to `meta` dict)
+- [ ] `signal_logger.log_signal()` called with keyword args (NOT with `signal.to_dict()`)
+- [ ] `pattern_logger.log_pattern()` called for EVERY bar (entry AND exit checks)
+- [ ] `strategy.finalize()` called after the symbol loop
+- [ ] Multi-symbol loop: `os.environ.get('BACKTEST_SYMBOLS', 'AAPL,TSLA,MSFT')`
+- [ ] `BacktestConfig(start_cash=..., fee_pct=..., slippage_pct=...)` correct params
+- [ ] `period='max'` (not `'6mo'`) so all warehouse data is used
+- [ ] NO emoji or unicode in any `print()` statement
 - [ ] No placeholder/TODO comments remain
-- [ ] No emoji or unicode characters in print statements
+- [ ] `if __name__ == "__main__"` block present
 
 ## Remember
 
 **The generated code MUST:**
-1. **Call broker.buy() when entering positions**
-2. **Call broker.sell() when exiting positions**
-3. **Use broker.has_position() to check state**
-4. **Have real conditional logic (if/elif)**
-5. **Be production-ready and runnable immediately**
+1. **Use `broker.submit_signal(signal.to_dict())`** to place trades — no other method exists
+2. **Track position manually** with `self.in_position`, `self.position_size`, `self.entry_price`
+3. **Access streaming indicators with lowercase keys**: `'ema_12'` not `'EMA_12'`
+4. **Never call**: `broker.buy()`, `broker.sell()`, `broker.has_position()` — these DO NOT EXIST
+5. **Use `reason=` argument to `create_signal()`** — it is a first-class field on Signal
+6. **Call `signal_logger.log_signal(timestamp=..., symbol=..., ...)` with keyword args** — NOT a dict
 
-**Code without broker.buy() and broker.sell() calls will be REJECTED by validation.**
+**Code that calls `broker.buy()` or passes a dict to `signal_logger.log_signal()` WILL FAIL at runtime.**

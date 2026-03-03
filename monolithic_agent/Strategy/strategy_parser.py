@@ -292,10 +292,15 @@ class StrategyParser:
         """Extract indicator parameters."""
         parameters = []
         
-        # EMA parameters
+        # EMA parameters - use unique names per period to avoid duplicates
         ema_matches = re.findall(r'(\d+)\s*(?:period\s+)?ema', text, re.IGNORECASE)
+        seen_ema = set()
         for match in ema_matches:
-            parameters.append({"name": "ema_period", "value": int(match)})
+            val = int(match)
+            name = f"ema_{val}"
+            if (name, val) not in seen_ema:
+                parameters.append({"name": name, "value": val})
+                seen_ema.add((name, val))
         
         # SMA parameters
         sma_matches = re.findall(r'(\d+)\s*(?:period\s+)?(?:sma|moving average)', text, re.IGNORECASE)

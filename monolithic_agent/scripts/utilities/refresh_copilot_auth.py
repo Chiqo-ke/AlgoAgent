@@ -22,6 +22,17 @@ def main():
     print("=" * 50)
     
     manager = get_auth_manager()
+
+    env_pat = os.getenv('GITHUB_COPILOT_PAT') or os.getenv('GH_TOKEN')
+    if env_pat:
+        manager.set_pat_token(
+            env_pat,
+            persist=True,
+            github_user="PAT",
+            client_id="PAT"
+        )
+        print("\n✓ PAT detected and stored for Copilot access. No interactive login needed.")
+        return
     
     # Check current token
     print("\n📋 Checking current token status...")
