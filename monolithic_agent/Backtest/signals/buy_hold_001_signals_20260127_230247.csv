@@ -1,0 +1,2 @@
+signal_id,timestamp,symbol,side,action,order_type,size,price,limit_price,stop_price,reason,indicator_values,market_data,strategy_state,order_id,notes
+SIG_20250127_000000_0,2025-01-27 00:00:00,AAPL,BUY,ENTRY,MARKET,100,228.82508850097656,,,First bar - enter buy and hold position,{},"{""open"": 223.01138591977585, ""high"": 231.10477141655377, ""low"": 222.9715575076631, ""close"": 228.82508850097656, ""volume"": 94863400.0}","{""in_position"": false, ""bar_count"": 1}",,
