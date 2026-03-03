@@ -18,6 +18,7 @@ from django.contrib import admin
 from django.urls import path, include
 from django.http import JsonResponse
 from django.utils import timezone
+from auth_api.views import frontend_error_log
 
 
 def api_root(request):
@@ -71,6 +72,8 @@ urlpatterns = [
     path('api/strategies/', include('strategy_api.urls')),
     path('api/backtests/', include('backtest_api.urls')),
     path('api/workflows/', include('workflows_api.urls')),
+    # Frontend error logging (called by logger.ts sendErrorToBackend)
+    path('api/logs/frontend-errors/', frontend_error_log, name='frontend-error-log'),
     # Production-hardened endpoints with sandbox execution
     path('api/production/', include('algoagent_api.production_api_urls')),
 ]
