@@ -2341,7 +2341,7 @@ Original request: {strategy.description}
                                 if execution_result.success and strategy_id:
                                     try:
                                         result_data = {
-                                            'symbol': test_symbol,
+                                            'symbol': test_symbols,
                                             'period': test_period,
                                             'total_trades': execution_result.trades or 0,
                                             'win_rate': execution_result.win_rate if execution_result.win_rate is not None else 0,
@@ -2349,7 +2349,7 @@ Original request: {strategy.description}
                                             'total_return_pct': execution_result.return_pct if execution_result.return_pct is not None else 0,
                                             'sharpe_ratio': execution_result.sharpe_ratio,
                                             'max_drawdown': execution_result.max_drawdown if execution_result.max_drawdown is not None else 0,
-                                            'symbol_stats': self._extract_symbol_stats(execution_result.output_log or '', test_symbol),
+                                            'symbol_stats': self._extract_symbol_stats(execution_result.output_log or '', test_symbols),
                                             'trades': [],
                                             'equity_curve': []
                                         }
