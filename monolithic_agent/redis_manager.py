@@ -29,12 +29,15 @@ def _redis_is_running() -> bool:
 
 def _docker_available() -> bool:
     try:
+        # 'docker ps' is faster than 'docker info' on Windows Docker Desktop
         result = subprocess.run(
-            ["docker", "info"],
-            capture_output=True, text=True, timeout=10
+            ["docker", "ps"],
+            capture_output=True, text=True, timeout=15
         )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    except Exception:
         return False
 
 
