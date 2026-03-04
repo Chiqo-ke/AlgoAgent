@@ -278,17 +278,40 @@ class CopilotAuthManager:
                 raise CopilotAuthError(f"Token refresh failed: {data['error']}")
             
             logger.info("Successfully refreshed access token")
+
+            # Use timezone-aware expiry so it matches DB storage
+            try:
+                from django.utils.timezone import now as django_now
+                expires_at = django_now() + timedelta(seconds=data.get("expires_in", 28800))
+            except Exception:
+                expires_at = datetime.now() + timedelta(seconds=data.get("expires_in", 28800))
+
+            new_refresh_token = data.get("refresh_token", refresh_token)
+
             self._token_cache = {
                 "access_token": data["access_token"],
-                "refresh_token": data.get("refresh_token", refresh_token),
-                "expires_at": datetime.now() + timedelta(seconds=data.get("expires_in", 28800)),
+                "refresh_token": new_refresh_token,
+                "expires_at": expires_at,
                 "obtained_at": datetime.now(),
                 "token_source": "oauth",
                 "scope": data.get("scope", "")
             }
-            
+
+            # Persist the refreshed token to the database so it survives restarts
+            try:
+                from strategy_api.models import CopilotAuth
+                CopilotAuth.save_token(
+                    access_token=data["access_token"],
+                    refresh_token=new_refresh_token,
+                    expires_at=expires_at,
+                    client_id=self.client_id,
+                )
+                logger.info("Refreshed token persisted to database")
+            except Exception as db_err:
+                logger.warning(f"Refreshed token obtained but DB persist failed: {db_err}")
+
             return data
-            
+
         except requests.RequestException as e:
             logger.error(f"Failed to refresh token: {e}")
             raise CopilotAuthError(f"Token refresh failed: {e}")
@@ -297,51 +320,62 @@ class CopilotAuthManager:
         """
         Get a valid access token, refreshing if necessary.
 
+        If no stored_token_data is supplied the method fetches the latest token
+        from the database automatically, so callers don't have to do it themselves.
+
         Args:
             stored_token_data: Previously stored token data from database
-                              (should include access_token, refresh_token, expires_at)
+                              (should include access_token, refresh_token, expires_at).
+                              When omitted the DB is queried automatically.
 
         Returns:
             Valid access token
 
         Raises:
-            CopilotAuthError: If token retrieval/refresh fails
+            CopilotAuthError: If token retrieval/refresh fails and no valid token exists
         """
-        # Use cached token if available and valid
+        from django.utils.timezone import make_aware, now, is_aware
+
+        # Use cached token if available and still valid
         if self._token_cache:
             expires_at = self._token_cache.get("expires_at")
             if expires_at:
-                # Ensure timezone-aware comparison
-                from django.utils.timezone import make_aware, now, is_aware
                 current_time = now() if is_aware(expires_at) else datetime.now()
                 if current_time + timedelta(seconds=self.REFRESH_BUFFER_SECONDS) < expires_at:
                     return self._token_cache["access_token"]
-        
-        # Use stored token data if provided
+
+        # Auto-load from DB if caller did not supply stored_token_data
+        if stored_token_data is None:
+            try:
+                from strategy_api.models import CopilotAuth
+                stored_token_data = CopilotAuth.get_latest_token()
+            except Exception as e:
+                logger.warning(f"Could not load token from database: {e}")
+
+        # Use stored token data
         if stored_token_data:
             expires_at = stored_token_data.get("expires_at")
-            
-            # Token still valid
+
             if expires_at:
-                # Ensure timezone-aware comparison
-                from django.utils.timezone import make_aware, now, is_aware
                 if expires_at.tzinfo is None:
                     expires_at = make_aware(expires_at)
+                # Token still valid within buffer window
                 if now() + timedelta(seconds=self.REFRESH_BUFFER_SECONDS) < expires_at:
                     self._token_cache = stored_token_data
                     return stored_token_data["access_token"]
-            
-            # Token needs refresh
+
+            # Token is within buffer or expired — try silent refresh
             if stored_token_data.get("refresh_token"):
                 try:
                     refreshed = self.refresh_access_token(stored_token_data["refresh_token"])
+                    # _token_cache and DB are both updated inside refresh_access_token()
                     return refreshed["access_token"]
                 except CopilotAuthError:
                     logger.warning("Token refresh failed, will need to re-authenticate")
-        
-        # No valid token available, need to authenticate
+
+        # No valid token available
         raise CopilotAuthError(
-            "No valid token available. Please run authentication flow."
+            "No valid token available. Please run: python manage.py copilot_auth"
         )
     
     def is_token_valid(self, stored_token_data: Optional[Dict[str, Any]] = None) -> bool:
