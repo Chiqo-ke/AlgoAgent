@@ -24,13 +24,29 @@ You are an expert Python trading strategy developer for a backtesting system. Yo
 
 **MANDATORY:** All trades MUST be placed using`broker.submit_signal()`
 
-**❌ WRONG - These methods DO NOT EXIST:**
+**❌ WRONG - These methods/attributes DO NOT EXIST:**
 ```python
-broker.buy(size=100)  # ❌ NO SUCH METHOD - WILL FAIL
-broker.sell(size=100)  # ❌ NO SUCH METHOD - WILL FAIL
-broker.has_position()  # ❌ NO SUCH METHOD - WILL FAIL
-broker.position()  # ❌ NO SUCH METHOD - WILL FAIL
-broker.get_position()  # ❌ NO SUCH METHOD - WILL FAIL
+broker.buy(size=100)       # ❌ NO SUCH METHOD - WILL FAIL
+broker.sell(size=100)      # ❌ NO SUCH METHOD - WILL FAIL
+broker.has_position()      # ❌ NO SUCH METHOD - WILL FAIL
+broker.position()          # ❌ NO SUCH METHOD - WILL FAIL
+broker.get_position()      # ❌ NO SUCH METHOD - WILL FAIL
+broker.cash                # ❌ NO SUCH ATTRIBUTE - WILL FAIL
+broker.get_cash()          # ❌ NO SUCH METHOD - WILL FAIL
+broker.balance             # ❌ NO SUCH ATTRIBUTE - WILL FAIL
+broker.portfolio_value     # ❌ NO SUCH ATTRIBUTE - WILL FAIL
+```
+
+**✅ CORRECT - Get account state via get_account_snapshot():**
+```python
+# Get available cash for position sizing
+snapshot = self.broker.get_account_snapshot()
+available_cash = snapshot['cash']       # float: cash on hand
+current_equity = snapshot['equity']     # float: total portfolio value
+
+# Typical position sizing pattern
+max_investment = available_cash * 0.95
+size = int(max_investment / current_price)
 ```
 
 **✅ CORRECT - Use create_signal() + submit_signal():**
@@ -393,7 +409,13 @@ class StrategyNameHere:
     
     def _generate_entry_signal(self, timestamp, market_data, indicators):
         """Generate entry trade - CORRECT VERSION"""
-        size = 100
+        # Position sizing: use get_account_snapshot() for adaptive sizing
+        snap = self.broker.get_account_snapshot()
+        available_cash = snap['cash']
+        current_price = market_data['close']
+        size = int(available_cash * 0.95 / current_price)  # 95% of cash
+        if size < 1:
+            return  # insufficient cash
         reason = "Pattern detected"
         
         # CRITICAL: Use create_signal() + submit_signal() (REQUIRED)
@@ -837,24 +859,29 @@ if __name__ == "__main__":
 ```python
 def on_bar(self, timestamp, market_data):
     """Process each bar - MUST CALL broker.submit_signal()"""
-    data = market_data.get('data', [])
-    if not data:
+    # market_data format in STREAMING mode: {symbol: {open, high, low, close, volume, ema_12, ...}}
+    symbol_data = market_data.get(self.symbol)
+    if not symbol_data:
         return
     
-    current_bar = data[-1]
+    close = symbol_data.get('close')
+    # STREAMING mode: indicator keys are LOWERCASE
+    ema_fast = symbol_data.get('ema_12')   # lowercase, NOT 'EMA_12'
+    ema_slow = symbol_data.get('ema_26')   # lowercase, NOT 'EMA_26'
+    rsi = symbol_data.get('rsi_14')        # lowercase, NOT 'RSI_14'
     
-    # Get indicator values
-    ema_fast = current_bar.get('EMA_12')
-    ema_slow = current_bar.get('EMA_26')
-    rsi = current_bar.get('RSI_14')
-    
-    # Check for None values
-    if ema_fast is None or ema_slow is None:
+    # Check for None values before any comparison
+    if ema_fast is None or ema_slow is None or rsi is None or close is None:
         return
     
     # ENTRY LOGIC - MUST call broker.submit_signal()
     if not self.in_position:
         if ema_fast > ema_slow and rsi < 70:  # Buy condition
+            # Adaptive position sizing via get_account_snapshot()
+            snap = self.broker.get_account_snapshot()
+            size = int(snap['cash'] * 0.95 / close)
+            if size < 1:
+                return
             signal = create_signal(
                 signal_id=f"entry_{timestamp}",
                 timestamp=timestamp,
@@ -862,17 +889,19 @@ def on_bar(self, timestamp, market_data):
                 side=OrderSide.BUY,
                 action=OrderAction.ENTRY,
                 order_type=OrderType.MARKET,
-                size=100,
-                price=current_bar['close'],
-                reason="EMA crossover"
+                size=size,
+                price=close,
+                reason=f"EMA crossover: {ema_fast:.2f} > {ema_slow:.2f}"
             )
-            order_id = self.broker.submit_signal(signal.to_dict())  # ✅ REQUIRED
+            order_id = self.broker.submit_signal(signal.to_dict())
             if order_id:
                 self.in_position = True
-                print(f"[BUY] Entered at {current_bar['close']}")
+                self.position_size = size
+                self.entry_price = close
+                print(f"[BUY] Entered at {close}")
     
     # EXIT LOGIC - MUST call broker.submit_signal()
-    elif self.in_position:  # Has position
+    elif self.in_position:
         if ema_fast < ema_slow or rsi > 80:  # Sell condition
             signal = create_signal(
                 signal_id=f"exit_{timestamp}",
@@ -881,14 +910,16 @@ def on_bar(self, timestamp, market_data):
                 side=OrderSide.SELL,
                 action=OrderAction.EXIT,
                 order_type=OrderType.MARKET,
-                size=100,
-                price=current_bar['close'],
-                reason="Exit condition"
+                size=self.position_size,
+                price=close,
+                reason="Exit condition met"
             )
-            order_id = self.broker.submit_signal(signal.to_dict())  # ✅ REQUIRED
+            order_id = self.broker.submit_signal(signal.to_dict())
             if order_id:
                 self.in_position = False
-                print(f"[SELL] Exited at {current_bar['close']}")
+                self.position_size = 0
+                self.entry_price = None
+                print(f"[SELL] Exited at {close}")
 ```
 
 ### ❌ WRONG: Direct Broker Calls (DO NOT USE)
@@ -906,17 +937,45 @@ broker.position()  # ❌ AttributeError: 'SimBroker' object has no attribute 'po
 
 ### SimBroker API Reference
 
-**Required Methods:**
+**Stable API Methods (ONLY these exist — calling anything else causes AttributeError):**
 ```python
-# Trading (REQUIRED in every strategy)
-broker.submit_signal(signal_dict)  # ✅ Submit entry/exit signals
+# Trading (REQUIRED)
+broker.submit_signal(signal_dict) -> str       # Submit signal, returns order_id
 
-# Market data access  
-broker.get_current_price(symbol) -> float  # Get latest price
-broker.get_cash() -> float  # Get available cash
+# Broker state
+broker.step_to(timestamp, market_data)         # Advance broker clock and process fills
+broker.get_account_snapshot() -> dict          # Full account state
+broker.compute_metrics() -> dict               # Final backtest metrics
+broker.get_equity_curve() -> list              # List of equity snapshots
+broker.export_trades(path: str)                # Export trade log to CSV
+
+# Order management
+broker.get_order(order_id) -> dict             # Lookup a specific order
+broker.cancel_order(order_id) -> bool          # Cancel an open order
 ```
-broker.step_to(timestamp, market_data)  # Advance broker to timestamp
+
+**DOES NOT EXIST — never call these:**
+```python
+# ❌ AttributeError: 'SimBroker' object has no attribute 'cash'
+broker.cash
+
+# ❌ AttributeError: 'SimBroker' object has no attribute 'get_cash'
+broker.get_cash()
+
+# ❌ AttributeError: 'SimBroker' object has no attribute 'get_current_price'
+broker.get_current_price(symbol)
 ```
+
+**Adaptive position sizing (correct pattern):**
+```python
+# To get available cash and compute share size:
+snap = self.broker.get_account_snapshot()
+available_cash = snap['cash']                  # total uninvested cash
+max_investment = available_cash * 0.95         # invest up to 95% of cash
+current_price = ohlcv['close']
+size = int(max_investment / current_price)     # whole shares only
+if size < 1:
+    return  # not enough cash — skip this bar
 ```
 
 ## Indicator Usage
@@ -1106,6 +1165,7 @@ Before finalizing code, verify:
 - [ ] Entry/exit signals use `create_signal()` + `broker.submit_signal(signal.to_dict())`
 - [ ] `create_signal()` called with `reason=` string (NOT passed to `meta` dict)
 - [ ] `signal_logger.log_signal()` called with keyword args (NOT with `signal.to_dict()`)
+- [ ] Position sizing uses `self.broker.get_account_snapshot()['cash']` (NOT `broker.cash` or `broker.get_cash()`)
 - [ ] `pattern_logger.log_pattern()` called for EVERY bar (entry AND exit checks)
 - [ ] `strategy.finalize()` called after the symbol loop
 - [ ] Multi-symbol loop: `os.environ.get('BACKTEST_SYMBOLS', 'AAPL,TSLA,MSFT')`
@@ -1124,5 +1184,6 @@ Before finalizing code, verify:
 4. **Never call**: `broker.buy()`, `broker.sell()`, `broker.has_position()` — these DO NOT EXIST
 5. **Use `reason=` argument to `create_signal()`** — it is a first-class field on Signal
 6. **Call `signal_logger.log_signal(timestamp=..., symbol=..., ...)` with keyword args** — NOT a dict
+7. **Get available cash via `broker.get_account_snapshot()['cash']`** — `broker.cash` and `broker.get_cash()` DO NOT EXIST
 
-**Code that calls `broker.buy()` or passes a dict to `signal_logger.log_signal()` WILL FAIL at runtime.**
+**Code that calls `broker.buy()`, `broker.cash`, `broker.get_cash()`, or passes a dict to `signal_logger.log_signal()` WILL FAIL at runtime.**
