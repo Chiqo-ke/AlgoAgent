@@ -360,6 +360,7 @@ Generate a complete, runnable Python trading strategy with the following require
 12. Include complete code with no placeholders
 13. Add docstrings and comments
 14. Handle edge cases (no position, empty data, NaN indicators, FileNotFoundError)
+15. To get available cash call `self.broker.get_account_snapshot()['cash']` — DO NOT use `broker.cash`, `broker.get_cash()`, `broker.balance`, or `broker.portfolio_value` (none of these exist)
 
 **CRITICAL - INDICATOR NAMING:**
 - Indicator functions create columns like: EMA_{{period}}, SMA_{{period}}, RSI_{{period}}
@@ -435,7 +436,9 @@ class {strategy_name}:
         pass
     
     def _generate_entry_signal(self, timestamp, ohlcv, indicators, reason):
-        size = 100
+        # Use get_account_snapshot() to get available cash (broker.cash does NOT exist)
+        available_cash = self.broker.get_account_snapshot()['cash']
+        size = max(1, int(available_cash * 0.95 / ohlcv['close']))
         signal = create_signal(
             signal_id=f"entry_{{self.symbol}}_{{timestamp.strftime('%Y%m%d_%H%M%S')}}",
             timestamp=timestamp, symbol=self.symbol,

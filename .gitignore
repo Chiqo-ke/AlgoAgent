@@ -8,7 +8,7 @@ workflows
 C extensions
 *.so
 
-#*.csv
+*.csv
 
 __pycache__
 
