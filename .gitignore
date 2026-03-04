@@ -161,7 +161,7 @@ monolithic_agent/Backtest/codes/temp/
 monolithic_agent/Backtest/codes/generated_by_keys_*/
 
 # Backtest chronicle files (signals and patterns)
-#monolithic_agent/Backtest/signals/*.csv
+monolithic_agent/Backtest/signals/*.csv
 monolithic_agent/Backtest/signals/*.json
 !monolithic_agent/Backtest/signals/README.md
 
@@ -199,5 +199,9 @@ api_keys.json
 .env
 .env.local
 .env.*.local
+.env.*-backup
 monolithic_agent/.env.local
+
+# Django collected static files (build artifact)
+monolithic_agent/staticfiles/
 
