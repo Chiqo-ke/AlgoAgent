@@ -37,6 +37,12 @@ class CopilotAuthManager:
     # Token expiration buffer (refresh 30 mins before expiry)
     REFRESH_BUFFER_SECONDS = 1800
 
+    # Fallback TTL when GitHub does not return expires_in.
+    # GitHub OAuth App tokens (gho_) never expire — using 1 year as a safe
+    # sentinel so the refresh machinery stays dormant unless a real expiry
+    # is provided (e.g. when migrated to a GitHub App with token expiry).
+    OAUTH_APP_DEFAULT_TTL_SECONDS = 365 * 24 * 3600  # 1 year
+
     def __init__(self, client_id: Optional[str] = None):
         """
         Initialize Copilot auth manager.
@@ -155,7 +161,7 @@ class CopilotAuthManager:
                     self._token_cache = {
                         "access_token": data["access_token"],
                         "refresh_token": data.get("refresh_token"),
-                        "expires_at": datetime.now() + timedelta(seconds=data.get("expires_in", 28800)),
+                        "expires_at": datetime.now() + timedelta(seconds=data.get("expires_in", self.OAUTH_APP_DEFAULT_TTL_SECONDS)),
                         "obtained_at": datetime.now(),
                         "token_source": "oauth",
                         "scope": data.get("scope", "")
@@ -209,7 +215,7 @@ class CopilotAuthManager:
                 from django.utils.timezone import now, make_aware
                 
                 # Calculate expiration datetime (timezone-aware)
-                expires_at = now() + timedelta(seconds=token_data.get("expires_in", 28800))
+                expires_at = now() + timedelta(seconds=token_data.get("expires_in", self.OAUTH_APP_DEFAULT_TTL_SECONDS))
                 
                 # Save to database
                 CopilotAuth.save_token(
@@ -228,7 +234,7 @@ class CopilotAuthManager:
                     "access_token": token_data["access_token"],
                     "refresh_token": token_data.get("refresh_token"),
                     "expires_at": expires_at.isoformat(),
-                    "expires_in": token_data.get("expires_in", 28800),
+                    "expires_in": token_data.get("expires_in", self.OAUTH_APP_DEFAULT_TTL_SECONDS),
                     "scope": token_data.get("scope", ""),
                 }
                 
@@ -282,9 +288,9 @@ class CopilotAuthManager:
             # Use timezone-aware expiry so it matches DB storage
             try:
                 from django.utils.timezone import now as django_now
-                expires_at = django_now() + timedelta(seconds=data.get("expires_in", 28800))
+                expires_at = django_now() + timedelta(seconds=data.get("expires_in", self.OAUTH_APP_DEFAULT_TTL_SECONDS))
             except Exception:
-                expires_at = datetime.now() + timedelta(seconds=data.get("expires_in", 28800))
+                expires_at = datetime.now() + timedelta(seconds=data.get("expires_in", self.OAUTH_APP_DEFAULT_TTL_SECONDS))
 
             new_refresh_token = data.get("refresh_token", refresh_token)
 
