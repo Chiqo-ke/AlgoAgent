@@ -330,7 +330,10 @@ class LatestBacktestResult(models.Model):
     
     # Equity curve for charting (JSON)
     equity_curve = models.JSONField(default=list, help_text="Equity over time for chart")
-    
+
+    # Per-symbol breakdown stats (JSON list)
+    symbol_stats = models.JSONField(default=list, help_text="Per-symbol trade stats: [{symbol, trades, win_rate, net_profit, return_pct}]")
+
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -373,6 +376,7 @@ class LatestBacktestResult(models.Model):
             'max_drawdown': Decimal(str(result_data.get('max_drawdown', 0))),
             'sharpe_ratio': Decimal(str(result_data.get('sharpe_ratio', 0))) if result_data.get('sharpe_ratio') else None,
             'trades': result_data.get('trades', []),
+            'symbol_stats': result_data.get('symbol_stats', []),
             'equity_curve': result_data.get('equity_curve', []),
         }
         

@@ -55,7 +55,8 @@ class BotExecutionResult:
     max_drawdown: Optional[float] = None
     sharpe_ratio: Optional[float] = None
     net_profit: Optional[float] = None
-    
+    symbol_stats: Optional[list] = None
+
     # Execution details
     output_log: Optional[str] = None
     stderr_log: Optional[str] = None
@@ -282,6 +283,7 @@ class BotExecutor:
             result.max_drawdown = parsed_results.get('max_drawdown')
             result.sharpe_ratio = parsed_results.get('sharpe_ratio')
             result.net_profit = parsed_results.get('net_profit')
+            result.symbol_stats = parsed_results.get('symbol_stats')
             result.output_log = output
             result.stderr_log = stderr
             result.json_results = parsed_results.get('json_results')
@@ -633,7 +635,41 @@ class BotExecutor:
                         result['sharpe_ratio'] = value
                     except (ValueError, IndexError):
                         pass
-            
+
+            # Parse per-symbol stats block (e.g. "Symbol: AAPL" / "=== AAPL Results ===")
+            try:
+                import re as _re
+                symbol_entries: Dict[str, Dict] = {}
+                current_sym: Optional[str] = None
+                for line in lines:
+                    stripped = line.strip()
+                    lower = stripped.lower()
+                    # Detect symbol header lines
+                    m = _re.match(r'(?:symbol[:\s]+|===\s*)([A-Z]{1,10})(?:\s+results?|\s*===)?', stripped, _re.IGNORECASE)
+                    if m:
+                        current_sym = m.group(1).upper()
+                        if current_sym not in symbol_entries:
+                            symbol_entries[current_sym] = {'symbol': current_sym, 'trades': 0, 'win_rate': 0.0, 'net_profit': 0.0, 'return_pct': 0.0}
+                        continue
+                    if current_sym:
+                        try:
+                            if lower.startswith('trades:') or lower.startswith('total trades:'):
+                                symbol_entries[current_sym]['trades'] = int(stripped.split()[-1])
+                            elif lower.startswith('win rate:') or lower.startswith('win_rate:'):
+                                symbol_entries[current_sym]['win_rate'] = float(stripped.split()[-1].strip('%'))
+                            elif lower.startswith('net profit:'):
+                                raw = stripped.split('$')[-1].split('(')[0].strip().replace(',', '')
+                                symbol_entries[current_sym]['net_profit'] = float(raw)
+                            elif lower.startswith('total return:') or lower.startswith('return:'):
+                                symbol_entries[current_sym]['return_pct'] = float(stripped.split()[-1].strip('%'))
+                        except (ValueError, IndexError):
+                            pass
+                valid_sym_stats = [v for v in symbol_entries.values() if v['trades'] > 0 or v['net_profit'] != 0.0]
+                if valid_sym_stats:
+                    result['symbol_stats'] = valid_sym_stats
+            except Exception:
+                pass
+
             # Check for SignalLogger output as proof of successful execution
             # SignalLogger always outputs summary regardless of JSON parsing
             if 'Total Signals:' in stdout or 'signal_logger' in stdout.lower():

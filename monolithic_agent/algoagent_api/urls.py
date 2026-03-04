@@ -19,6 +19,7 @@ from django.urls import path, include
 from django.http import JsonResponse
 from django.utils import timezone
 from auth_api.views import frontend_error_log
+from algoagent_api.job_views import job_status
 
 
 def api_root(request):
@@ -76,4 +77,6 @@ urlpatterns = [
     path('api/logs/frontend-errors/', frontend_error_log, name='frontend-error-log'),
     # Production-hardened endpoints with sandbox execution
     path('api/production/', include('algoagent_api.production_api_urls')),
+    # Async job status polling (works for any Celery task)
+    path('api/jobs/<str:task_id>/', job_status, name='job-status'),
 ]
