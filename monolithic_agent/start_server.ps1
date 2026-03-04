@@ -29,6 +29,5 @@ Write-Host ""
 Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Yellow
 Write-Host ""
 
-# Start Daphne ASGI server with auto-reload for development
-# Remove --reload for production
-daphne -b 0.0.0.0 -p 8000 --reload algoagent_api.asgi:application
+# Start Daphne ASGI server with 4 worker processes for concurrent request handling
+daphne -b 0.0.0.0 -p 8000 --workers 4 algoagent_api.asgi:application

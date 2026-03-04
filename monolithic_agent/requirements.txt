@@ -52,3 +52,8 @@ flake8>=6.0.0  # Linter
 # Production Server (optional)
 gunicorn>=21.0.0
 whitenoise>=6.5.0  # Static file serving
+
+# Async Task Queue
+celery>=5.3.0
+redis>=5.0.0
+django-celery-results>=2.5.0

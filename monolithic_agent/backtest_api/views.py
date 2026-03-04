@@ -217,105 +217,29 @@ class BacktestAPIViewSet(viewsets.ViewSet):
                 created_by=request.user if request.user.is_authenticated else None
             )
             
-            # Try to start the backtest
-            try:
-                from Backtest.interactive_backtest_runner import InteractiveBacktestRunner
-                
-                # Update run status
-                run.status = 'running'
-                run.started_at = timezone.now()
-                run.save()
-                
-                # Initialize backtest runner
-                runner = InteractiveBacktestRunner()
-                
-                # Prepare backtest parameters
-                backtest_params = {
-                    'strategy_name': strategy.name,
-                    'strategy_code': strategy.strategy_code,
-                    'symbols': data['symbols'],
-                    'start_date': config.start_date.isoformat(),
-                    'end_date': config.end_date.isoformat(),
-                    'initial_capital': float(config.initial_capital),
-                    'commission': float(config.commission),
-                    'slippage': float(config.slippage)
-                }
-                
-                # Run backtest (this would typically be async in production)
-                result = runner.run_backtest(backtest_params)
-                
-                if result.get('success', False):
-                    # Create result record
-                    metrics = result.get('metrics', {})
-                    backtest_result = BacktestResult.objects.create(
-                        run=run,
-                        final_portfolio_value=metrics.get('final_portfolio_value', config.initial_capital),
-                        total_return_pct=metrics.get('total_return', 0),
-                        annualized_return_pct=metrics.get('annualized_return', 0),
-                        volatility=metrics.get('volatility', 0),
-                        sharpe_ratio=metrics.get('sharpe_ratio', 0),
-                        max_drawdown_pct=metrics.get('max_drawdown', 0),
-                        max_drawdown_duration=metrics.get('max_drawdown_duration', 0),
-                        current_drawdown_pct=metrics.get('current_drawdown', 0),
-                        total_trades=metrics.get('total_trades', 0),
-                        winning_trades=metrics.get('winning_trades', 0),
-                        losing_trades=metrics.get('losing_trades', 0),
-                        win_rate_pct=metrics.get('win_rate', 0),
-                        avg_trade_return_pct=metrics.get('avg_trade_return', 0),
-                        avg_winning_trade_pct=metrics.get('avg_winning_trade', 0),
-                        avg_losing_trade_pct=metrics.get('avg_losing_trade', 0),
-                        largest_winning_trade_pct=metrics.get('largest_winning_trade', 0),
-                        largest_losing_trade_pct=metrics.get('largest_losing_trade', 0),
-                        profit_factor=metrics.get('profit_factor', 0),
-                        payoff_ratio=metrics.get('payoff_ratio', 0),
-                        portfolio_values=result.get('portfolio_values', {}),
-                        returns=result.get('returns', {}),
-                        drawdowns=result.get('drawdowns', {}),
-                        positions=result.get('positions', {})
-                    )
-                    
-                    # Update run summary
-                    run.status = 'completed'
-                    run.completed_at = timezone.now()
-                    run.execution_time = (run.completed_at - run.started_at).total_seconds()
-                    run.total_return = backtest_result.total_return_pct
-                    run.sharpe_ratio = backtest_result.sharpe_ratio
-                    run.max_drawdown = backtest_result.max_drawdown_pct
-                    run.total_trades = backtest_result.total_trades
-                    run.win_rate = backtest_result.win_rate_pct
-                    run.save()
-                    
-                    return Response({
-                        'run_id': run.run_id,
-                        'status': 'completed',
-                        'result_summary': {
-                            'total_return': backtest_result.total_return_pct,
-                            'sharpe_ratio': backtest_result.sharpe_ratio,
-                            'max_drawdown': backtest_result.max_drawdown_pct,
-                            'total_trades': backtest_result.total_trades,
-                            'win_rate': backtest_result.win_rate_pct
-                        }
-                    })
-                else:
-                    run.status = 'failed'
-                    run.completed_at = timezone.now()
-                    run.error_message = result.get('error', 'Unknown error')
-                    run.save()
-                    
-                    return Response({
-                        'error': 'Backtest execution failed',
-                        'details': result.get('error', 'Unknown error')
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                    
-            except ImportError as e:
-                run.status = 'failed'
-                run.error_message = f'Backtest runner not available: {e}'
-                run.save()
-                
-                return Response({
-                    'error': 'Backtest runner not available',
-                    'details': str(e)
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            # Prepare backtest parameters for the Celery worker
+            backtest_params = {
+                'strategy_name': strategy.name,
+                'strategy_code': strategy.strategy_code,
+                'symbols': data['symbols'],
+                'start_date': config.start_date.isoformat(),
+                'end_date': config.end_date.isoformat(),
+                'initial_capital': float(config.initial_capital),
+                'commission': float(config.commission),
+                'slippage': float(config.slippage),
+            }
+
+            # Dispatch to Celery worker — returns immediately, never blocks the server
+            from backtest_api.tasks import run_backtest_task
+            task = run_backtest_task.delay(run_id=run.run_id, backtest_params=backtest_params)
+
+            return Response({
+                'run_id': run.run_id,
+                'job_id': task.id,
+                'status': 'queued',
+                'poll_url': f'/api/jobs/{task.id}/',
+                'message': 'Backtest queued. Poll poll_url for progress and result.',
+            }, status=status.HTTP_202_ACCEPTED)
                 
         except Exception as e:
             logger.error(f"Error in run_backtest: {e}")

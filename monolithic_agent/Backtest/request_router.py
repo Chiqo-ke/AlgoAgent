@@ -9,6 +9,7 @@ Version: 1.0.0
 """
 
 import logging
+import threading
 import time
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from pathlib import Path
@@ -203,20 +204,24 @@ class RequestRouter:
 
 # Global singleton instance
 _router_instance: Optional[RequestRouter] = None
+_router_lock = threading.Lock()
 
 
 def get_request_router() -> RequestRouter:
     """
     Get the global RequestRouter instance (singleton pattern).
-    
+    Thread-safe via double-checked locking — safe for multi-threaded servers.
+
     Returns:
         RequestRouter instance
     """
     global _router_instance
-    
+
     if _router_instance is None:
-        _router_instance = RequestRouter()
-    
+        with _router_lock:
+            if _router_instance is None:  # second check inside lock
+                _router_instance = RequestRouter()
+
     return _router_instance
 
 

@@ -326,121 +326,52 @@ class StrategyViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def generate_with_ai(self, request):
-        """Generate a new strategy using AI with key rotation and auto-fix
-        
+        """Enqueue AI strategy generation and immediately return a job_id.
+
+        The heavy work (LLM calls + auto-fix loop) runs in a Celery worker so
+        the HTTP server is never blocked.  Multiple users can generate strategies
+        simultaneously.
+
         Request body:
         {
             "description": "Strategy description in natural language",
-            "auto_fix": true,  // Optional, default true
+            "auto_fix": true,             // Optional, default true
             "execute_after_generation": false,  // Optional, default false
-            "max_fix_attempts": 8  // Optional, default 8
+            "max_fix_attempts": 8         // Optional, default 8
         }
+
+        Response (HTTP 202):
+        {
+            "job_id": "<celery-task-uuid>",
+            "status": "queued",
+            "poll_url": "/api/jobs/<job_id>/"
+        }
+
+        Poll GET /api/jobs/<job_id>/ to track progress and retrieve the result.
         """
-        try:
-            description = request.data.get('description')
-            if not description:
-                return Response({
-                    'error': 'Description is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            auto_fix = request.data.get('auto_fix', True)
-            execute_after = request.data.get('execute_after_generation', False)
-            max_fix_attempts = request.data.get('max_fix_attempts', 8)
-            
-            # Import the generator and RequestRouter
-            try:
-                from Backtest.copilot_strategy_generator import CopilotStrategyGenerator
-                # Fallback to Gemini if Copilot not available
-                generator_available = True
-            except ImportError:
-                try:
-                    from Backtest.gemini_strategy_generator import GeminiStrategyGenerator
-                    generator_available = True
-                except ImportError:
-                    generator_available = False
-            
-            if not generator_available:
-                return Response({
-                    'error': 'Strategy generator not available',
-                    'details': 'No LLM generator module found'
-                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-            
-            # Initialize generator (prefer Copilot)
-            try:
-                generator = CopilotStrategyGenerator()
-                logger.info("Using GitHub Copilot generator")
-            except:
-                generator = GeminiStrategyGenerator()
-                logger.info("Using Gemini generator")
-            
-            # Generate strategy
-            output_file, execution_result = generator.generate_and_save(
-                description=description,
-                execute_after_generation=execute_after
-            )
-            
-            # Auto-fix if enabled and there were errors
-            fix_history = []
-            if auto_fix and execution_result and not execution_result.success:
-                logger.info(f"Auto-fixing strategy errors for {output_file}")
-                success, final_path, fix_history = generator.fix_bot_errors_iteratively(
-                    strategy_file=output_file,
-                    max_iterations=max_fix_attempts
-                )
-                
-                # Re-execute to get final results
-                if success:
-                    from Backtest.bot_executor import BotExecutor
-                    executor = BotExecutor()
-                    execution_result = executor.execute_bot(strategy_file=final_path)
-            
-            # Create Strategy record
-            import os
-            strategy_name = os.path.basename(output_file).replace('.py', '')
-            strategy = Strategy.objects.create(
-                name=strategy_name,
-                description=description,
-                strategy_code='',  # Will be populated on read
-                file_path=output_file,
-                status='generated' if not execution_result else ('executed' if execution_result.success else 'failed'),
-                created_by=request.user if request.user.is_authenticated else None
-            )
-            
-            return Response({
-                'id': strategy.id,
-                'name': strategy.name,
-                'file_path': output_file,
-                'status': strategy.status,
-                'generation_result': {
-                    'success': True,
-                    'file_path': output_file
-                },
-                'execution_result': {
-                    'success': execution_result.success if execution_result else None,
-                    'return_pct': execution_result.return_pct if execution_result else None,
-                    'num_trades': execution_result.num_trades if execution_result else None,
-                    'win_rate': execution_result.win_rate if execution_result else None,
-                    'sharpe_ratio': execution_result.sharpe_ratio if execution_result else None,
-                    'max_drawdown': execution_result.max_drawdown if execution_result else None,
-                } if execution_result else None,
-                'fix_attempts': len(fix_history),
-                'fix_details': [
-                    {
-                        'attempt': i + 1,
-                        'error_type': attempt.error_type,
-                        'success': attempt.success
-                    }
-                    for i, attempt in enumerate(fix_history)
-                ] if fix_history else []
-            }, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            logger.error(f"Error in generate_with_ai: {e}")
-            logger.error(traceback.format_exc())
-            return Response({
-                'error': 'Strategy generation failed',
-                'details': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        description = request.data.get('description')
+        if not description:
+            return Response({'error': 'Description is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        auto_fix = request.data.get('auto_fix', True)
+        execute_after = request.data.get('execute_after_generation', False)
+        max_fix_attempts = request.data.get('max_fix_attempts', 8)
+
+        from strategy_api.tasks import generate_strategy_task
+        task = generate_strategy_task.delay(
+            description=description,
+            auto_fix=auto_fix,
+            execute_after=execute_after,
+            max_fix_attempts=max_fix_attempts,
+            user_id=request.user.id if request.user.is_authenticated else None,
+        )
+
+        return Response({
+            'job_id': task.id,
+            'status': 'queued',
+            'poll_url': f'/api/jobs/{task.id}/',
+            'message': 'Strategy generation queued. Poll poll_url for progress and result.',
+        }, status=status.HTTP_202_ACCEPTED)
     
     @action(detail=True, methods=['post'])
     def fix_errors(self, request, pk=None):
@@ -1923,7 +1854,61 @@ Original request: {strategy.description}
             return False, "Code missing class or function definitions - needs proper structure"
         
         return True, ""
-    
+
+    @staticmethod
+    def _extract_symbol_stats(output_log: str, symbols_str: str) -> list:
+        """
+        Parse per-symbol backtest stats from strategy stdout.
+        Expected format printed by generated strategies:
+            Symbol: AAPL  (or  === AAPL Results: ===)
+              Trades: N
+              Win Rate: X%
+              Net Profit: $Y
+              Total Return: Z%
+        Returns a list of dicts, one per symbol.
+        """
+        import re as _re
+        if not output_log:
+            return []
+
+        symbols = [s.strip() for s in symbols_str.split(',') if s.strip()]
+        stats = []
+        lines = output_log.splitlines()
+
+        for sym in symbols:
+            entry = {'symbol': sym, 'trades': 0, 'win_rate': 0.0, 'net_profit': 0.0, 'return_pct': 0.0}
+            in_block = False
+            for line in lines:
+                stripped = line.strip()
+                # Detect the start of this symbol's block
+                if _re.search(rf'(?i)(symbol[:\s]+{_re.escape(sym)}|{_re.escape(sym)}\s+results)', stripped):
+                    in_block = True
+                    continue
+                # Detect start of a DIFFERENT symbol's block – end current block
+                if in_block:
+                    for other in symbols:
+                        if other != sym and _re.search(rf'(?i)(symbol[:\s]+{_re.escape(other)}|{_re.escape(other)}\s+results)', stripped):
+                            in_block = False
+                            break
+                if in_block:
+                    lower = stripped.lower()
+                    try:
+                        if lower.startswith('trades:') or lower.startswith('total trades:'):
+                            entry['trades'] = int(stripped.split()[-1])
+                        elif lower.startswith('win rate:') or lower.startswith('win_rate:'):
+                            entry['win_rate'] = float(stripped.split()[-1].strip('%'))
+                        elif lower.startswith('net profit:'):
+                            raw = stripped.split('$')[-1].split('(')[0].strip().replace(',', '')
+                            entry['net_profit'] = float(raw)
+                        elif lower.startswith('total return:') or lower.startswith('return:'):
+                            entry['return_pct'] = float(stripped.split()[-1].strip('%'))
+                    except (ValueError, IndexError):
+                        pass
+            if entry['trades'] > 0 or entry['net_profit'] != 0.0:
+                stats.append(entry)
+
+        return stats
+
     @action(detail=False, methods=['post'])
     def generate_strategy_unified(self, request):
         """
@@ -2220,12 +2205,14 @@ Original request: {strategy.description}
                                     'symbol': test_symbols,
                                     'period': test_period,
                                     'total_trades': execution_result.trades or 0,
-                                    'win_rate': execution_result.win_rate or 0,
-                                    'total_return_pct': execution_result.return_pct or 0,
+                                    'win_rate': execution_result.win_rate if execution_result.win_rate is not None else 0,
+                                    'net_profit': execution_result.net_profit if execution_result.net_profit is not None else 0,
+                                    'total_return_pct': execution_result.return_pct if execution_result.return_pct is not None else 0,
                                     'sharpe_ratio': execution_result.sharpe_ratio,
-                                    'max_drawdown': execution_result.max_drawdown or 0,
-                                    'trades': [],  # Will be populated if available
-                                    'equity_curve': []  # Will be populated if available
+                                    'max_drawdown': execution_result.max_drawdown if execution_result.max_drawdown is not None else 0,
+                                    'symbol_stats': self._extract_symbol_stats(execution_result.output_log or '', test_symbols),
+                                    'trades': [],
+                                    'equity_curve': []
                                 }
                                 LatestBacktestResult.save_result(strategy_id, result_data)
                                 logger.info(f"[UNIFIED] Backtest results saved to database for strategy {strategy_id}")
@@ -2293,12 +2280,14 @@ Original request: {strategy.description}
                                             'symbol': test_symbols,
                                             'period': test_period,
                                             'total_trades': execution_result.trades or 0,
-                                            'win_rate': execution_result.win_rate or 0,
-                                            'total_return_pct': execution_result.return_pct or 0,
+                                            'win_rate': execution_result.win_rate if execution_result.win_rate is not None else 0,
+                                            'net_profit': execution_result.net_profit if execution_result.net_profit is not None else 0,
+                                            'total_return_pct': execution_result.return_pct if execution_result.return_pct is not None else 0,
                                             'sharpe_ratio': execution_result.sharpe_ratio,
-                                            'max_drawdown': execution_result.max_drawdown or 0,
-                                            'trades': [],  # Will be populated if available
-                                            'equity_curve': []  # Will be populated if available
+                                            'max_drawdown': execution_result.max_drawdown if execution_result.max_drawdown is not None else 0,
+                                            'symbol_stats': self._extract_symbol_stats(execution_result.output_log or '', test_symbols),
+                                            'trades': [],
+                                            'equity_curve': []
                                         }
                                         LatestBacktestResult.save_result(strategy_id, result_data)
                                         logger.info(f"[UNIFIED] Backtest results saved after auto-fix for strategy {strategy_id}")
@@ -2355,12 +2344,14 @@ Original request: {strategy.description}
                                             'symbol': test_symbol,
                                             'period': test_period,
                                             'total_trades': execution_result.trades or 0,
-                                            'win_rate': execution_result.win_rate or 0,
-                                            'total_return_pct': execution_result.return_pct or 0,
+                                            'win_rate': execution_result.win_rate if execution_result.win_rate is not None else 0,
+                                            'net_profit': execution_result.net_profit if execution_result.net_profit is not None else 0,
+                                            'total_return_pct': execution_result.return_pct if execution_result.return_pct is not None else 0,
                                             'sharpe_ratio': execution_result.sharpe_ratio,
-                                            'max_drawdown': execution_result.max_drawdown or 0,
-                                            'trades': [],  # Will be populated if available
-                                            'equity_curve': []  # Will be populated if available
+                                            'max_drawdown': execution_result.max_drawdown if execution_result.max_drawdown is not None else 0,
+                                            'symbol_stats': self._extract_symbol_stats(execution_result.output_log or '', test_symbol),
+                                            'trades': [],
+                                            'equity_curve': []
                                         }
                                         LatestBacktestResult.save_result(strategy_id, result_data)
                                         logger.info(f"[UNIFIED] Backtest results saved after exception auto-fix for strategy {strategy_id}")

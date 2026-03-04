@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     'auth_api',
     'trading',  # Trading app with WebSocket consumers
     'workflows_api',
+    'django_celery_results',  # Stores Celery task results in the DB
 ]
 
 MIDDLEWARE = [
@@ -337,6 +338,20 @@ SOCIALACCOUNT_PROVIDERS = {
         }
     }
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Celery Configuration
+# Override CELERY_BROKER_URL in environment-specific settings files.
+# ─────────────────────────────────────────────────────────────────────────────
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = 'django-db'          # stored in django_celery_results table
+CELERY_CACHE_BACKEND = 'default'
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_TRACK_STARTED = True             # enables STARTED state for progress reporting
+CELERY_TASK_TIME_LIMIT = 1800               # hard kill after 30 min
+CELERY_TASK_SOFT_TIME_LIMIT = 1500          # raises SoftTimeLimitExceeded at 25 min
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
