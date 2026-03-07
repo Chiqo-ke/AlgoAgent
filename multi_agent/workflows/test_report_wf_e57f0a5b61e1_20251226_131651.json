@@ -1,0 +1,17 @@
+{
+  "workflow_id": "wf_e57f0a5b61e1",
+  "timestamp": "2025-12-26T13:16:51.047640",
+  "summary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "success_rate": 0.0
+  },
+  "results": [
+    {
+      "strategy": "20251226_131620_wf_e57f0a5b61e1_ema_crossover",
+      "status": "timeout",
+      "error": "Test execution timed out after 30 seconds"
+    }
+  ]
+}

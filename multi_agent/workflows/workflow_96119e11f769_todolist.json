@@ -1,0 +1,65 @@
+{
+  "todo_list_id": "workflow_96119e11f769",
+  "workflow_name": "CLI Request 20260107_183401",
+  "created_at": "2026-01-07T15:34:01.032362Z",
+  "created_by": "planner_service",
+  "metadata": {
+    "user_request": "make a simple EMA crossover strategy that uses 30 and 70 periods crossing each other for entry. Open long positions when 30 ema crosses above 70 ema and enter short position when 70 ema crosses below 30 ema. The stop loss should be set 15 pips from entry and take profit should be 70 pips from entry",
+    "planner_version": "1.0.0",
+    "strategy_type": "single_file_complete",
+    "auto_fix_mode": true,
+    "max_branch_depth": 2,
+    "max_debug_attempts": 3
+  },
+  "items": [
+    {
+      "id": "task_complete_strategy",
+      "title": "Implement Complete EMA Crossover Strategy",
+      "description": "Implement a complete trading strategy with: (1) Data loading and preprocessing, (2) Indicator calculation for 30-period EMA and 70-period EMA, (3) Entry conditions: Open long position when 30 EMA crosses above 70 EMA; Open short position when 30 EMA crosses below 70 EMA, (4) Exit conditions: Set a stop loss 15 pips from entry price and a take profit 70 pips from entry price for all positions, (5) A comprehensive backtest runner using the SimBroker adapter. Ensure explicit loop termination conditions, robust error handling, and detailed logging. The strategy must follow the adapter-driven architecture and be fully testable.",
+      "agent_role": "coder",
+      "priority": 1,
+      "dependencies": [],
+      "max_retries": 3,
+      "timeout_seconds": 600,
+      "acceptance_criteria": {
+        "tests": [
+          {
+            "cmd": "pytest tests/test_workflow_96119e11f769_strategy.py -v --tb=short",
+            "timeout_seconds": 120,
+            "expected_exit_code": 0,
+            "fixture": "fixtures/sample_ohlcv.csv"
+          }
+        ],
+        "expected_artifacts": [
+          "Backtest/codes/workflow_96119e11f769_complete_strategy.py",
+          "tests/test_workflow_96119e11f769_strategy.py",
+          "fixtures/sample_ohlcv.csv"
+        ],
+        "metrics": {
+          "min_test_coverage": 80,
+          "component_tests": [
+            "indicators",
+            "entries",
+            "exits"
+          ],
+          "integration_tests": [
+            "full_backtest"
+          ],
+          "min_total_tests": 10
+        }
+      },
+      "output_artifacts": [
+        "Backtest/codes/workflow_96119e11f769_complete_strategy.py",
+        "tests/test_workflow_96119e11f769_strategy.py",
+        "fixtures/sample_ohlcv.csv"
+      ],
+      "failure_routing": {
+        "implementation_bug": "coder",
+        "infinite_loop": "debugger",
+        "spec_mismatch": "architect",
+        "timeout": "debugger",
+        "test_failure": "debugger"
+      }
+    }
+  ]
+}

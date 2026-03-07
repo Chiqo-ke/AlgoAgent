@@ -12,6 +12,7 @@ build/
 eggs/
 parts/
 var/
+/codes/
 sdist/
 develop-eggs/
 .installed.cfg
@@ -89,9 +90,15 @@ celerybeat.pid
 # ========================
 backtest_results/
 Backtest/signals/
+Backtest/codes/
 artifacts/
 *.csv
 reports/
+*.db
+codes/
+signals/
+*.joblib
+*.parquet
 
 # ========================
 # OS

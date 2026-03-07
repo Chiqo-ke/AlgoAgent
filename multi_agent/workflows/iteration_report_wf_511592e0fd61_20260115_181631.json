@@ -1,0 +1,98 @@
+{
+  "workflow_id": "wf_511592e0fd61",
+  "success": false,
+  "total_iterations": 1,
+  "max_iterations": 5,
+  "completed_at": "2026-01-15T18:16:31.147941",
+  "iteration_history": [
+    {
+      "iteration": 1,
+      "status": "completed",
+      "timestamp": "2026-01-15T18:16:31.147744",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_511592e0fd61",
+          "status": "completed",
+          "results": {
+            "task_coder_001": {
+              "status": "ready",
+              "duration": 96.43007206916809,
+              "artifacts": [
+                "Backtest/codes/20260115_181630_wf_511592e0fd61_code.py",
+                "tests/test_20260115_181630_wf_511592e0fd61_code.py"
+              ],
+              "error": null
+            }
+          }
+        },
+        "tests": {
+          "status": "skipped",
+          "message": "No strategy files to test"
+        },
+        "duration": 96.93084764480591
+      }
+    }
+  ],
+  "updated_todo_list": {
+    "todo_list_id": "workflow_20260115_181441",
+    "workflow_name": "CLI: make a simple ema crossover strategy that uses 50 ",
+    "created_at": "2026-01-15T18:14:41.350662Z",
+    "created_by": "cli",
+    "metadata": {
+      "user_request": "make a simple ema crossover strategy that uses 50 and 100 periods. Entry will be when 50 and 100 ema cross each other with take profit set 50 pips from entry and stop loss should be 15 pips from entry",
+      "mode": "template",
+      "planner_version": "template-1.0.0"
+    },
+    "items": [
+      {
+        "id": "task_coder_001",
+        "title": "Implement Strategy Code",
+        "description": "make a simple ema crossover strategy that uses 50 and 100 periods. Entry will be when 50 and 100 ema cross each other with take profit set 50 pips from entry and stop loss should be 15 pips from entry",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "expected_duration_seconds": 300,
+        "max_retries": 3,
+        "timeout_seconds": 600,
+        "contract_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\workflows\\contract_cli_strategy.json",
+        "acceptance_criteria": {
+          "tests": [
+            {
+              "cmd": "python -m pytest tests/test_strategy.py",
+              "timeout_seconds": 60
+            }
+          ],
+          "expected_artifacts": [
+            "Backtest/codes/strategy.py"
+          ],
+          "validation_rules": [
+            {
+              "type": "lint",
+              "command": "python -m py_compile Backtest/codes/strategy.py",
+              "expected_exit_code": 0
+            }
+          ]
+        },
+        "input_artifacts": [],
+        "output_artifacts": [
+          "Backtest/codes/strategy.py"
+        ],
+        "tags": [
+          "strategy",
+          "cli"
+        ],
+        "failure_routing": {
+          "implementation_bug": "coder",
+          "spec_mismatch": "architect",
+          "timeout": "tester",
+          "missing_dependency": "coder",
+          "flaky_test": "tester"
+        },
+        "metadata": {
+          "workflow_id": "wf_511592e0fd61",
+          "original_artifact_path": "Backtest/codes/20260115_181630_wf_511592e0fd61_code.py"
+        }
+      }
+    ]
+  }
+}

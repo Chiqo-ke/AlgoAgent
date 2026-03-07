@@ -1,0 +1,17 @@
+{
+  "contract_id": "contract_cli_strategy",
+  "description": "I want to create a simple EM corossover trading strategy. Use two exponential moving averages: One EMA with a period of 30 and the other with a period of 70. Long(buy) entries trade when the 30 EMA crosses above the 70 EMA and short (sell) trade when the 30 EMA crosses below the 70 EMA. Stop loss should be set 15 pips away from the entry price and take profit at 70 pips away from the entry price.",
+  "interfaces": {
+    "run_backtest": {
+      "description": "Execute backtesting strategy",
+      "inputs": [
+        "adapter",
+        "df with OHLCV",
+        "config"
+      ],
+      "outputs": [
+        "Backtest results with metrics"
+      ]
+    }
+  }
+}
