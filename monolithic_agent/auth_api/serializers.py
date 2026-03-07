@@ -23,15 +23,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for UserProfile model"""
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
+    first_name = serializers.CharField(source='user.first_name', required=False)
+    last_name = serializers.CharField(source='user.last_name', required=False)
     
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'username', 'email', 'default_risk_tolerance', 'default_timeframe',
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'default_risk_tolerance', 'default_timeframe',
             'preferred_symbols', 'trading_goals', 'strategy_preferences',
-            'risk_parameters', 'created_at', 'updated_at', 'last_active'
+            'risk_parameters',
+            'default_currency', 'default_simulation_mode',
+            'notification_email', 'notification_push',
+            'created_at', 'updated_at', 'last_active',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'last_active']
+
+    def update(self, instance, validated_data):
+        # Extract nested user fields before saving the profile
+        user_data = validated_data.pop('user', {})
+        if user_data:
+            user = instance.user
+            for attr, value in user_data.items():
+                setattr(user, attr, value)
+            user.save(update_fields=list(user_data.keys()))
+        return super().update(instance, validated_data)
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):

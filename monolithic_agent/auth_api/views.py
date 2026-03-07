@@ -197,11 +197,17 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         """Users can only access their own profile"""
         return UserProfile.objects.filter(user=self.request.user)
     
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get', 'put', 'patch'])
     def me(self, request):
-        """Get current user's profile"""
+        """Get or update current user's profile"""
         profile = get_object_or_404(UserProfile, user=request.user)
-        serializer = self.get_serializer(profile)
+        if request.method == 'GET':
+            serializer = self.get_serializer(profile)
+            return Response(serializer.data)
+        partial = request.method == 'PATCH'
+        serializer = self.get_serializer(profile, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)
     
     @action(detail=False, methods=['patch'])

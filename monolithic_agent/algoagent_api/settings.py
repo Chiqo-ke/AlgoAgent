@@ -224,12 +224,30 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8081",
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
+    "http://localhost:5174",  # Vite fallback port
+    "http://127.0.0.1:5174",
     "https://algo-rho.vercel.app",  # Production frontend (Vercel)
     "https://www.algoai.biz",  # Production domain (www)
     "https://algoai.biz",  # Production domain (apex)
     "https://api.algoai.biz",  # API subdomain
     "http://chiqoke254.pythonanywhere.com",  # PythonAnywhere backend (for admin access)
     "https://ps283t0p-8000.uks1.devtunnels.ms",  # Dev tunnel
+]
+
+# Explicitly allow all standard HTTP methods (incl. PUT/PATCH for profile updates)
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
+# Ensure Authorization header is allowed (required for JWT)
+from corsheaders.defaults import default_headers  # noqa: E402
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "x-api-key",
 ]
 
 CSRF_TRUSTED_ORIGINS = [

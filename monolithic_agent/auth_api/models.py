@@ -27,6 +27,20 @@ class UserProfile(models.Model):
     )
     default_timeframe = models.CharField(max_length=20, default='1d', help_text="Preferred trading timeframe")
     preferred_symbols = models.JSONField(default=list, help_text="List of preferred trading symbols")
+
+    # Account settings (managed from the Settings page)
+    default_currency = models.CharField(
+        max_length=10,
+        choices=[('USD', 'USD'), ('EUR', 'EUR'), ('GBP', 'GBP'), ('JPY', 'JPY')],
+        default='USD',
+    )
+    default_simulation_mode = models.CharField(
+        max_length=20,
+        choices=[('money', 'Money'), ('pips', 'Pips')],
+        default='money',
+    )
+    notification_email = models.BooleanField(default=True)
+    notification_push = models.BooleanField(default=False)
     
     # AI Context - User's strategic preferences
     trading_goals = models.TextField(blank=True, help_text="User's trading goals and objectives")
