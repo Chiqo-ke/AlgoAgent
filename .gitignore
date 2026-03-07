@@ -1,207 +1,146 @@
-Byte-compiled / optimized / DLL files
-pycache/
+# ========================
+# Python
+# ========================
+__pycache__/
 *.py[cod]
 *$py.class
-
-workflows
-
-C extensions
 *.so
-
-*.csv
-
-__pycache__
-
-Distribution / packaging
-.Python
-build/
-develop-eggs/
+*.egg
+*.egg-info/
 dist/
-downloads/
+build/
 eggs/
-.eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
 lib/
 lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+MANIFEST
 
-PyInstaller
-*.manifest
-*.spec
-
-Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-codes
-Translations
-*.mo
-*.pot
-
-Django stuff:
-*.log
-sqlite3
-Flask stuff:
-instance/
-.webassets-cache
-
-Pyre type check
-.pyre/
-
-mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-Environments
-.env
-.venv
+# Virtual environments
+.env/
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 
-# IDEs and editors
+# ========================
+# Django
+# ========================
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+production_state.db
+staticfiles/
+static/
+media/
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.local
+.env.*.local
+*.env
+keys.json
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+secret_key.txt
+credentials.json
+
+# ========================
+# Pytest / Testing
+# ========================
+.pytest_cache/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+nosetests.xml
+test-results/
+junit*.xml
+
+# ========================
+# Jupyter
+# ========================
+.ipynb_checkpoints/
+*.ipynb
+
+# ========================
+# Logs & Run Outputs
+# ========================
+logs/
+*.log
+celerybeat-schedule
+celerybeat.pid
+
+# ========================
+# Backtest / Strategy Outputs
+# ========================
+backtest_results/
+Backtest/signals/
+artifacts/
+*.csv
+reports/
+
+# ========================
+# OS
+# ========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ========================
+# IDEs
+# ========================
 .vscode/
 .idea/
+*.sublime-project
+*.sublime-workspace
 *.swp
 *.swo
 *~
 
-# Jupyter Notebook
-.ipynb_checkpoints/
+# ========================
+# Node (multi_agent / any JS tooling)
+# ========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# VS Code Extensions and settings
-.history/
-*.code-workspace
-.vscode/settings.json
-.vscode/launch.json
-.vscode/extensions.json
+# ========================
+# MyPy / Type checkers
+# ========================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
 
-# User-specific files
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+# ========================
+# Celery
+# ========================
+celerybeat-schedule
+celerybeat.pid
 
-# MacOS
-*.DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Environment and secrets
-.env
-*.env
-.env.local
-.env.production
-
-# Logs and databases
-*.log
-*.sql
-*.sqlite
-*.sqlite3
-
-# Model files and data
-models/
-#Data/data/*.csv
-Data/data/*.json
-Data/data/*.pkl
-*.joblib
-*.model
-
-# Temporary files
-temp/
-tmp/
+# ========================
+# Misc
+# ========================
+*.bak
 *.tmp
-*.temp
-*db
-
-*.parquet
-
-# Multi-agent temporary folders
-workflows/
-fixtures/
-fixtures_test/
-Backtest/codes/ai_strategy_*.py
-Backtest/codes/archive/
-tests/test_ai_strategy_*.py
-tests/archive/
-
-# Generated strategy files and backtesting artifacts
-monolithic_agent/Backtest/codes/*.py
-monolithic_agent/Backtest/codes/*.json
-monolithic_agent/Backtest/codes/*.html
-!monolithic_agent/Backtest/codes/README.md
-!monolithic_agent/Backtest/codes/CODES_README.md
-monolithic_agent/Backtest/codes/results/
-monolithic_agent/Backtest/codes/trades/
-monolithic_agent/Backtest/codes/temp/
-monolithic_agent/Backtest/codes/generated_by_keys_*/
-
-# Backtest chronicle files (signals and patterns)
-monolithic_agent/Backtest/signals/*.csv
-monolithic_agent/Backtest/signals/*.json
-!monolithic_agent/Backtest/signals/README.md
-
-# Backtest results
-monolithic_agent/Backtest/results/*
-!monolithic_agent/Backtest/results/README.md
-
-# Generated test files with timestamps
-**/e2e_test_*.py
-**/quick_e2e_test_*.py
-**/test_unified_output_*.py
-
-# Generated artifacts
-*.pyc
-__pycache__/
-*.pyo
-*.pyd
-.Python
-
-# Test reports and outputs
-test_report_*.json
-.pytest_cache/
-htmlcov/
-.coverage
-
-tests/
-
-# Keys and secrets (safety)
-keys.json
-*.key
-*.pem
-api_keys.json
-
-# Environment files (local development)
-.env
-.env.local
-.env.*.local
-.env.*-backup
-monolithic_agent/.env.local
-
-# Django collected static files (build artifact)
-monolithic_agent/staticfiles/
-
+*.orig
