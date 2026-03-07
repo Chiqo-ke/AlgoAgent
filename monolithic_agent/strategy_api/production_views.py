@@ -636,6 +636,6 @@ class ProductionStrategyViewSet(viewsets.ViewSet):
             health_status['overall'] = 'unhealthy'
             health_status['error'] = str(e)
         
-        status_code = status.HTTP_200_OK if health_status['overall'] == 'healthy' else status.HTTP_503_SERVICE_UNAVAILABLE
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE if health_status['overall'] == 'unhealthy' else status.HTTP_200_OK
         
         return Response(health_status, status=status_code)
