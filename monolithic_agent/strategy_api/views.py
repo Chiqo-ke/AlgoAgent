@@ -450,12 +450,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def execute(self, request, pk=None):
         """Execute a strategy and return results
-        
+
         Request body:
         {
-            "test_symbol": "GOOG",  // Optional, default GOOG
-            "start_date": "2020-01-01",  // Optional
-            "end_date": "2023-12-31"  // Optional
+            "test_symbol": "BTCUSD",       // Optional, default GOOG
+            "interval": "1d",              // Optional, data interval: 1h, 2h, 4h, 1d (default: 1d)
+            "initial_capital": 1000        // Optional, simulation amount in USD (default: 1000)
         }
         """
         strategy = self.get_object()
@@ -468,11 +468,12 @@ class StrategyViewSet(viewsets.ModelViewSet):
         
         try:
             import os
+            import re
             import tempfile
             
             test_symbol = request.data.get('test_symbol', 'GOOG')
-            start_date = request.data.get('start_date')
-            end_date = request.data.get('end_date')
+            interval = request.data.get('interval', '1d')
+            initial_capital = float(request.data.get('initial_capital', 1000))
             
             # Import executor
             try:
@@ -573,6 +574,42 @@ if str(monolithic_agent_dir) not in sys.path:
                 
                 logger.info("[EXECUTE] Applied import fixes to strategy code")
             
+            # Inject initial_capital into strategy code by replacing start_cash in BacktestConfig
+            # First replace any explicit start_cash=<number> with the user's value
+            code = re.sub(r'start_cash\s*=\s*[\d.]+', f'start_cash={initial_capital}', code)
+            # If no start_cash found in BacktestConfig call, inject it as first argument
+            if 'BacktestConfig(' in code and f'start_cash={initial_capital}' not in code:
+                code = re.sub(r'BacktestConfig\s*\(', f'BacktestConfig(start_cash={initial_capital}, ', code, count=1)
+            logger.info(f"[EXECUTE] Injected initial_capital={initial_capital} into BacktestConfig")
+
+            # Inject interval override: replace hardcoded interval in load_market_data calls
+            code = re.sub(
+                r"(load_market_data\s*\([^)]*?)interval\s*=\s*['\"][\w]+['\"]",
+                rf"\1interval=os.environ.get('BACKTEST_INTERVAL', '{interval}')",
+                code
+            )
+            # Also patch fetch_market_data calls if used
+            code = re.sub(
+                r"(fetch_market_data\s*\([^)]*?)interval\s*=\s*['\"][\w]+['\"]",
+                rf"\1interval=os.environ.get('BACKTEST_INTERVAL', '{interval}')",
+                code
+            )
+            logger.info(f"[EXECUTE] Injected interval={interval} into data loading calls")
+
+            # Inject fractional position sizing support:
+            # Generated strategies typically use int() which rounds to 0 for expensive assets
+            # (e.g. BTC at $80k with $1000 capital: int(1000*0.95/80000) = 0 → no trades)
+            # Remove int() wrapper from size/quantity assignment expressions so fractional
+            # shares are allowed — SimBroker already uses size: float in canonical_schema.
+            code = re.sub(
+                r'(\b(?:size|quantity|shares|units|num_shares|position_size)\s*=\s*)int\(([^)]+)\)',
+                r'\1(\2)',
+                code
+            )
+            # Fix minimum-size guards that block fractional positions: "if size < 1:" → "if size <= 0:"
+            code = re.sub(r'if\s+size\s*<\s*1\s*:', 'if size <= 0:', code)
+            logger.info("[EXECUTE] Injected fractional sizing support (removed int() from position calculations)")
+
             # Debug: Log first 1000 chars of code being executed
             logger.info(f"[EXECUTE] Code preview (first 1000 chars):\n{code[:1000]}")
             logger.info(f"[EXECUTE] Import check - has 'import data_loader': {'import data_loader' in code}")
@@ -588,8 +625,7 @@ if str(monolithic_agent_dir) not in sys.path:
                 result = executor.execute_bot(
                     strategy_file=tmp_file_path,
                     test_symbol=test_symbol,
-                    start_date=start_date,
-                    end_date=end_date
+                    parameters={'test_interval': interval, 'initial_capital': initial_capital}
                 )
             finally:
                 # Clean up temporary file
@@ -608,7 +644,9 @@ if str(monolithic_agent_dir) not in sys.path:
                 from .models import LatestBacktestResult
                 result_data = {
                     'symbol': test_symbol,
-                    'period': request.data.get('period', '1y'),
+                    'timeframe': interval,
+                    'period': 'max',
+                    'initial_balance': initial_capital,
                     'total_trades': result.trades if result.trades is not None else 0,
                     'win_rate': result.win_rate or 0,
                     'total_return_pct': result.return_pct or 0,
@@ -645,7 +683,9 @@ if str(monolithic_agent_dir) not in sys.path:
                 from .models import LatestBacktestResult as _LBR
                 _LBR.save_result(pk, {
                     'symbol': request.data.get('test_symbol', 'UNKNOWN'),
-                    'period': request.data.get('period', '1y'),
+                    'timeframe': request.data.get('interval', '1d'),
+                    'period': 'max',
+                    'initial_balance': float(request.data.get('initial_capital', 1000)),
                     'total_trades': 0,
                     'win_rate': 0,
                     'total_return_pct': 0,

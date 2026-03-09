@@ -213,6 +213,7 @@ class BotExecutor:
             period_map = {30: '1mo', 90: '3mo', 180: '6mo', 365: '1y', 730: '2y', 1825: '5y'}
             self.test_period = period_map.get(test_period_days, f'{test_period_days}d')
         self.test_interval = parameters.get('test_interval', '1d') if parameters else '1d'
+        self.initial_capital = float(parameters.get('initial_capital', 1000)) if parameters else 1000.0
         
         result = BotExecutionResult(
             strategy_name=strategy_name,
@@ -520,6 +521,14 @@ class BotExecutor:
             if self.end_date:
                 env['BACKTEST_END_DATE'] = self.end_date
                 logger.info(f"Setting backtest end date: {self.end_date}")
+
+            # Set interval and initial capital for env-var-aware strategies
+            if hasattr(self, 'test_interval') and self.test_interval:
+                env['BACKTEST_INTERVAL'] = self.test_interval
+                logger.info(f"Setting backtest interval: {self.test_interval}")
+            if hasattr(self, 'initial_capital'):
+                env['BACKTEST_INITIAL_CAPITAL'] = str(self.initial_capital)
+                logger.info(f"Setting backtest initial capital: {self.initial_capital}")
             
             process = subprocess.Popen(
                 cmd,
