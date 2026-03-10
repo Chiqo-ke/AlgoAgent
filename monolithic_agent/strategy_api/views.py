@@ -608,7 +608,16 @@ if str(monolithic_agent_dir) not in sys.path:
             )
             # Fix minimum-size guards that block fractional positions: "if size < 1:" → "if size <= 0:"
             code = re.sub(r'if\s+size\s*<\s*1\s*:', 'if size <= 0:', code)
-            logger.info("[EXECUTE] Injected fractional sizing support (removed int() from position calculations)")
+            # Also patch BacktestConfig to allow fractional lot sizes — the default min_lot_size=1.0
+            # and min_fill_size=1.0 in config.py reject fractional BTC/ETH positions outright.
+            # Override them to 0.0 so any positive fractional size is accepted.
+            if 'min_lot_size' not in code:
+                code = re.sub(
+                    r'BacktestConfig\s*\(',
+                    'BacktestConfig(min_lot_size=1e-8, min_fill_size=1e-8, ',
+                    code
+                )
+            logger.info("[EXECUTE] Injected fractional sizing support (removed int(), set min_lot_size=1e-8)")
 
             # Debug: Log first 1000 chars of code being executed
             logger.info(f"[EXECUTE] Code preview (first 1000 chars):\n{code[:1000]}")
