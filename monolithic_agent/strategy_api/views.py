@@ -2781,7 +2781,20 @@ Keep response concise and actionable."""
                     if result.get('recommendations_list'):
                         formatted_text += "**Recommendations:**\n"
                         for rec in result['recommendations_list']:
-                            formatted_text += f"- {rec}\n"
+                            if isinstance(rec, dict):
+                                title = rec.get('title', 'Recommendation')
+                                description = rec.get('description', '')
+                                rationale = rec.get('rationale', '')
+                                formatted_text += f"- **{title}**: {description}"
+                                if rationale:
+                                    formatted_text += f" *({rationale})*"
+                                formatted_text += "\n"
+                            else:
+                                formatted_text += f"- {rec}\n"
+                    if result.get('warnings'):
+                        formatted_text += "\n**Warnings:**\n"
+                        for warning in result['warnings']:
+                            formatted_text += f"- ⚠️ {warning}\n"
                     result['formatted_response'] = formatted_text
             
             # Store AI's validation result in conversation
