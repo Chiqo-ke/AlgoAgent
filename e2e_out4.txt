@@ -1,0 +1,73 @@
+=== Step 1: Login ===
+Status: 200
+Token obtained OK
+
+=== Step 2: Save Broker Credentials ===
+Status: 400
+Create returned 400, fetching existing credentials...
+Using existing credential id=1, label=FBS Demo Account
+
+=== Step 3: List Credentials ===
+Status: 200
+  id=1 label=FBS Demo Account server=FBS-Demo login=102641850 default=False
+
+=== Step 4: Start Live Session (dry_run=True) ===
+Status: 201
+{
+  "id": 1,
+  "strategy_name": "Algotdrjkhhmjfgxc",
+  "created_by_username": "algotrader",
+  "status": "RUNNING",
+  "pid": 8728,
+  "temp_file_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\monolithic_agent\\Live\\temp_strategies\\strategy_1_d1ecf8b8.py",
+  "kill_switch_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\monolithic_agent\\Live\\kill_switches\\STOP_1",
+  "symbols": [
+    "EURUSD"
+  ],
+  "timeframe": "1h",
+  "dry_run": true,
+  "risk_pct": "1.00",
+  "magic_number": 234567,
+  "mt5_login": 102641850,
+  "mt5_server": "FBS-Demo",
+  "mt5_terminal_path": "",
+  "created_at": "2026-03-11T13:38:22.952652Z",
+  "started_at": "2026-03-11T13:38:23.119073Z",
+  "stopped_at": null,
+  "error_message": "",
+  "strategy": 133,
+  "created_by": 1
+}
+
+Session started: id=1, pid=8728, status=RUNNING
+
+=== Step 5: Stop Live Session ===
+Status: 200
+{
+  "detail": "Session stopped.",
+  "session": {
+    "id": 1,
+    "strategy_name": "Algotdrjkhhmjfgxc",
+    "created_by_username": "algotrader",
+    "status": "STOPPED",
+    "pid": 8728,
+    "temp_file_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\monolithic_agent\\Live\\temp_strategies\\strategy_1_d1ecf8b8.py",
+    "kill_switch_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\monolithic_agent\\Live\\kill_switches\\STOP_1",
+    "symbols": [
+      "EURUSD"
+    ],
+    "timeframe": "1h",
+    "dry_run": true,
+    "risk_pct": "1.00",
+    "magic_number": 234567,
+    "mt5_login": 102641850,
+    "mt5_server": "FBS-Demo",
+    "mt5_terminal_path": "",
+    "created_at": "2026-03-11T13:38:22.952652Z",
+    "started_at": "2026-03-11T13:38:23.119073Z",
+    "stopped_at": "2026-03-11T13:39:02.833689Z",
+    "error_message": "",
+    "strategy": 133,
+    "created_by": 1
+  }
+}

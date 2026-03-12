@@ -1,4 +1,4 @@
-"""
+﻿"""
 GitHub Copilot OAuth Authentication Module
 
 Handles device flow authentication, token storage, and automatic refresh
@@ -38,7 +38,7 @@ class CopilotAuthManager:
     REFRESH_BUFFER_SECONDS = 1800
 
     # Fallback TTL when GitHub does not return expires_in.
-    # GitHub OAuth App tokens (gho_) never expire — using 1 year as a safe
+    # GitHub OAuth App tokens (gho_) never expire ΓÇö using 1 year as a safe
     # sentinel so the refresh machinery stays dormant unless a real expiry
     # is provided (e.g. when migrated to a GitHub App with token expiry).
     OAUTH_APP_DEFAULT_TTL_SECONDS = 365 * 24 * 3600  # 1 year
@@ -226,7 +226,7 @@ class CopilotAuthManager:
                     client_id=self.client_id
                 )
                 
-                logger.info("✓ Token saved to database")
+                logger.info("Γ£ô Token saved to database")
                 
                 # Return enhanced response
                 return {
@@ -370,7 +370,7 @@ class CopilotAuthManager:
                     self._token_cache = stored_token_data
                     return stored_token_data["access_token"]
 
-            # Token is within buffer or expired — try silent refresh
+            # Token is within buffer or expired ΓÇö try silent refresh
             if stored_token_data.get("refresh_token"):
                 try:
                     refreshed = self.refresh_access_token(stored_token_data["refresh_token"])

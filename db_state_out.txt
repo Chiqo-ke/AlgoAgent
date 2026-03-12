@@ -1,0 +1,7 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+=== BROKER CREDENTIALS ===
+  id=1 user=algotrader label=FBS Demo Account server=FBS-Demo login=102641850 default=True
+
+=== LIVE SESSIONS ===
+
+Total sessions: 0

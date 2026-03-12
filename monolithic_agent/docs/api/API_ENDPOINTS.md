@@ -1,894 +1,1008 @@
 # API Endpoints Reference
 
-**Last Updated:** December 4, 2025  
-**Base URL:** `http://localhost:8000/api/`  
-**Version:** 2.0
+**Last Updated:** March 11, 2026
+**Base URL:** `http://localhost:8000` (dev) | `https://chiqoke254.pythonanywhere.com` (prod)
+**See also:** [Architecture](../architecture/ARCHITECTURE.md) | [Production API](PRODUCTION_API_GUIDE.md) | [Quick Reference](../guides/QUICK_REFERENCE.md)
 
 ---
 
 ## Table of Contents
 
-- [Authentication](#authentication)
-- [Strategy Endpoints](#strategy-endpoints)
-- [AI Generation](#ai-generation)
-- [Execution](#execution)
-- [Error Management](#error-management)
-- [Indicators](#indicators)
-- [Rate Limits](#rate-limits)
-- [Error Codes](#error-codes)
+- [Authentication Notes](#authentication-notes)
+- [Auth API — `/api/auth/`](#auth-api)
+- [Data API — `/api/data/`](#data-api)
+- [Strategy API — `/api/strategies/`](#strategy-api)
+- [Backtest API — `/api/backtests/`](#backtest-api)
+- [Production API — `/api/production/`](#production-api)
+- [Trading Sessions API — `/api/trading/`](#trading-sessions-api)
+- [Workflows API — `/api/workflows/`](#workflows-api)
+- [Utility Endpoints](#utility-endpoints)
+- [WebSocket Endpoint](#websocket-endpoint)
+- [Async Job Polling](#async-job-polling)
+- [Pagination](#pagination)
+- [Error Responses](#error-responses)
 
 ---
 
-## Authentication
+## Authentication Notes
 
-Currently using AllowAny permissions for development. Production should implement token-based authentication.
+**Method:** JWT Bearer token
 
-**Headers Required:**
-```http
-Content-Type: application/json
+All protected endpoints require:
+```
+Authorization: Bearer <access_token>
 ```
 
-**Production Headers (future):**
-```http
-Content-Type: application/json
-Authorization: Bearer <your_token>
-```
+Tokens are obtained from `POST /api/auth/login/`. The access token expires after **1 hour**; use `POST /api/auth/token/refresh/` with the refresh token to get a new one.
+
+The default DRF permission is `AllowAny`. Endpoints that require authentication explicitly declare `IsAuthenticated`. All user-owned resources are filtered by `created_by=request.user` — users cannot access other users' data.
 
 ---
 
-## Strategy Endpoints
+## Auth API
 
-### List All Strategies
+**Base path:** `/api/auth/`
 
-**GET** `/strategies/`
+### POST /api/auth/register/
 
-Returns a paginated list of all strategies.
+Register a new user account.
 
-**Query Parameters:**
-- `page` (integer, optional): Page number (default: 1)
-- `page_size` (integer, optional): Results per page (default: 20)
-- `status` (string, optional): Filter by status ('generated', 'executed', 'failed', 'working')
-- `ordering` (string, optional): Sort field (use `-` prefix for descending)
+**Auth required:** No
 
-**Example Request:**
-```http
-GET /api/strategies/?status=working&ordering=-created_at&page=1
-```
+**Request body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `username` | string | Yes | Unique username |
+| `email` | string | Yes | Email address |
+| `password` | string | Yes | Password |
+| `password_confirm` | string | Yes | Password confirmation |
 
-**Example Response:**
-```json
-{
-  "count": 45,
-  "next": "http://localhost:8000/api/strategies/?page=2",
-  "previous": null,
-  "results": [
-    {
-      "id": 123,
-      "name": "RSI Strategy v2",
-      "description": "Buy when RSI < 30, sell when RSI > 70",
-      "file_path": "Backtest/codes/rsi_strategy_20251204.py",
-      "status": "working",
-      "created_at": "2025-12-04T10:30:00Z",
-      "updated_at": "2025-12-04T11:45:00Z",
-      "last_validated": "2025-12-04T11:45:00Z",
-      "version": 2,
-      "created_by": {
-        "id": 1,
-        "username": "admin"
-      }
-    }
-  ]
-}
-```
+**Response `201`:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `user.id` | int | New user ID |
+| `user.username` | string | Username |
+| `user.email` | string | Email |
+| `tokens.access` | string | JWT access token |
+| `tokens.refresh` | string | JWT refresh token |
 
 ---
 
-### Get Single Strategy
+### POST /api/auth/login/
 
-**GET** `/strategies/{id}/`
+Authenticate and receive JWT tokens.
 
-Returns details for a specific strategy.
+**Auth required:** No
 
-**Path Parameters:**
-- `id` (integer, required): Strategy ID
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `username` | string | Yes |
+| `password` | string | Yes |
 
-**Example Request:**
-```http
-GET /api/strategies/123/
-```
-
-**Example Response:**
-```json
-{
-  "id": 123,
-  "name": "RSI Strategy v2",
-  "description": "Buy when RSI < 30, sell when RSI > 70",
-  "file_path": "Backtest/codes/rsi_strategy_20251204.py",
-  "strategy_code": "from backtesting import Strategy...",
-  "status": "working",
-  "template": {
-    "id": 1,
-    "name": "Basic RSI Template"
-  },
-  "created_by": {
-    "id": 1,
-    "username": "admin"
-  },
-  "created_at": "2025-12-04T10:30:00Z",
-  "updated_at": "2025-12-04T11:45:00Z",
-  "last_validated": "2025-12-04T11:45:00Z",
-  "version": 2
-}
-```
+**Response `200`:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `user.id` | int | User ID |
+| `user.username` | string | |
+| `user.email` | string | |
+| `tokens.access` | string | 1-hour JWT access token |
+| `tokens.refresh` | string | 7-day JWT refresh token |
 
 ---
 
-### Create Strategy
+### POST /api/auth/logout/
 
-**POST** `/strategies/`
+Revoke the refresh token (server-side blacklist).
 
-Creates a new strategy manually (without AI generation).
+**Auth required:** Yes
 
-**Request Body:**
-```json
-{
-  "name": "My Custom Strategy",
-  "description": "Custom MACD strategy",
-  "strategy_code": "from backtesting import Strategy...",
-  "template_id": 1
-}
-```
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `refresh` | string | Yes — the refresh token to blacklist |
 
-**Example Response:**
-```json
-{
-  "id": 124,
-  "name": "My Custom Strategy",
-  "description": "Custom MACD strategy",
-  "file_path": "Backtest/codes/custom_strategy_124.py",
-  "status": "generated",
-  "created_at": "2025-12-04T14:30:00Z",
-  "message": "Strategy created successfully"
-}
-```
+**Response `200`:** `{ "detail": "Successfully logged out." }`
 
 ---
 
-### Update Strategy
+### POST /api/auth/token/refresh/
 
-**PUT** `/strategies/{id}/`  
-**PATCH** `/strategies/{id}/`
+Get a new access token using a valid refresh token.
 
-Updates an existing strategy.
+**Auth required:** No
 
-**Request Body (PUT - all fields required):**
-```json
-{
-  "name": "Updated Strategy Name",
-  "description": "Updated description",
-  "strategy_code": "from backtesting import Strategy..."
-}
-```
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `refresh` | string | Yes |
 
-**Request Body (PATCH - partial update):**
-```json
-{
-  "description": "Updated description only"
-}
-```
+**Response `200`:**
+| Field | Type |
+|-------|------|
+| `access` | string — new access token |
+| `refresh` | string — new refresh token (rotation enabled) |
 
 ---
 
-### Delete Strategy
+### GET /api/auth/user/me/
 
-**DELETE** `/strategies/{id}/`
+Get the currently authenticated user's details.
 
-Deletes a strategy and its associated files.
+**Auth required:** Yes
 
-**Example Response:**
-```json
-{
-  "message": "Strategy deleted successfully"
-}
-```
-
----
-
-## AI Generation
-
-### Generate Strategy with AI
-
-**POST** `/strategies/generate_with_ai/`
-
-Generates a trading strategy from natural language description using AI with automatic key rotation.
-
-**Request Body:**
-```json
-{
-  "description": "Create an RSI strategy that buys when RSI is below 30 and sells when RSI is above 70. Use a 14-period RSI.",
-  "save_to_backtest_codes": true,
-  "execute_after_generation": true,
-  "auto_fix_on_error": true,
-  "test_symbol": "AAPL",
-  "start_date": "2020-01-01",
-  "end_date": "2023-12-31"
-}
-```
-
-**Request Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `description` | string | ✅ Yes | - | Natural language strategy description |
-| `save_to_backtest_codes` | boolean | No | true | Save to Backtest/codes/ directory |
-| `execute_after_generation` | boolean | No | false | Execute immediately after generation |
-| `auto_fix_on_error` | boolean | No | true | Automatically fix errors if execution fails |
-| `test_symbol` | string | No | "AAPL" | Stock symbol for backtesting |
-| `start_date` | string | No | "2020-01-01" | Backtest start date (YYYY-MM-DD) |
-| `end_date` | string | No | "2023-12-31" | Backtest end date (YYYY-MM-DD) |
-
-**Example Response (Success):**
-```json
-{
-  "success": true,
-  "strategy_id": 125,
-  "strategy_name": "RSI Strategy",
-  "file_path": "Backtest/codes/rsi_strategy_20251204_143022.py",
-  "status": "working",
-  "key_used": "gemini_key_03",
-  "key_rotation_active": true,
-  "generation_time": 4.2,
-  "execution_result": {
-    "success": true,
-    "metrics": {
-      "return_pct": 15.5,
-      "num_trades": 45,
-      "win_rate": 0.55,
-      "sharpe_ratio": 1.2,
-      "max_drawdown": -8.3,
-      "execution_time": 2.1
-    },
-    "results_file": "Backtest/codes/results/strategy_125_20251204.json"
-  },
-  "error_fixing": {
-    "required": false,
-    "attempts": 0
-  }
-}
-```
-
-**Example Response (With Error Fixing):**
-```json
-{
-  "success": true,
-  "strategy_id": 126,
-  "strategy_name": "MACD Strategy",
-  "file_path": "Backtest/codes/macd_strategy_20251204_143522.py",
-  "status": "working",
-  "key_used": "gemini_key_05",
-  "key_rotation_active": true,
-  "generation_time": 3.8,
-  "execution_result": {
-    "success": true,
-    "metrics": {
-      "return_pct": 12.3,
-      "num_trades": 38,
-      "win_rate": 0.57,
-      "sharpe_ratio": 1.4
-    }
-  },
-  "error_fixing": {
-    "required": true,
-    "attempts": 1,
-    "total_fix_time": 6.2,
-    "fixes": [
-      {
-        "attempt": 1,
-        "success": true,
-        "error_type": "import_error",
-        "error_message": "ModuleNotFoundError: No module named 'Backtest'",
-        "fix_description": "Added sys.path manipulation for imports",
-        "timestamp": "2025-12-04T14:35:30Z"
-      }
-    ]
-  }
-}
-```
-
-**Error Response:**
-```json
-{
-  "success": false,
-  "error": "Generation failed after 3 attempts",
-  "error_type": "generation_failure",
-  "details": {
-    "last_error": "API rate limit exceeded",
-    "attempts": 3,
-    "key_used": "gemini_key_07"
-  }
-}
-```
+**Response `200`:**
+| Field | Type |
+|-------|------|
+| `id` | int |
+| `username` | string |
+| `email` | string |
+| `date_joined` | datetime |
 
 ---
 
-## Execution
+### POST /api/auth/change-password/
 
-### Execute Strategy
+Change the current user's password.
 
-**POST** `/strategies/{id}/execute/`
+**Auth required:** Yes
 
-Executes a strategy with backtesting and returns performance metrics.
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `old_password` | string | Yes |
+| `new_password` | string | Yes |
+| `new_password_confirm` | string | Yes |
 
-**Path Parameters:**
-- `id` (integer, required): Strategy ID
-
-**Request Body:**
-```json
-{
-  "test_symbol": "AAPL",
-  "start_date": "2020-01-01",
-  "end_date": "2023-12-31",
-  "initial_capital": 10000,
-  "commission": 0.002
-}
-```
-
-**Request Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `test_symbol` | string | No | "AAPL" | Stock symbol for backtesting |
-| `start_date` | string | No | "2020-01-01" | Backtest start date |
-| `end_date` | string | No | "2023-12-31" | Backtest end date |
-| `initial_capital` | number | No | 10000 | Starting capital |
-| `commission` | number | No | 0.002 | Commission per trade (0.2%) |
-
-**Example Response (Success):**
-```json
-{
-  "success": true,
-  "strategy_id": 123,
-  "strategy_name": "RSI Strategy v2",
-  "execution_id": "exec_20251204_143022",
-  "timestamp": "2025-12-04T14:30:22Z",
-  "metrics": {
-    "return_pct": 15.5,
-    "num_trades": 45,
-    "win_rate": 0.55,
-    "sharpe_ratio": 1.2,
-    "max_drawdown": -8.3,
-    "sortino_ratio": 1.6,
-    "calmar_ratio": 1.9,
-    "execution_time": 2.1
-  },
-  "test_parameters": {
-    "symbol": "AAPL",
-    "start_date": "2020-01-01",
-    "end_date": "2023-12-31",
-    "initial_capital": 10000,
-    "commission": 0.002
-  },
-  "results_file": "Backtest/codes/results/strategy_123_20251204.json",
-  "status": "executed"
-}
-```
-
-**Example Response (Failure):**
-```json
-{
-  "success": false,
-  "strategy_id": 123,
-  "error_type": "runtime_error",
-  "error_message": "Strategy execution failed: Division by zero in calculate_position_size",
-  "error_details": {
-    "traceback": "File 'strategy.py', line 45, in next\n  size = 1000 / price",
-    "line_number": 45
-  },
-  "suggestion": "Use the fix_errors endpoint to automatically fix this error"
-}
-```
+**Response `200`:** `{ "detail": "Password changed successfully." }`
 
 ---
 
-### Get Execution History
+### GET /api/auth/google/
 
-**GET** `/strategies/{id}/execution_history/`
+Redirect to Google OAuth consent screen. Used to initiate the Google login flow.
 
-Retrieves historical execution results for a strategy.
-
-**Path Parameters:**
-- `id` (integer, required): Strategy ID
-
-**Query Parameters:**
-- `limit` (integer, optional): Maximum number of results (default: 20, max: 100)
-- `success_only` (boolean, optional): Filter for successful executions only
-
-**Example Request:**
-```http
-GET /api/strategies/123/execution_history/?limit=10&success_only=true
-```
-
-**Example Response:**
-```json
-{
-  "strategy_id": 123,
-  "strategy_name": "RSI Strategy v2",
-  "file_path": "Backtest/codes/rsi_strategy_20251204.py",
-  "total_executions": 5,
-  "successful_executions": 4,
-  "failed_executions": 1,
-  "success_rate": 0.8,
-  "average_return": 13.2,
-  "executions": [
-    {
-      "execution_id": "exec_20251204_143022",
-      "timestamp": "2025-12-04T14:30:22Z",
-      "success": true,
-      "metrics": {
-        "return_pct": 15.5,
-        "num_trades": 45,
-        "win_rate": 0.55,
-        "sharpe_ratio": 1.2,
-        "max_drawdown": -8.3
-      },
-      "test_parameters": {
-        "symbol": "AAPL",
-        "start_date": "2020-01-01",
-        "end_date": "2023-12-31"
-      },
-      "execution_time": 2.1
-    },
-    {
-      "execution_id": "exec_20251203_102015",
-      "timestamp": "2025-12-03T10:20:15Z",
-      "success": true,
-      "metrics": {
-        "return_pct": 12.3,
-        "num_trades": 38,
-        "win_rate": 0.57,
-        "sharpe_ratio": 1.4
-      },
-      "execution_time": 1.9
-    }
-  ]
-}
-```
+**Auth required:** No | **Response:** 302 redirect to Google
 
 ---
 
-## Error Management
+### GET /api/auth/google/callback/
 
-### Fix Errors Automatically
+Google OAuth callback. Handles the authorization code returned by Google, creates or links a user account, and returns JWT tokens.
 
-**POST** `/strategies/{id}/fix_errors/`
-
-Automatically detects and fixes errors in a strategy using AI.
-
-**Path Parameters:**
-- `id` (integer, required): Strategy ID
-
-**Request Body:**
-```json
-{
-  "max_attempts": 3,
-  "error_context": "Strategy fails during execution with ImportError"
-}
-```
-
-**Request Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `max_attempts` | integer | No | 3 | Maximum fix attempts (1-5) |
-| `error_context` | string | No | null | Additional context about the error |
-
-**Example Response (Success):**
-```json
-{
-  "success": true,
-  "strategy_id": 123,
-  "total_attempts": 1,
-  "total_time": 8.5,
-  "final_status": "working",
-  "fixes": [
-    {
-      "attempt": 1,
-      "success": true,
-      "error_type": "import_error",
-      "error_message": "ModuleNotFoundError: No module named 'Backtest'",
-      "fix_description": "Added sys.path manipulation to resolve Backtest module imports",
-      "code_changes": {
-        "lines_added": 3,
-        "lines_modified": 0,
-        "lines_deleted": 0
-      },
-      "timestamp": "2025-12-04T14:30:22Z",
-      "execution_time": 8.5
-    }
-  ],
-  "verification": {
-    "execution_successful": true,
-    "metrics": {
-      "return_pct": 15.5,
-      "num_trades": 45,
-      "win_rate": 0.55
-    }
-  }
-}
-```
-
-**Example Response (Partial Success):**
-```json
-{
-  "success": false,
-  "strategy_id": 124,
-  "total_attempts": 3,
-  "total_time": 24.3,
-  "final_status": "failed",
-  "fixes": [
-    {
-      "attempt": 1,
-      "success": false,
-      "error_type": "import_error",
-      "fix_description": "Attempted to fix imports",
-      "timestamp": "2025-12-04T14:30:22Z"
-    },
-    {
-      "attempt": 2,
-      "success": false,
-      "error_type": "syntax_error",
-      "fix_description": "Fixed syntax but introduced new error",
-      "timestamp": "2025-12-04T14:30:30Z"
-    },
-    {
-      "attempt": 3,
-      "success": false,
-      "error_type": "runtime_error",
-      "error_message": "Unable to resolve complex logic error",
-      "timestamp": "2025-12-04T14:30:46Z"
-    }
-  ],
-  "message": "Strategy could not be automatically fixed. Manual intervention required.",
-  "suggestion": "Review the generated code manually and check for logical errors"
-}
-```
-
-**Supported Error Types:**
-- `import_error` - Missing imports or module path issues
-- `syntax_error` - Python syntax errors
-- `attribute_error` - Missing attributes or methods
-- `type_error` - Type mismatches
-- `value_error` - Invalid values
-- `index_error` - Array index out of bounds
-- `key_error` - Dictionary key not found
-- `runtime_error` - General runtime errors
-- `timeout_error` - Execution timeout
-- `file_error` - File I/O errors
+**Auth required:** No | **Response:** Redirect to frontend with tokens
 
 ---
 
-## Indicators
+### POST /api/auth/chat/
 
-### Get Available Indicators
+Send a message to the general AI chat assistant.
 
-**GET** `/strategies/available_indicators/`
+**Auth required:** Yes
 
-Returns a list of all pre-built technical indicators with parameter schemas and usage examples.
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `message` | string | Yes |
+| `session_id` | string | No — ties message to an existing chat session |
+| `context` | object | No — additional context passed to the LLM |
 
-**Example Request:**
-```http
-GET /api/strategies/available_indicators/
-```
-
-**Example Response:**
-```json
-{
-  "count": 7,
-  "indicators": [
-    {
-      "name": "SMA",
-      "display_name": "Simple Moving Average",
-      "description": "Pre-built SMA indicator with configurable period",
-      "category": "trend",
-      "parameters": [
-        {
-          "name": "period",
-          "type": "int",
-          "default": 20,
-          "min": 1,
-          "max": 200,
-          "description": "Number of periods for moving average calculation"
-        }
-      ],
-      "returns": {
-        "type": "array",
-        "description": "Array of SMA values"
-      },
-      "example_usage": "sma = self.I(SMA, self.data.Close, period=20)",
-      "strategy_integration": "if self.data.Close[-1] > sma[-1]:\n    self.buy()",
-      "documentation_url": null
-    },
-    {
-      "name": "EMA",
-      "display_name": "Exponential Moving Average",
-      "description": "Exponentially weighted moving average",
-      "category": "trend",
-      "parameters": [
-        {
-          "name": "period",
-          "type": "int",
-          "default": 12,
-          "min": 1,
-          "max": 200
-        }
-      ],
-      "example_usage": "ema = self.I(EMA, self.data.Close, period=12)"
-    },
-    {
-      "name": "RSI",
-      "display_name": "Relative Strength Index",
-      "description": "Momentum oscillator (0-100)",
-      "category": "momentum",
-      "parameters": [
-        {
-          "name": "period",
-          "type": "int",
-          "default": 14,
-          "min": 2,
-          "max": 50
-        }
-      ],
-      "returns": {
-        "type": "array",
-        "description": "Array of RSI values between 0-100"
-      },
-      "example_usage": "rsi = self.I(RSI, self.data.Close, period=14)",
-      "strategy_integration": "if rsi[-1] < 30:\n    self.buy()  # Oversold\nelif rsi[-1] > 70:\n    self.sell()  # Overbought"
-    },
-    {
-      "name": "MACD",
-      "display_name": "Moving Average Convergence Divergence",
-      "description": "Trend-following momentum indicator",
-      "category": "momentum",
-      "parameters": [
-        {
-          "name": "fast",
-          "type": "int",
-          "default": 12
-        },
-        {
-          "name": "slow",
-          "type": "int",
-          "default": 26
-        },
-        {
-          "name": "signal",
-          "type": "int",
-          "default": 9
-        }
-      ],
-      "returns": {
-        "type": "object",
-        "description": "Object with 'macd', 'signal', and 'histogram' arrays"
-      },
-      "example_usage": "macd_result = self.I(MACD, self.data.Close, fast=12, slow=26, signal=9)"
-    },
-    {
-      "name": "BollingerBands",
-      "display_name": "Bollinger Bands",
-      "description": "Volatility bands around price",
-      "category": "volatility",
-      "parameters": [
-        {
-          "name": "period",
-          "type": "int",
-          "default": 20
-        },
-        {
-          "name": "std_dev",
-          "type": "float",
-          "default": 2.0
-        }
-      ],
-      "returns": {
-        "type": "object",
-        "description": "Object with 'upper', 'middle', and 'lower' band arrays"
-      },
-      "example_usage": "bb = self.I(BollingerBands, self.data.Close, period=20, std_dev=2.0)"
-    },
-    {
-      "name": "ATR",
-      "display_name": "Average True Range",
-      "description": "Volatility indicator",
-      "category": "volatility",
-      "parameters": [
-        {
-          "name": "period",
-          "type": "int",
-          "default": 14
-        }
-      ],
-      "example_usage": "atr = self.I(ATR, self.data.High, self.data.Low, self.data.Close, period=14)"
-    },
-    {
-      "name": "Stochastic",
-      "display_name": "Stochastic Oscillator",
-      "description": "Momentum indicator (0-100)",
-      "category": "momentum",
-      "parameters": [
-        {
-          "name": "k_period",
-          "type": "int",
-          "default": 14
-        },
-        {
-          "name": "d_period",
-          "type": "int",
-          "default": 3
-        }
-      ],
-      "returns": {
-        "type": "object",
-        "description": "Object with '%K' and '%D' arrays"
-      },
-      "example_usage": "stoch = self.I(Stochastic, self.data.High, self.data.Low, self.data.Close, k_period=14, d_period=3)"
-    }
-  ]
-}
-```
+**Response `200`:**
+| Field | Type |
+|-------|------|
+| `response` | string — AI reply |
+| `session_id` | string |
+| `tokens_used` | int |
 
 ---
 
-## Rate Limits
+### GET /api/auth/health/
 
-### Current Limits (Development)
+Health check for auth service.
 
-No rate limits enforced in development mode.
-
-### Production Limits (Recommended)
-
-| Endpoint | Rate Limit | Notes |
-|----------|-----------|-------|
-| `/strategies/` (GET) | 60 req/min | List operations |
-| `/strategies/` (POST) | 10 req/min | Strategy creation |
-| `/strategies/generate_with_ai/` | 5 req/min | AI generation (resource intensive) |
-| `/strategies/{id}/execute/` | 10 req/min | Backtesting execution |
-| `/strategies/{id}/fix_errors/` | 5 req/min | Error fixing (resource intensive) |
-| `/strategies/available_indicators/` | 60 req/min | Static data |
-
-### Rate Limit Headers
-
-```http
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1701705600
-```
+**Auth required:** No | **Response `200`:** `{ "status": "ok" }`
 
 ---
 
-## Error Codes
+### User Profiles (ViewSet)
 
-### HTTP Status Codes
+**Auth required:** Yes (owner-scoped)
 
-| Code | Meaning | Description |
-|------|---------|-------------|
-| 200 | OK | Successful request |
-| 201 | Created | Resource created successfully |
-| 400 | Bad Request | Invalid request parameters |
-| 401 | Unauthorized | Authentication required (production) |
-| 403 | Forbidden | Insufficient permissions |
-| 404 | Not Found | Resource not found |
-| 429 | Too Many Requests | Rate limit exceeded |
-| 500 | Internal Server Error | Server error |
-| 503 | Service Unavailable | Server temporarily unavailable |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/profiles/` | List profiles (returns current user's profile) |
+| POST | `/api/auth/profiles/` | Create profile (auto-created on registration) |
+| GET | `/api/auth/profiles/<id>/` | Get profile |
+| PUT/PATCH | `/api/auth/profiles/<id>/` | Update profile |
 
-### Application Error Codes
+**Profile fields (request/response):**
+| Field | Type | Description |
+|-------|------|-------------|
+| `default_risk_tolerance` | string | e.g. "low", "medium", "high" |
+| `default_timeframe` | string | e.g. "1d", "1h" |
+| `preferred_symbols` | array[string] | e.g. ["AAPL", "BTC-USD"] |
+| `trading_goals` | string | Free text |
+| `strategy_preferences` | string | Free text |
+| `risk_parameters` | object | JSON risk config |
 
-```json
-{
-  "error_code": "GENERATION_FAILED",
-  "error_message": "AI generation failed after 3 attempts",
-  "details": {
-    "last_error": "API rate limit exceeded",
-    "attempts": 3
-  }
-}
-```
+---
 
-**Error Code Reference:**
+### AI Contexts (ViewSet)
 
-| Code | Description | Resolution |
-|------|-------------|------------|
-| `GENERATION_FAILED` | AI generation unsuccessful | Try again or check API keys |
-| `EXECUTION_FAILED` | Strategy execution error | Use fix_errors endpoint |
-| `INVALID_STRATEGY_CODE` | Malformed Python code | Review generated code |
-| `FILE_NOT_FOUND` | Strategy file missing | Regenerate strategy |
-| `IMPORT_ERROR` | Module import failure | Use fix_errors endpoint |
-| `RUNTIME_ERROR` | Execution runtime error | Check strategy logic |
-| `TIMEOUT_ERROR` | Operation timeout | Reduce backtest period |
-| `KEY_ROTATION_ERROR` | No available API keys | Check key configuration |
-| `RATE_LIMIT_EXCEEDED` | API rate limit hit | Wait and retry |
-| `DATABASE_ERROR` | Database operation failed | Contact support |
+Persistent AI instruction sets that are sent with LLM calls.
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET/POST | `/api/auth/ai-contexts/` |
+| GET/PUT/PATCH/DELETE | `/api/auth/ai-contexts/<id>/` |
+
+**Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `session_name` | string | Human label |
+| `instructions` | string | System-level instructions for the AI |
+| `context_data` | object | Extra JSON context |
+| `is_active` | bool | Whether to include in LLM calls |
+
+---
+
+### Chat Sessions (ViewSet)
+
+Legacy chat sessions (pre-strategy-specific chat). Still functional.
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET/POST | `/api/auth/chat-sessions/` |
+| GET/PUT/PATCH/DELETE | `/api/auth/chat-sessions/<id>/` |
+
+**Response fields:** `session_id`, `title`, `messages` (array), `generated_strategies` (array), `created_at`
+
+---
+
+## Data API
+
+**Base path:** `/api/data/`
+
+### Symbols (ViewSet)
+
+**Auth required:** Yes
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/data/symbols/` | List all active symbols |
+| POST | `/api/data/symbols/` | Create a symbol |
+| GET | `/api/data/symbols/<id>/` | Get symbol |
+| PUT/PATCH | `/api/data/symbols/<id>/` | Update symbol |
+| POST | `/api/data/symbols/bulk_create/` | Create multiple symbols |
+| GET | `/api/data/symbols/search/` | Search by name/ticker |
+
+**Symbol fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `symbol` | string | Ticker (unique), e.g. "AAPL" |
+| `name` | string | Full name |
+| `exchange` | string | e.g. "NASDAQ" |
+| `sector` | string | |
+| `industry` | string | |
+| `is_active` | bool | |
+
+---
+
+### POST /api/data/api/fetch_data/
+
+Fetch historical OHLCV data for a symbol and store it.
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `symbol` | string | Yes | Ticker, e.g. "AAPL" |
+| `period` | string | Yes | e.g. "1y", "6mo", "max" |
+| `interval` | string | Yes | e.g. "1d", "1h", "15m" |
+
+**Response `202`:**
+| Field | Type |
+|-------|------|
+| `request_id` | string — poll this for completion |
+| `status` | "pending" |
+
+---
+
+### GET /api/data/market-data/
+
+Query stored OHLCV candles.
+
+**Auth required:** Yes
+
+**Query params:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `symbol` | string | Filter by ticker |
+| `interval` | string | e.g. "1d" |
+| `start_date` | date | ISO format |
+| `end_date` | date | ISO format |
+| `page` | int | Pagination |
+
+**Response fields per record:** `symbol`, `timestamp`, `open`, `high`, `low`, `close`, `adj_close`, `volume`, `interval`
+
+---
+
+### GET /api/data/api/available_indicators/
+
+List all indicators with their parameter schemas.
+
+**Auth required:** Yes
+
+**Response:** Array of `{ name, display_name, category, parameters }` objects.
+
+---
+
+### GET /api/data/indicators/
+
+List indicator definitions.
+
+**Auth required:** Yes
+
+**Response fields per record:** `name`, `display_name`, `category` (trend/momentum/volatility/volume), `parameters` (JSON schema)
+
+---
+
+### GET /api/data/api/health/
+
+**Auth required:** No | **Response `200`:** `{ "status": "ok" }`
+
+---
+
+## Strategy API
+
+**Base path:** `/api/strategies/`
+
+### Strategies (ViewSet)
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/strategies/strategies/` | List strategies |
+| POST | `/api/strategies/strategies/` | Create strategy |
+| GET | `/api/strategies/strategies/<id>/` | Get strategy |
+| PUT/PATCH | `/api/strategies/strategies/<id>/` | Update strategy |
+| DELETE | `/api/strategies/strategies/<id>/` | Delete strategy |
+| POST | `/api/strategies/strategies/<id>/validate/` | Validate by ID |
+| POST | `/api/strategies/strategies/<id>/backtest/` | Quick backtest |
+| POST | `/api/strategies/strategies/<id>/clone/` | Clone strategy |
+
+**List query params:** `status`, `timeframe`, `risk_level`, `ordering`, `page`
+
+**Strategy fields (create/update request):**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Strategy name |
+| `strategy_code` | string | Yes | Python code |
+| `parameters` | object | No | Strategy parameters JSON |
+| `status` | string | No | draft / validating / valid / invalid / active / inactive |
+| `timeframe` | string | No | e.g. "1d" |
+| `risk_level` | string | No | low / medium / high |
+| `tags` | array[int] | No | Tag IDs |
+
+**Strategy response fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | int | |
+| `name` | string | |
+| `strategy_code` | string | Full Python code |
+| `status` | string | Current lifecycle status |
+| `version` | int | Auto-incremented on updates |
+| `timeframe` | string | |
+| `risk_level` | string | |
+| `created_at` | datetime | |
+| `updated_at` | datetime | |
+| `created_by` | object | `{id, username}` |
+| `latest_backtest` | object | Nested summary (see LatestBacktestResult) |
+
+---
+
+### POST /api/strategies/validate/
+
+Validate a strategy by submitting code directly (no saved strategy required).
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `strategy_code` | string | Yes |
+| `parameters` | object | No |
+
+**Response `200`:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `is_valid` | bool | |
+| `score` | float | 0–100 |
+| `passed_checks` | array[string] | |
+| `failed_checks` | array[string] | |
+| `warnings` | array[string] | |
+| `recommendations` | array[string] | |
+| `execution_time` | float | Seconds |
+
+---
+
+### POST /api/strategies/validate-file/
+
+Validate a strategy uploaded as a `.py` file.
+
+**Auth required:** Yes | **Content-Type:** `multipart/form-data`
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `file` | file | Yes — `.py` file |
+
+**Response:** Same structure as POST /validate/ above.
+
+---
+
+### GET /api/strategies/templates/
+
+**Auth required:** Yes | Standard CRUD ViewSet.
+
+**Template fields:** `name`, `template_code`, `parameters_schema`, `is_system_template`, `linked_strategy` (int), `chat_history`, `latest_strategy_code`
+
+**Custom actions:**
+- `POST /api/strategies/templates/<id>/sync_from_strategy/` — Update template from linked strategy's latest code
+- `GET /api/strategies/templates/<id>/get_context/` — Get full AI context including linked strategy info
+
+---
+
+### POST /api/strategies/api/generate_strategy_unified/
+
+**The primary AI strategy generation endpoint.** Submits a Celery task and returns immediately with a `job_id`. Use [job polling](#async-job-polling) to track progress.
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `description` | string | Yes | — | Natural language strategy description |
+| `ai_provider` | string | No | `"gemini"` | `"gemini"` or `"copilot"` |
+| `auto_fix` | bool | No | `true` | Enable the error-fix loop |
+| `max_fix_attempts` | int | No | `8` | Max iterations of the fix loop |
+| `execute_after` | bool | No | `true` | Run a backtest after generation |
+| `test_symbol` | string | No | `"AAPL"` | Symbol to test against |
+| `test_period_days` | int | No | `365` | Days of historical data |
+| `template_id` | int | No | — | Base on an existing template |
+
+**Response `202`:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `job_id` | string | Poll `GET /api/jobs/<job_id>/` for result |
+| `status` | string | "pending" |
+
+**Polled result (SUCCESS):**
+| Field | Type | Description |
+|-------|------|-------------|
+| `strategy_id` | int | Saved Strategy ID |
+| `strategy_name` | string | |
+| `execution_success` | bool | Whether backtest ran cleanly |
+| `metrics.return_pct` | float | |
+| `metrics.total_trades` | int | |
+| `metrics.win_rate` | float | |
+| `metrics.sharpe_ratio` | float | |
+| `metrics.max_drawdown` | float | |
+| `fix_attempts` | int | Iterations needed |
+
+---
+
+### POST /api/strategies/api/validate_strategy_with_ai/
+
+AI-powered strategy validation with detailed feedback.
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `strategy_code` | string | Yes |
+| `context` | string | No — additional context for the AI reviewer |
+
+**Response `200`:** Same structure as POST /validate/ plus:
+| Field | Type |
+|-------|------|
+| `ai_feedback` | string — narrative explanation |
+| `suggestions` | array[string] |
+
+---
+
+### POST /api/strategies/api/create_strategy_with_ai/
+
+Synchronous AI strategy creation (smaller, simpler generation without the full fix loop).
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `description` | string | Yes |
+| `ai_provider` | string | No |
+
+**Response `200`:** `{ strategy_code, name, parameters }`
+
+---
+
+### POST /api/strategies/api/{id}/update_strategy_with_ai/
+
+Update an existing strategy's code using AI.
+
+**Auth required:** Yes (owner required)
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `instruction` | string | Yes — what to change |
+
+**Response `200`:** `{ strategy_id, new_code, changes_description }`
+
+---
+
+### GET /api/strategies/api/categories/
+
+List available strategy categories.
+
+**Auth required:** Yes | **Response:** `{ categories: [string] }`
+
+---
+
+### GET /api/strategies/api/health/
+
+**Auth required:** No | **Response `200`:** `{ "status": "ok" }`
+
+---
+
+### Bot Performance (ViewSet)
+
+Aggregated execution metrics per strategy.
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/strategies/bot-performance/` | List bot performance records |
+| GET | `/api/strategies/bot-performance/<id>/` | Get single record |
+| GET | `/api/strategies/bot-performance/verified_bots/` | List verified bots only |
+| POST | `/api/strategies/bot-performance/verify_bot/` | Manually verify a bot |
+| POST | `/api/strategies/bot-performance/verify_all/` | Trigger verification of all user bots |
+
+---
+
+### Latest Backtest Results (Read-only ViewSet)
+
+One result per strategy — the most recent successful backtest.
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET | `/api/strategies/backtest-results/` |
+| GET | `/api/strategies/backtest-results/<strategy_id>/` |
+
+**Response fields:** `strategy_id`, `symbol`, `timeframe`, `period`, `total_trades`, `win_rate`, `return_pct`, `sharpe_ratio`, `max_drawdown`, `equity_curve` (JSON), `symbol_stats` (JSON), `created_at`
+
+---
+
+### Strategy Validations (Read-only ViewSet)
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET | `/api/strategies/validations/` |
+| GET | `/api/strategies/validations/<id>/` |
+
+**Query params:** `strategy` (int), `validation_type`, `status`
+
+---
+
+### Strategy Chat (ViewSet)
+
+Strategy-specific AI chat sessions (linked to a strategy).
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET/POST | `/api/strategies/chat/` |
+| GET/PUT/PATCH/DELETE | `/api/strategies/chat/<id>/` |
+
+**Fields:** `session_id`, `strategy` (int), `title`, `context_summary`, `message_count`, `model_name`, `messages` (array of `{role, content, tokens_used}`)
+
+---
+
+### Other Read/Write ViewSets
+
+| Endpoint prefix | Model | Type |
+|-----------------|-------|------|
+| `/api/strategies/performance/` | StrategyPerformance | Full CRUD |
+| `/api/strategies/comments/` | StrategyComment | Full CRUD |
+| `/api/strategies/tags/` | StrategyTag | Full CRUD |
+
+---
+
+## Backtest API
+
+**Base path:** `/api/backtests/`
+
+### POST /api/backtests/api/run_backtest/
+
+Submit a full backtest. Returns a `job_id`; use [job polling](#async-job-polling).
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_id` | int | Yes | ID of saved strategy to backtest |
+| `symbols` | array[string] | Yes | e.g. `["AAPL", "MSFT"]` |
+| `start_date` | date | Yes | ISO format |
+| `end_date` | date | Yes | ISO format |
+| `initial_capital` | float | No | Default 10000 |
+| `commission` | float | No | Commission per trade (fraction) |
+| `timeframe` | string | No | e.g. "1d" |
+| `config_id` | int | No | Use a saved BacktestConfig |
+
+**Response `202`:** `{ job_id, run_id, status: "pending" }`
+
+**Polled result (SUCCESS):**
+| Field | Type |
+|-------|------|
+| `run_id` | int |
+| `final_portfolio_value` | float |
+| `total_return_pct` | float |
+| `annualized_return` | float |
+| `sharpe_ratio` | float |
+| `sortino_ratio` | float |
+| `calmar_ratio` | float |
+| `max_drawdown` | float |
+| `win_rate` | float |
+| `total_trades` | int |
+| `profit_factor` | float |
+| `alpha` | float |
+| `beta` | float |
+
+---
+
+### POST /api/backtests/api/quick_run/
+
+Run a backtest with sensible defaults (last 1 year, daily bars, $10k capital).
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `strategy_id` | int | Yes |
+| `symbol` | string | Yes |
+
+**Response `202`:** `{ job_id, run_id }`
+
+---
+
+### Backtest Configs (ViewSet)
+
+Reusable parameter sets.
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path |
+|--------|------|
+| GET/POST | `/api/backtests/configs/` |
+| GET/PUT/PATCH/DELETE | `/api/backtests/configs/<id>/` |
+
+**Config fields:** `start_date`, `end_date`, `initial_capital`, `commission`, `slippage`, `max_position_size`, `stop_loss`, `take_profit`, `data_source`, `timeframe`, `benchmark_symbol`, `is_template`
+
+---
+
+### Backtest Runs (ViewSet)
+
+**Auth required:** Yes (owner-scoped)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/backtests/runs/` | List runs |
+| GET | `/api/backtests/runs/<id>/` | Get run |
+| GET | `/api/backtests/runs/<id>/result/` | Get detailed result |
+| GET | `/api/backtests/runs/<id>/trades/` | List trades for this run |
+| GET | `/api/backtests/runs/<id>/alerts/` | List alerts for this run |
+| POST | `/api/backtests/runs/<id>/cancel/` | Cancel a running backtest |
+
+**Run status values:** `pending` → `queued` → `running` → `completed` / `failed`
+
+---
+
+### Read-only ViewSets
+
+| Endpoint | Model | Description |
+|----------|-------|-------------|
+| `GET /api/backtests/results/` | BacktestResult | Summary results |
+| `GET /api/backtests/results/<id>/` | BacktestResult | Single result |
+| `GET /api/backtests/trades/` | Trade | Trade records |
+| `GET /api/backtests/trades/<id>/` | Trade | Single trade |
+| `GET /api/backtests/alerts/` | BacktestAlert | Alerts from backtests |
+
+**Trade fields:** `entry_time`, `exit_time`, `entry_price`, `exit_price`, `pnl`, `return_pct`
+
+---
+
+### GET /api/backtests/api/monitor/
+
+Poll the status of a specific backtest run.
+
+**Auth required:** Yes
+
+**Query params:** `run_id` (int)
+
+**Response:** `{ run_id, status, progress (0–100), current_step, error_message }`
+
+---
+
+### GET /api/backtests/api/health/
+
+**Auth required:** No | **Response `200`:** `{ "status": "ok" }`
+
+---
+
+## Production API
+
+**Base path:** `/api/production/`
+
+These endpoints add validation, sandboxing, and deployment on top of the standard endpoints. See [PRODUCTION_API_GUIDE.md](PRODUCTION_API_GUIDE.md) for the full workflow.
+
+### POST /api/production/strategies/validate-schema/
+
+Validate strategy code against the canonical Pydantic schema.
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `strategy_code` | string | Yes |
+
+**Response `200`:** `{ valid: bool, errors: [string], schema_version: string }`
+
+---
+
+### POST /api/production/strategies/validate-code/
+
+Static safety analysis — detects dangerous patterns (exec, eval, subprocess, network calls, etc.).
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `strategy_code` | string | Yes |
+
+**Response `200`:** `{ safe: bool, violations: [{ pattern, line, severity }] }`
+
+---
+
+### POST /api/production/strategies/sandbox-test/
+
+Execute the strategy in an isolated sandbox with resource limits.
+
+**Auth required:** Yes
+
+**Request body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `strategy_code` | string | Yes | |
+| `test_symbol` | string | No | Default "AAPL" |
+| `test_period` | string | No | Default "1y" |
+
+**Response `200`:** `{ success: bool, metrics: {...}, logs: string, execution_time: float }`
+
+---
+
+### GET /api/production/strategies/<id>/lifecycle/
+
+Full audit trail of all generation attempts, validation steps, and fixes for a strategy.
+
+**Auth required:** Yes (owner)
+
+**Response:** Array of state entries, each with `{ state, timestamp, details, attempt_number }`
+
+---
+
+### POST /api/production/strategies/<id>/deploy/
+
+Deploy a strategy with a Git commit and tag.
+
+**Auth required:** Yes (owner)
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `commit_message` | string | No |
+| `tag` | string | No — auto-generated if omitted |
+
+**Response `200`:** `{ deployed: bool, commit_hash: string, tag: string }`
+
+---
+
+### POST /api/production/strategies/<id>/rollback/
+
+Roll back a deployed strategy to its previous Git tag.
+
+**Auth required:** Yes (owner)
+
+**Request body:**
+| Field | Type | Required |
+|-------|------|----------|
+| `target_tag` | string | No — rolls back one version if omitted |
+
+**Response `200`:** `{ rolled_back: bool, current_tag: string }`
+
+---
+
+### Production Backtest Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/production/backtests/validate-config/` | Validate config with Pydantic before running |
+| POST | `/api/production/backtests/run-sandbox/` | Run in isolated sandbox with audit trail |
+| GET | `/api/production/backtests/<id>/status/` | Get execution status |
+| POST | `/api/production/backtests/<id>/stop/` | Force-stop a running sandbox backtest |
+
+---
+
+## Trading Sessions API
+
+**Status:** ✅ NEW (March 2026) | **Base path:** `/api/trading/`
+
+**Full documentation:** [LIVE_TRADING_SESSIONS_API.md](../LIVE_TRADING_SESSIONS_API.md)
+
+**Quick Summary:**
+- Save encrypted broker credentials (MT5 login, server, terminal path)
+- Start/stop live trading sessions for strategies
+- Monitor subprocess health (PID, status, timestamps)
+- Graceful termination via kill-switch mechanism
+- Dry-run mode for testing
+
+**Key Endpoints:**
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/credentials/` | Save broker credential |
+| GET | `/credentials/` | List user's credentials |
+| GET | `/credentials/{id}/` | Get one credential |
+| PUT/PATCH | `/credentials/{id}/` | Update credential |
+| DELETE | `/credentials/{id}/` | Delete credential |
+| POST | `/sessions/` | Start live session |
+| GET | `/sessions/` | List sessions |
+| GET | `/sessions/{id}/` | Get session details |
+| POST | `/sessions/{id}/stop/` | Stop running session |
+| DELETE | `/sessions/{id}/` | Delete session |
+
+**E2E Test Status:** ✅ All 5 steps passing
+- Login → Save credential → List credentials → Start session (dry_run) → Stop session
+
+---
+
+## Workflows API
+
+**Base path:** `/api/workflows/`
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/workflows/` | Returns `{ "workflows": [] }` — stub, under development |
+
+---
+
+## Utility Endpoints
+
+### GET /api/
+
+API root — returns a JSON index of all endpoint groups.
+
+**Auth required:** No
+
+---
+
+### POST /api/logs/frontend-errors/
+
+Receives structured error reports from the frontend logger (`src/lib/logger.ts`).
+
+**Auth required:** No (intentionally open — frontend must be able to report errors even before auth)
+
+**Request body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `level` | string | "error", "warn", "info" |
+| `category` | string | "api", "auth", "ui", etc. |
+| `message` | string | Error message |
+| `stack` | string | Stack trace (optional) |
+| `metadata` | object | Additional context |
+
+**Response `200`:** `{ "logged": true }`
+
+---
+
+## WebSocket Endpoint
+
+### ws://<host>/ws/backtest/stream/
+
+Real-time backtest streaming. Data is pushed candle-by-candle as the simulation runs.
+
+**Auth:** Pass JWT access token as a query param: `?token=<access_token>`
+
+**Consumer:** `trading.consumers.BacktestStreamConsumer`
+
+**Channel layer:** `InMemoryChannelLayer` (dev) — switch to Redis for prod (see [CONFIGURATION.md](../CONFIGURATION.md)).
+
+**Message types sent to client:**
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `candle` | `timestamp`, `open`, `high`, `low`, `close`, `volume` | Current OHLCV bar |
+| `trade` | `entry_time`, `exit_time`, `entry_price`, `exit_price`, `pnl`, `side` | Completed round-trip trade |
+| `progress` | `current`, `total`, `pct_complete` | Bar-by-bar progress |
+| `result` | Full metrics object (same as BacktestResult) | Sent once at completion |
+| `error` | `message` | Sent if the backtest fails |
+
+**On completion:** Final result is persisted to `LatestBacktestResult` (one per strategy).
+
+---
+
+## Async Job Polling
+
+All endpoints that trigger long-running Celery tasks respond immediately with a `job_id`. Poll the job endpoint:
+
+### GET /api/jobs/<task_id>/
+
+**Auth required:** No (but task results are only returned if the task exists)
+
+**Response fields:**
+| Field | Type | States present | Description |
+|-------|------|----------------|-------------|
+| `state` | string | all | PENDING / PROGRESS / SUCCESS / FAILURE / REVOKED |
+| `current` | int | PROGRESS | Steps completed |
+| `total` | int | PROGRESS | Total steps |
+| `status` | string | PROGRESS | Description of current step |
+| `result` | object | SUCCESS | Task result payload (varies by task) |
+| `error` | string | FAILURE | Error message |
+
+**Recommended polling interval:** 2 seconds for generation tasks, 1 second for backtests.
 
 ---
 
 ## Pagination
 
-All list endpoints support pagination.
+All list endpoints use page-number pagination.
 
-**Query Parameters:**
-- `page` (integer): Page number (default: 1)
-- `page_size` (integer): Results per page (default: 20, max: 100)
+**Query params:** `page` (int, default 1), `page_size` (int, default 50, max configurable)
 
-**Response Format:**
-```json
+**Response envelope:**
+```
 {
-  "count": 100,
-  "next": "http://localhost:8000/api/strategies/?page=2",
-  "previous": null,
-  "results": [...]
+  "count":    <total items>,
+  "next":     <URL or null>,
+  "previous": <URL or null>,
+  "results":  [...]
 }
 ```
 
 ---
 
-## Filtering & Sorting
+## Error Responses
 
-### Available Filters
-
-**Strategies:**
-- `status`: Filter by status ('generated', 'executed', 'failed', 'working')
-- `created_by`: Filter by user ID
-- `created_at__gte`: Created after date
-- `created_at__lte`: Created before date
-
-**Example:**
-```http
-GET /api/strategies/?status=working&created_at__gte=2025-12-01
-```
-
-### Sorting
-
-Use `ordering` parameter with field name. Prefix with `-` for descending.
-
-**Available Fields:**
-- `created_at`
-- `updated_at`
-- `name`
-- `status`
-
-**Example:**
-```http
-GET /api/strategies/?ordering=-created_at
-```
-
----
-
-## WebSocket Support (Future)
-
-Real-time updates via WebSocket (planned for future release):
-
-```javascript
-// Connect to WebSocket
-const ws = new WebSocket('ws://localhost:8000/ws/strategies/');
-
-// Listen for execution updates
-ws.onmessage = function(event) {
-  const data = JSON.parse(event.data);
-  console.log('Execution update:', data);
-};
-```
-
----
-
-## Additional Resources
-
-- **[Backend-API Integration](BACKEND_API_INTEGRATION.md)** - Architecture details
-- **[Production API Guide](PRODUCTION_API_GUIDE.md)** - Production deployment
-- **[Quick Reference](../guides/QUICK_REFERENCE.md)** - Common tasks
-- **[Integration Status](INTEGRATION_STATUS.md)** - Current status
-
----
-
-**Last Updated:** December 4, 2025  
-**Version:** 2.0 - Backend-to-API Integration Complete
+| Status | Meaning | Body shape |
+|--------|---------|-----------|
+| `400` | Validation error | `{ "field_name": ["error message"] }` |
+| `401` | Not authenticated | `{ "detail": "Authentication credentials were not provided." }` |
+| `403` | Permission denied (not owner) | `{ "detail": "You do not have permission..." }` |
+| `404` | Not found | `{ "detail": "Not found." }` |
+| `500` | Server error | `{ "detail": "Internal server error." }` |

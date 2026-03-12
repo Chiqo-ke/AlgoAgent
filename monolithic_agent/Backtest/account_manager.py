@@ -169,6 +169,9 @@ class AccountManager:
             realized_pnl = reduce_size * (position.avg_price - fill.price)
             self.cash -= fill.price * reduce_size
         
+        # Stamp realized P&L onto the fill so MetricsEngine can classify wins/losses
+        fill.realized_pnl = realized_pnl
+        
         # Update position
         position.realized_pnl += realized_pnl
         self.total_realized_pnl += realized_pnl

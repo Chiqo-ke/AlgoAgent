@@ -81,7 +81,14 @@ INSTALLED_APPS = [
     'trading',  # Trading app with WebSocket consumers
     'workflows_api',
     'django_celery_results',  # Stores Celery task results in the DB
+    'live_api',              # Live trading data fetching & scheduler
+    'trading_sessions_api',  # Live trading session management
 ]
+
+# Fernet key for encrypting MT5 passwords stored in LiveTradingSession.
+# Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Then add FERNET_KEY=<value> to your .env file.
+FERNET_KEY = os.getenv('FERNET_KEY', '')
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',

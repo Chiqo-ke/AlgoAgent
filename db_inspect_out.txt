@@ -1,0 +1,52 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+=== USERS ===
+  id=1  username=algotrader  is_superuser=False
+  id=2  username=testuser  is_superuser=False
+  id=3  username=api_test_user  is_superuser=False
+  id=4  username=Chiqo  is_superuser=False
+  id=5  username=Robin  is_superuser=False
+  id=6  username=trader  is_superuser=False
+  id=7  username=robin  is_superuser=False
+  id=8  username=rob  is_superuser=False
+
+=== STRATEGIES ===
+  id=133  name=Algotdrjkhhmjfgxc  owner=algotrader  has_code=True
+  id=132  name=AlgoemaD  owner=algotrader  has_code=True
+  id=131  name=Algotsttcgvhbjnkz  owner=algotrader  has_code=True
+  id=130  name=Algotesrtt1234567890  owner=algotrader  has_code=True
+  id=129  name=Algotest100111  owner=algotrader  has_code=True
+  id=128  name=Algotestst1011  owner=algotrader  has_code=True
+  id=127  name=Algo12326sxhsv  owner=algotrader  has_code=True
+  id=126  name=Algoyyyfy  owner=algotrader  has_code=True
+  id=125  name=Algosdsdsdsdfbdf  owner=algotrader  has_code=True
+  id=124  name=Algouuugffhv  owner=algotrader  has_code=True
+  id=123  name=Algofygcfgxdhvcggu  owner=algotrader  has_code=True
+  id=122  name=testvvfvdvvdvdvdv  owner=algotrader  has_code=True
+  id=121  name=Algojjgfhfgfgh  owner=algotrader  has_code=True
+  id=120  name=Algovhvhvgftyf  owner=algotrader  has_code=True
+  id=119  name=Algoetsggjadajbdjadj  owner=algotrader  has_code=True
+  id=118  name=Algotesttsdfhv  owner=algotrader  has_code=True
+  id=117  name=Algotessghjbvgh  owner=algotrader  has_code=True
+  id=116  name=Algotestsssvshvchsvcsvhcv  owner=algotrader  has_code=True
+  id=115  name=Algo  owner=algotrader  has_code=True
+  id=114  name=Algo1234567890gg  owner=algotrader  has_code=True
+  id=113  name=Algommmnnbbvvcxxz  owner=algotrader  has_code=True
+  id=112  name=fsdhfjsndjnjs  owner=algotrader  has_code=True
+  id=111  name=Algoyyuuugvh  owner=algotrader  has_code=True
+  id=110  name=Algoyyuuu  owner=algotrader  has_code=True
+  id=109  name=Algoeemdnnsds  owner=algotrader  has_code=True
+  id=108  name=Algoyyyyuuii  owner=algotrader  has_code=True
+  id=107  name=Algotestttcgv  owner=algotrader  has_code=True
+  id=106  name=Algotwst  owner=algotrader  has_code=True
+  id=105  name=Algoemajjbjbjknkn  owner=algotrader  has_code=True
+  id=104  name=AlgoEMA  owner=algotrader  has_code=True
+  id=103  name=Algoemaatest11  owner=algotrader  has_code=True
+  id=102  name=emaffff1  owner=algotrader  has_code=True
+  id=101  name=Algotestemaaa  owner=algotrader  has_code=True
+  id=100  name=Algotest22223  owner=algotrader  has_code=True
+  id=99  name=Algotest  owner=algotrader  has_code=True
+  id=98  name=AlgoEMAcross  owner=algotrader  has_code=True
+  id=97  name=Algoema  owner=algotrader  has_code=True
+  id=96  name=ghfdfgdhgkhjjhv  owner=algotrader  has_code=True
+
+Total strategies: 38

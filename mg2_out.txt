@@ -1,0 +1,4 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+[TALib] Auto-discovering all TALib indicators...
+[TALib] Registered 148 additional TALib indicators dynamically
+[TALib] Total indicators available: 160

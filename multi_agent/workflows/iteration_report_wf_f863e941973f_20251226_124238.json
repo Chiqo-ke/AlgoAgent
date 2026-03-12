@@ -1,0 +1,343 @@
+{
+  "workflow_id": "wf_f863e941973f",
+  "success": false,
+  "total_iterations": 5,
+  "max_iterations": 5,
+  "completed_at": "2025-12-26T12:42:38.028204",
+  "iteration_history": [
+    {
+      "iteration": 1,
+      "status": "completed",
+      "timestamp": "2025-12-26T12:41:12.944290",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_f863e941973f",
+          "status": "completed",
+          "results": {
+            "task_complete_strategy": {
+              "status": "ready",
+              "duration": 25.978487014770508,
+              "artifacts": [
+                "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+                "tests/test_20251226_124041_wf_f863e941973f_ema_crossover.py"
+              ],
+              "error": null
+            }
+          }
+        },
+        "tests": {
+          "workflow_id": "wf_f863e941973f",
+          "timestamp": "2025-12-26T12:41:12.943518",
+          "summary": {
+            "total": 1,
+            "passed": 0,
+            "failed": 1,
+            "success_rate": 0.0
+          },
+          "results": [
+            {
+              "strategy": "20251226_124041_wf_f863e941973f_ema_crossover",
+              "status": "timeout",
+              "error": "Test execution timed out after 30 seconds"
+            }
+          ]
+        },
+        "duration": 56.378133058547974
+      }
+    },
+    {
+      "iteration": 2,
+      "status": "completed",
+      "timestamp": "2025-12-26T12:41:13.097093",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_f863e941973f",
+          "status": "completed",
+          "results": {
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1": {
+              "status": "completed",
+              "fix_task_id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+              "fix_strategy": "general_debug",
+              "message": "Fix task created successfully"
+            }
+          }
+        },
+        "tests": {
+          "status": "skipped",
+          "message": "No strategy files to test"
+        },
+        "duration": 0.1528029441833496
+      }
+    },
+    {
+      "iteration": 3,
+      "status": "completed",
+      "timestamp": "2025-12-26T12:41:40.860259",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_f863e941973f",
+          "status": "completed",
+          "results": {
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1": {
+              "status": "completed",
+              "fix_task_id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+              "fix_strategy": "general_debug",
+              "message": "Fix task created successfully"
+            },
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2": {
+              "status": "ready",
+              "duration": 27.757444620132446,
+              "artifacts": [
+                "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+                "tests/test_20251226_124041_wf_f863e941973f_ema_crossover.py"
+              ],
+              "error": null
+            }
+          }
+        },
+        "tests": {
+          "status": "skipped",
+          "message": "No strategy files to test"
+        },
+        "duration": 27.763165712356567
+      }
+    },
+    {
+      "iteration": 4,
+      "status": "completed",
+      "timestamp": "2025-12-26T12:42:11.882267",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_f863e941973f",
+          "status": "completed",
+          "results": {
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1": {
+              "status": "completed",
+              "fix_task_id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+              "fix_strategy": "general_debug",
+              "message": "Fix task created successfully"
+            },
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2": {
+              "status": "ready",
+              "duration": 31.001195192337036,
+              "artifacts": [
+                "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+                "tests/test_20251226_124041_wf_f863e941973f_ema_crossover.py"
+              ],
+              "error": null
+            }
+          }
+        },
+        "tests": {
+          "status": "skipped",
+          "message": "No strategy files to test"
+        },
+        "duration": 31.022007942199707
+      }
+    },
+    {
+      "iteration": 5,
+      "status": "completed",
+      "timestamp": "2025-12-26T12:42:38.028204",
+      "data": {
+        "execution": {
+          "workflow_id": "wf_f863e941973f",
+          "status": "completed",
+          "results": {
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1": {
+              "status": "completed",
+              "fix_task_id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+              "fix_strategy": "general_debug",
+              "message": "Fix task created successfully"
+            },
+            "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2": {
+              "status": "ready",
+              "duration": 26.105239868164062,
+              "artifacts": [
+                "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+                "tests/test_20251226_124041_wf_f863e941973f_ema_crossover.py"
+              ],
+              "error": null
+            }
+          }
+        },
+        "tests": {
+          "status": "skipped",
+          "message": "No strategy files to test"
+        },
+        "duration": 26.14593744277954
+      }
+    }
+  ],
+  "updated_todo_list": {
+    "todo_list_id": "workflow_cf10e0a40558",
+    "workflow_name": "CLI Request 20251226_123812",
+    "created_at": "2025-12-26T09:38:12.604645Z",
+    "created_by": "planner_service",
+    "metadata": {
+      "user_request": "make a simple EMA crossover strategy that uses 30 and 70 periods crossing each other for entry. Open long positions when 30 ema crosses above 70 ema and enter short position when 70 ema crosses below 30 ema. The stop loss should be set 15 pips from entry and take profit should be 70 pips from entry",
+      "planner_version": "1.0.0",
+      "strategy_type": "single_file_complete",
+      "auto_fix_mode": true,
+      "max_branch_depth": 2,
+      "max_debug_attempts": 3
+    },
+    "items": [
+      {
+        "id": "task_complete_strategy",
+        "title": "Implement Complete EMA Crossover Strategy",
+        "description": "Implement complete trading strategy with: (1) Data loading from CSV/API with OHLCV validation, (2) Indicator calculation: 30-period Exponential Moving Average (EMA) and 70-period EMA, (3) Entry conditions: Open long position when 30 EMA crosses above 70 EMA; Open short position when 30 EMA crosses below 70 EMA, (4) Exit conditions: Stop Loss at 15 pips from entry price, Take Profit at 70 pips from entry price. The strategy must include a complete backtest runner with SimBroker adapter, explicit loop termination (e.g., max_iterations), robust error handling, and comprehensive logging. The 'pips' value should be interpreted relative to the instrument's price scale (e.g., 0.0001 for forex pairs, or a fixed absolute value based on configuration).",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "max_retries": 3,
+        "timeout_seconds": 600,
+        "acceptance_criteria": {
+          "tests": [
+            {
+              "cmd": "pytest tests/test_workflow_cf10e0a40558_strategy.py -v --tb=short",
+              "timeout_seconds": 120,
+              "expected_exit_code": 0,
+              "fixture": "fixtures/sample_ohlcv.csv"
+            }
+          ],
+          "expected_artifacts": [
+            "Backtest/codes/workflow_cf10e0a40558_complete_strategy.py",
+            "tests/test_workflow_cf10e0a40558_strategy.py",
+            "fixtures/sample_ohlcv.csv"
+          ],
+          "metrics": {
+            "min_test_coverage": 80,
+            "component_tests": [
+              "indicators",
+              "entries",
+              "exits"
+            ],
+            "integration_tests": [
+              "full_backtest"
+            ],
+            "min_total_tests": 10
+          }
+        },
+        "output_artifacts": [
+          "Backtest/codes/workflow_cf10e0a40558_complete_strategy.py",
+          "tests/test_workflow_cf10e0a40558_strategy.py",
+          "fixtures/sample_ohlcv.csv"
+        ],
+        "failure_routing": {
+          "implementation_bug": "coder",
+          "infinite_loop": "debugger",
+          "spec_mismatch": "architect",
+          "timeout": "debugger",
+          "test_failure": "debugger"
+        },
+        "metadata": {
+          "workflow_id": "wf_f863e941973f",
+          "original_artifact_path": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py"
+        },
+        "contract_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\workflows\\contract_task_complete_strategy.json"
+      },
+      {
+        "id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1",
+        "title": "Debug 20251226_124041_wf_f863e941973f_ema_crossover test failure",
+        "description": "Debug and fix the failing strategy.\n\n**Task:** Analyze and resolve test failure\n\n**Investigation Steps:**\n1. Check if test timeout occurred (optimize performance)\n2. Verify DataFrame has required columns\n3. Review indicator calculations\n4. Check entry and exit conditions\n5. Add error handling where needed\n6. Test with sample data\n",
+        "agent_role": "debugger",
+        "priority": 3,
+        "dependencies": [],
+        "metadata": {
+          "fix_type": "unknown",
+          "target_file": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "error_details": "Test execution timed out after 30 seconds",
+          "iteration": 1,
+          "full_output": "",
+          "workflow_id": "wf_f863e941973f"
+        }
+      },
+      {
+        "id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+        "title": "Fix unknown in 20251226_124041_wf_f863e941973f_ema_crossover.py",
+        "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "metadata": {
+          "fix_type": "unknown",
+          "target_file": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_artifact_path": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_task": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1",
+          "fix_instructions": {
+            "strategy": "general_debug",
+            "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n"
+          },
+          "workflow_id": "wf_f863e941973f",
+          "iteration": 2,
+          "auto_fix": true
+        },
+        "contract_path": "C:\\Users\\nyaga\\Documents\\AlgoAgent\\multi_agent\\workflows\\contract_fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2.json"
+      },
+      {
+        "id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+        "title": "Fix unknown in 20251226_124041_wf_f863e941973f_ema_crossover.py",
+        "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "metadata": {
+          "fix_type": "unknown",
+          "target_file": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_artifact_path": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_task": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1",
+          "fix_instructions": {
+            "strategy": "general_debug",
+            "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n"
+          },
+          "workflow_id": "wf_f863e941973f",
+          "iteration": 2,
+          "auto_fix": true
+        }
+      },
+      {
+        "id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+        "title": "Fix unknown in 20251226_124041_wf_f863e941973f_ema_crossover.py",
+        "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "metadata": {
+          "fix_type": "unknown",
+          "target_file": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_artifact_path": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_task": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1",
+          "fix_instructions": {
+            "strategy": "general_debug",
+            "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n"
+          },
+          "workflow_id": "wf_f863e941973f",
+          "iteration": 2,
+          "auto_fix": true
+        }
+      },
+      {
+        "id": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover.py_iter2",
+        "title": "Fix unknown in 20251226_124041_wf_f863e941973f_ema_crossover.py",
+        "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n",
+        "agent_role": "coder",
+        "priority": 1,
+        "dependencies": [],
+        "metadata": {
+          "fix_type": "unknown",
+          "target_file": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_artifact_path": "Backtest/codes/20251226_124041_wf_f863e941973f_ema_crossover.py",
+          "original_task": "fix_unknown_20251226_124041_wf_f863e941973f_ema_crossover_iter1",
+          "fix_instructions": {
+            "strategy": "general_debug",
+            "description": "Fix the failing strategy to pass all tests.\n\n**Issue Detected:** Test execution timed out after 30 seconds\n\n**Required Actions:**\n1. Review strategy code for correctness\n2. Verify DataFrame has required columns: open, high, low, close, volume\n3. Check indicator calculations for accuracy\n4. Ensure entry and exit conditions are properly implemented\n5. Add input validation and error handling\n6. Test edge cases: empty data, single row, missing values\n\n**Success Criteria:**\n- All test assertions pass\n- Strategy runs without errors\n- Code follows Python best practices\n- Performance is acceptable (under 30 seconds)\n"
+          },
+          "workflow_id": "wf_f863e941973f",
+          "iteration": 2,
+          "auto_fix": true
+        }
+      }
+    ]
+  }
+}

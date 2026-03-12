@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "C:\Users\nyaga\Documents\AlgoAgent\reset_pw.py", line 9, in <module>
+    u.set_password('Trading@2024')
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\contrib\auth\base_user.py", line 109, in set_password
+    self.password = make_password(raw_password)
+                    ~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\contrib\auth\hashers.py", line 108, in make_password
+    return hasher.encode(password, salt)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\contrib\auth\hashers.py", line 322, in encode
+    hash = pbkdf2(password, salt, iterations, digest=self.digest)
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\utils\crypto.py", line 76, in pbkdf2
+    return hashlib.pbkdf2_hmac(digest().name, password, salt, iterations, dklen)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
