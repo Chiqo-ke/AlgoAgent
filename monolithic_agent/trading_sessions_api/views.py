@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 import logging
 import sys
+import collections
 from pathlib import Path
 
 from .models import LiveTradingSession, BrokerCredential, SessionStatus
@@ -450,3 +451,72 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
         except Exception as exc:
             logger.exception("Error closing MT5 position %s for session %s: %s", ticket, pk, exc)
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # ------------------------------------------------------------------
+    # GET /api/trading/sessions/{id}/logs/  — tail subprocess activity log
+    # ------------------------------------------------------------------
+    @action(detail=True, methods=['get'], url_path='logs')
+    def logs(self, request, pk=None):
+        """
+        Return the last 5 summary lines from the subprocess log file for this session,
+        plus a last-modified timestamp and whether the subprocess is still alive.
+
+        Summary lines are those containing key events:
+          Iteration, Processing, Loop completed, ERROR, Kill switch, STARTUP, SHUTDOWN.
+        """
+        session = get_object_or_404(LiveTradingSession, pk=pk, created_by=request.user)
+
+        # Derive log path from session pk (predictable, no DB field needed)
+        log_path = LIVE_DIR / 'session_logs' / f'session_{pk}.log'
+
+        # Check whether the subprocess is still alive
+        is_alive = False
+        if session.pid:
+            try:
+                manager = SessionManager()
+                is_alive = manager.is_running(session.pid)
+            except Exception:
+                pass
+
+        if not log_path.exists():
+            return Response({
+                'lines': [],
+                'last_modified_at': None,
+                'is_process_alive': is_alive,
+            })
+
+        # Read last 80 raw lines efficiently
+        try:
+            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
+                tail = collections.deque(f, maxlen=80)
+        except Exception as exc:
+            logger.warning('Could not read log file %s: %s', log_path, exc)
+            return Response({
+                'lines': [],
+                'last_modified_at': None,
+                'is_process_alive': is_alive,
+            })
+
+        # Filter to summary/signal lines only
+        SUMMARY_KEYWORDS = ('Iteration', 'Processing', 'Loop completed', 'ERROR', 'Error',
+                            'Kill switch', 'STARTUP', 'SHUTDOWN', '\u2713', '\U0001f680')
+        summary_lines = [
+            line.rstrip('\n\r')
+            for line in tail
+            if any(kw in line for kw in SUMMARY_KEYWORDS)
+        ]
+        # Return last 5 summary lines
+        result_lines = summary_lines[-5:]
+
+        # Last-modified timestamp
+        import datetime
+        mtime = log_path.stat().st_mtime
+        last_modified_at = datetime.datetime.fromtimestamp(
+            mtime, tz=datetime.timezone.utc
+        ).isoformat()
+
+        return Response({
+            'lines': result_lines,
+            'last_modified_at': last_modified_at,
+            'is_process_alive': is_alive,
+        })

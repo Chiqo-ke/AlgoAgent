@@ -29,6 +29,7 @@ LIVE_DIR = Path(__file__).parent         # AlgoAgent/monolithic_agent/Live/
 LIVE_TRADER = LIVE_DIR / 'live_trader.py'
 TEMP_STRATEGIES_DIR = LIVE_DIR / 'temp_strategies'
 KILL_SWITCHES_DIR = LIVE_DIR / 'kill_switches'
+SESSION_LOGS_DIR = LIVE_DIR / 'session_logs'
 VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')
 
 
@@ -44,8 +45,10 @@ class SessionManager:
         """
         TEMP_STRATEGIES_DIR.mkdir(parents=True, exist_ok=True)
         KILL_SWITCHES_DIR.mkdir(parents=True, exist_ok=True)
+        SESSION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
         session_id = str(session.pk)
+        log_path = SESSION_LOGS_DIR / f'session_{session_id}.log'
 
         # 1. Write strategy code to temp file
         strategy_file = TEMP_STRATEGIES_DIR / f'strategy_{session_id}_{uuid.uuid4().hex[:8]}.py'
@@ -107,13 +110,20 @@ class SessionManager:
         # 5. Determine Python executable
         python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
-        # 6. Spawn subprocess
+        # 6. Spawn subprocess — redirect stdout/stderr to per-session log file
+        log_file_handle = None
+        try:
+            log_file_handle = open(log_path, 'a', encoding='utf-8', buffering=1)  # line-buffered
+        except Exception as e:
+            logger.warning(f'Session {session_id}: could not open log file {log_path}: {e}; falling back to DEVNULL')
+            log_file_handle = None
+
         try:
             proc = subprocess.Popen(
                 [python_exe, str(LIVE_TRADER), '--strategy', str(strategy_file), '--config', str(env_file)],
                 cwd=str(LIVE_DIR),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file_handle or subprocess.DEVNULL,
+                stderr=subprocess.STDOUT if log_file_handle else subprocess.DEVNULL,
                 # Detach from parent process so it survives Django worker restarts
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
             )
@@ -125,6 +135,12 @@ class SessionManager:
                 env_file.unlink(missing_ok=True)
             return False, None, f'Failed to spawn subprocess: {e}'
         finally:
+            # Close the log file handle in the parent process — the child has its own copy
+            if log_file_handle:
+                try:
+                    log_file_handle.close()
+                except Exception:
+                    pass
             # Delete the .env file immediately — credentials no longer needed on disk
             if env_file and env_file.exists():
                 try:
@@ -135,6 +151,7 @@ class SessionManager:
         # 7. Persist file paths on session for cleanup
         session.temp_file_path = str(strategy_file)
         session.kill_switch_path = str(kill_switch_path)
+        session.log_file_path = str(log_path)
         # (caller must save the session after this returns)
 
         return True, pid, None
