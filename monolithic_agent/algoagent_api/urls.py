@@ -79,4 +79,6 @@ urlpatterns = [
     path('api/production/', include('algoagent_api.production_api_urls')),
     # Async job status polling (works for any Celery task)
     path('api/jobs/<str:task_id>/', job_status, name='job-status'),
+    path('api/live/', include('live_api.urls')),
+    path('api/trading/', include('trading_sessions_api.urls')),
 ]

@@ -1,6 +1,6 @@
 # API Endpoints Reference
 
-**Last Updated:** March 10, 2026
+**Last Updated:** March 11, 2026
 **Base URL:** `http://localhost:8000` (dev) | `https://chiqoke254.pythonanywhere.com` (prod)
 **See also:** [Architecture](../architecture/ARCHITECTURE.md) | [Production API](PRODUCTION_API_GUIDE.md) | [Quick Reference](../guides/QUICK_REFERENCE.md)
 
@@ -14,6 +14,7 @@
 - [Strategy API — `/api/strategies/`](#strategy-api)
 - [Backtest API — `/api/backtests/`](#backtest-api)
 - [Production API — `/api/production/`](#production-api)
+- [Trading Sessions API — `/api/trading/`](#trading-sessions-api)
 - [Workflows API — `/api/workflows/`](#workflows-api)
 - [Utility Endpoints](#utility-endpoints)
 - [WebSocket Endpoint](#websocket-endpoint)
@@ -856,6 +857,38 @@ Roll back a deployed strategy to its previous Git tag.
 | POST | `/api/production/backtests/run-sandbox/` | Run in isolated sandbox with audit trail |
 | GET | `/api/production/backtests/<id>/status/` | Get execution status |
 | POST | `/api/production/backtests/<id>/stop/` | Force-stop a running sandbox backtest |
+
+---
+
+## Trading Sessions API
+
+**Status:** ✅ NEW (March 2026) | **Base path:** `/api/trading/`
+
+**Full documentation:** [LIVE_TRADING_SESSIONS_API.md](../LIVE_TRADING_SESSIONS_API.md)
+
+**Quick Summary:**
+- Save encrypted broker credentials (MT5 login, server, terminal path)
+- Start/stop live trading sessions for strategies
+- Monitor subprocess health (PID, status, timestamps)
+- Graceful termination via kill-switch mechanism
+- Dry-run mode for testing
+
+**Key Endpoints:**
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/credentials/` | Save broker credential |
+| GET | `/credentials/` | List user's credentials |
+| GET | `/credentials/{id}/` | Get one credential |
+| PUT/PATCH | `/credentials/{id}/` | Update credential |
+| DELETE | `/credentials/{id}/` | Delete credential |
+| POST | `/sessions/` | Start live session |
+| GET | `/sessions/` | List sessions |
+| GET | `/sessions/{id}/` | Get session details |
+| POST | `/sessions/{id}/stop/` | Stop running session |
+| DELETE | `/sessions/{id}/` | Delete session |
+
+**E2E Test Status:** ✅ All 5 steps passing
+- Login → Save credential → List credentials → Start session (dry_run) → Stop session
 
 ---
 

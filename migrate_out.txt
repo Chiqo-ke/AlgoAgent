@@ -1,0 +1,118 @@
+C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\request_router.py:21: FutureWarning: 
+
+All support for the `google.generativeai` package has ended. It will no longer be receiving 
+updates or bug fixes. Please switch to the `google.genai` package as soon as possible.
+See README for more details:
+
+https://github.com/google-gemini/deprecated-generative-ai-python/blob/main/README.md
+
+  import google.generativeai as genai
+INFO:strategy_api.production_views:[OK] StateManager initialized
+INFO:strategy_api.production_views:[OK] SafeTools initialized
+INFO:strategy_api.production_views:[OK] OutputValidator initialized
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+[TALib] Auto-discovering all TALib indicators...
+[TALib] Registered 148 additional TALib indicators dynamically
+[TALib] Total indicators available: 160
+Traceback (most recent call last):
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\manage.py", line 31, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\manage.py", line 27, in main
+    execute_from_command_line(sys.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\__init__.py", line 442, in execute_from_command_line
+    utility.execute()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\__init__.py", line 436, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\base.py", line 412, in run_from_argv
+    self.execute(*args, **cmd_options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\base.py", line 458, in execute
+    output = self.handle(*args, **options)
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\base.py", line 106, in wrapper
+    res = handle_func(*args, **kwargs)
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\commands\migrate.py", line 100, in handle
+    self.check(databases=[database])
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\management\base.py", line 485, in check
+    all_issues = checks.run_checks(
+        app_configs=app_configs,
+    ...<2 lines>...
+        databases=databases,
+    )
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\checks\registry.py", line 88, in run_checks
+    new_errors = check(app_configs=app_configs, databases=databases)
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\checks\urls.py", line 14, in check_url_config
+    return check_resolver(resolver)
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\core\checks\urls.py", line 24, in check_resolver
+    return check_method()
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\urls\resolvers.py", line 516, in check
+    for pattern in self.url_patterns:
+                   ^^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\utils\functional.py", line 47, in __get__
+    res = instance.__dict__[self.name] = self.func(instance)
+                                         ~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\urls\resolvers.py", line 735, in url_patterns
+    patterns = getattr(self.urlconf_module, "urlpatterns", self.urlconf_module)
+                       ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\utils\functional.py", line 47, in __get__
+    res = instance.__dict__[self.name] = self.func(instance)
+                                         ~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\urls\resolvers.py", line 728, in urlconf_module
+    return import_module(self.urlconf_name)
+  File "C:\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1026, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\algoagent_api\urls.py", line 79, in <module>
+    path('api/production/', include('algoagent_api.production_api_urls')),
+                            ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\.venv\Lib\site-packages\django\urls\conf.py", line 38, in include
+    urlconf_module = import_module(urlconf_module)
+  File "C:\Python313\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1026, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\algoagent_api\production_api_urls.py", line 25, in <module>
+    from strategy_api.production_views import ProductionStrategyViewSet
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\strategy_api\production_views.py", line 85, in <module>
+    sandbox_runner = SandboxRunner(workspace_root=workspace_root)
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\sandbox_orchestrator.py", line 487, in __init__
+    self.orchestrator = SandboxOrchestrator(workspace_root)
+                        ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\sandbox_orchestrator.py", line 130, in __init__
+    self.docker_available = docker_available and self._check_docker()
+                                                 ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\nyaga\Documents\AlgoAgent\monolithic_agent\Backtest\sandbox_orchestrator.py", line 141, in _check_docker
+    result = subprocess.run(
+        ["docker", "version"],
+    ...<2 lines>...
+        text=True
+    )
+  File "C:\Python313\Lib\subprocess.py", line 556, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\subprocess.py", line 1222, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\subprocess.py", line 1644, in _communicate
+    self.stdout_thread.join(self._remaining_time(endtime))
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\threading.py", line 1094, in join
+    self._handle.join(timeout)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^
+KeyboardInterrupt
+^C

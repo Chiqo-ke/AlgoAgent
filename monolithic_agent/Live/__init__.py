@@ -29,15 +29,22 @@ For detailed documentation, see README.md
 __version__ = '1.0.0'
 __author__ = 'AlgoAgent'
 
-from .config import LiveConfig, setup_logging, MT5Constants
-from .mt5_connector import MT5Connector
-from .order_executor import OrderExecutor
-from .state_manager import StateManager
-from .audit_logger import AuditLogger
-from .backtesting_bridge import BacktestingBridge
-from .alerts import AlertSystem
-from .dashboard import Dashboard
-from .live_trader import LiveTrader
+# MT5-dependent components require MetaTrader5 to be installed and the module
+# to be imported from within the Live/ working directory (they use bare
+# `from config import ...` instead of relative imports).  Wrap them so that
+# importing Live.live_data_fetcher (which has no MT5 dependency) still works.
+try:
+    from .config import LiveConfig, setup_logging, MT5Constants
+    from .mt5_connector import MT5Connector
+    from .order_executor import OrderExecutor
+    from .state_manager import StateManager
+    from .audit_logger import AuditLogger
+    from .backtesting_bridge import BacktestingBridge
+    from .alerts import AlertSystem
+    from .dashboard import Dashboard
+    from .live_trader import LiveTrader
+except (ImportError, ModuleNotFoundError):
+    pass  # MT5 components unavailable; live_data_fetcher still importable.
 
 __all__ = [
     'LiveConfig',

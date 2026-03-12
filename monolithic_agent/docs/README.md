@@ -1,6 +1,6 @@
 # AlgoAgent — System Documentation
 
-**Last Updated:** March 10, 2026
+**Last Updated:** March 11, 2026
 **Status:** Current — reflects live implementation
 
 ---
@@ -37,6 +37,7 @@ Start with **Architecture** to understand the big picture, then go deeper into w
 |----------|----------------|
 | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) | Component diagram, request lifecycle, all Django apps, Celery pattern, WebSocket streaming |
 | [api/API_ENDPOINTS.md](api/API_ENDPOINTS.md) | Every REST endpoint — method, path, auth, request params, response fields |
+| [LIVE_TRADING_SESSIONS_API.md](LIVE_TRADING_SESSIONS_API.md) | **NEW (March 2026)** — Live trading on MT5: broker credentials, session management, subprocess spawning, kill-switch control |
 | [api/PRODUCTION_API_GUIDE.md](api/PRODUCTION_API_GUIDE.md) | Production-hardened endpoints: schema validation, sandboxing, deploy, rollback |
 | [DATA_MODELS.md](DATA_MODELS.md) | All Django ORM models across all apps — fields, types, relationships |
 | [AI_PIPELINE.md](AI_PIPELINE.md) | End-to-end AI strategy generation flow: prompt → LLM → code → fix loop → execution → DB |

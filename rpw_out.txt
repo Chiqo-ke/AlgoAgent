@@ -1,0 +1,1 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env

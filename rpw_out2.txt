@@ -1,0 +1,4 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+Found user: algotrader | email: nyagamacharia3@gmail.com | active: True
+Password reset for algotrader -> LiveTest@2026
+Verify: True

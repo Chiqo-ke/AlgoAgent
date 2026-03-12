@@ -1,0 +1,12 @@
+[Settings] Loaded .env from: C:\Users\nyaga\Documents\AlgoAgent\.env
+{'id': 133, 'name': 'Algotdrjkhhmjfgxc', 'created_by__username': 'algotrader'}
+{'id': 132, 'name': 'AlgoemaD', 'created_by__username': 'algotrader'}
+{'id': 131, 'name': 'Algotsttcgvhbjnkz', 'created_by__username': 'algotrader'}
+{'id': 130, 'name': 'Algotesrtt1234567890', 'created_by__username': 'algotrader'}
+{'id': 129, 'name': 'Algotest100111', 'created_by__username': 'algotrader'}
+{'id': 128, 'name': 'Algotestst1011', 'created_by__username': 'algotrader'}
+{'id': 127, 'name': 'Algo12326sxhsv', 'created_by__username': 'algotrader'}
+{'id': 126, 'name': 'Algoyyyfy', 'created_by__username': 'algotrader'}
+{'id': 125, 'name': 'Algosdsdsdsdfbdf', 'created_by__username': 'algotrader'}
+{'id': 124, 'name': 'Algouuugffhv', 'created_by__username': 'algotrader'}
+Total: 38
