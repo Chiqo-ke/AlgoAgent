@@ -9,7 +9,12 @@ from datetime import datetime
 import logging
 
 from config import LiveConfig, MT5Constants
-from mt5_connector import MT5Connector
+
+import os as _os
+if _os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+    from mt5_bridge_connector import MT5BridgeConnector as MT5Connector
+else:
+    from mt5_connector import MT5Connector
 
 logger = logging.getLogger('LiveTrader.OrderExecutor')
 
@@ -390,7 +395,11 @@ class OrderExecutor:
 # Example usage
 if __name__ == "__main__":
     from config import LiveConfig, setup_logging
-    from mt5_connector import MT5Connector
+    import os as _os2
+    if _os2.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+        from mt5_bridge_connector import MT5BridgeConnector as MT5Connector
+    else:
+        from mt5_connector import MT5Connector
     
     config = LiveConfig()
     logger = setup_logging(config)

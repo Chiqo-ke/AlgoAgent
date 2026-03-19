@@ -4,17 +4,25 @@ Live Trader - Main trading loop and orchestration
 import signal
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 import logging
 
 from config import LiveConfig, setup_logging, MT5Constants
-from mt5_connector import MT5Connector, MT5ConnectionError
+
+# On Linux the native MetaTrader5 package is unavailable; use the HTTP bridge
+# connector instead.  Set MT5_USE_BRIDGE=true in the environment to activate.
+import os as _os
+if _os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+    from mt5_bridge_connector import MT5BridgeConnector as MT5Connector, MT5ConnectionError
+else:
+    from mt5_connector import MT5Connector, MT5ConnectionError
 from order_executor import OrderExecutor
 from state_manager import StateManager
 from audit_logger import AuditLogger
 from backtesting_bridge import BacktestingBridge, get_strategy_from_file
+from live_data_fetcher import LiveDataFetcher
 
 logger = logging.getLogger('LiveTrader')
 
@@ -44,6 +52,7 @@ class LiveTrader:
         self.executor = OrderExecutor(config, self.connector)
         self.state = StateManager(config)
         self.audit = AuditLogger(config.audit_db_path)
+        self.data_fetcher = LiveDataFetcher()
         
         # Load strategy
         logger.info(f"Loading strategy from: {strategy_path}")
@@ -186,6 +195,23 @@ class LiveTrader:
         """
         logger.info(f"Processing {symbol}...")
         
+        # Refresh warehouse data before generating signals
+        fetch_result = self.data_fetcher.refresh(
+            symbol=symbol,
+            exchange=self.config.exchange,
+            interval=self.config.timeframe,
+        )
+        if fetch_result['status'] not in ('ok',):
+            logger.warning(
+                f"Data refresh for {symbol} returned status={fetch_result['status']}: "
+                f"{fetch_result['message']} — proceeding with existing warehouse data"
+            )
+        else:
+            logger.info(
+                f"Data refresh {symbol}: +{fetch_result['new_rows']} new bars, "
+                f"latest={fetch_result['latest_bar']}"
+            )
+        
         # Get symbol info
         symbol_info = self.connector.get_symbol_info(symbol)
         if not symbol_info:
@@ -193,7 +219,7 @@ class LiveTrader:
             return
         
         # Generate signals
-        end_time = datetime.now()
+        end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(days=1)  # Look at last day of data
         
         try:
