@@ -23,6 +23,10 @@ class LiveConfig:
     mt5_server: str = os.getenv('MT5_SERVER', '')
     mt5_path: Optional[str] = os.getenv('MT5_PATH', None)  # Path to terminal64.exe
     mt5_timeout: int = int(os.getenv('MT5_TIMEOUT', '60000'))  # milliseconds
+
+    # MT5 Bridge (Linux/Wine setup) — set MT5_USE_BRIDGE=true to use the HTTP bridge
+    mt5_use_bridge: bool = os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true'
+    mt5_bridge_url: str = os.getenv('MT5_BRIDGE_URL', 'http://127.0.0.1:5555')
     
     # Trading Parameters
     dry_run: bool = os.getenv('DRY_RUN', 'true').lower() == 'true'
