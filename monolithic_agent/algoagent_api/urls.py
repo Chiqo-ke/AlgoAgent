@@ -74,7 +74,11 @@ urlpatterns = [
     path('api/backtests/', include('backtest_api.urls')),
     path('api/workflows/', include('workflows_api.urls')),
     # Frontend error logging (called by logger.ts sendErrorToBackend)
+    # Both trailing-slash and no-trailing-slash variants are registered because
+    # Django's APPEND_SLASH redirect does not follow POST requests, causing a 404
+    # when the frontend sends POST /api/logs/frontend-errors (no trailing slash).
     path('api/logs/frontend-errors/', frontend_error_log, name='frontend-error-log'),
+    path('api/logs/frontend-errors', frontend_error_log, name='frontend-error-log-noslash'),
     # Production-hardened endpoints with sandbox execution
     path('api/production/', include('algoagent_api.production_api_urls')),
     # Async job status polling (works for any Celery task)
