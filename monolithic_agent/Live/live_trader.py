@@ -195,10 +195,14 @@ class LiveTrader:
         """
         logger.info(f"Processing {symbol}...")
         
+        # Resolve the correct tvDatafeed exchange for this symbol.
+        # FX pairs use 'FX', gold uses 'OANDA', crypto uses 'COINBASE'.
+        exchange = self._resolve_exchange(symbol)
+        
         # Refresh warehouse data before generating signals
         fetch_result = self.data_fetcher.refresh(
             symbol=symbol,
-            exchange=self.config.exchange,
+            exchange=exchange,
             interval=self.config.timeframe,
         )
         if fetch_result['status'] not in ('ok',):
@@ -218,9 +222,10 @@ class LiveTrader:
             logger.warning(f"Could not get symbol info for {symbol}")
             return
         
-        # Generate signals
+        # Generate signals — use a 7-day lookback so the window always
+        # contains recent bars regardless of weekends or data gaps.
         end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(days=1)  # Look at last day of data
+        start_time = end_time - timedelta(days=7)
         
         try:
             signals = self.bridge.generate_signals(
@@ -471,6 +476,23 @@ class LiveTrader:
                        f"Equity=${account['equity']:.2f}, "
                        f"P/L=${account['profit']:.2f}")
     
+    def _resolve_exchange(self, symbol: str) -> str:
+        """
+        Return the correct tvDatafeed exchange string for a given symbol.
+        Falls back to self.config.exchange (default 'FX') if not recognised.
+        """
+        symbol_upper = symbol.upper()
+        # Explicit overrides for non-FX symbols
+        EXCHANGE_MAP = {
+            'XAUUSD': 'OANDA',
+            'XAGUSD': 'OANDA',
+            'BTCUSD': 'COINBASE',
+            'ETHUSD': 'COINBASE',
+            'BTCUSDT': 'BINANCE',
+            'ETHUSDT': 'BINANCE',
+        }
+        return EXCHANGE_MAP.get(symbol_upper, self.config.exchange)
+
     def _check_kill_switch(self) -> bool:
         """Check if kill switch file exists"""
         if not self.config.enable_kill_switch:

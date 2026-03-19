@@ -4,7 +4,8 @@ Spawns and manages live trader subprocesses (one per session).
 
 Each subprocess runs live_trader.py with its own .env file containing
 per-session MT5 credentials and trading config. The temp .env is deleted
-immediately after the process starts.
+when the session is stopped (not immediately after spawn, to avoid a race
+where the child process has not yet loaded it).
 
 MT5 SDK constraint: mt5.initialize() is global-state per Python process.
 One subprocess = one MT5 terminal connection = one broker account.
@@ -141,18 +142,29 @@ class SessionManager:
                     log_file_handle.close()
                 except Exception:
                     pass
-            # Delete the .env file immediately — credentials no longer needed on disk
-            if env_file and env_file.exists():
-                try:
-                    env_file.unlink()
-                except Exception:
-                    pass  # Best-effort
+            # NOTE: Do NOT delete the .env file here. The child process loads it via
+            # dotenv.load_dotenv() shortly after startup; deleting it before the child
+            # has read it causes a race where the child falls back to the global .env.
+            # The file is deleted in stop_session() once the process has exited.
 
         # 7. Persist file paths on session for cleanup
         session.temp_file_path = str(strategy_file)
         session.kill_switch_path = str(kill_switch_path)
         session.log_file_path = str(log_path)
         # (caller must save the session after this returns)
+
+        # 8. Delete the .env file after a short delay so the child process has time
+        #    to load it via dotenv.load_dotenv() before it disappears.
+        import threading
+        def _deferred_delete(path: Path, delay: float = 10.0):
+            time.sleep(delay)
+            try:
+                path.unlink(missing_ok=True)
+                logger.debug(f'Session {session_id}: temp env file deleted')
+            except Exception:
+                pass
+        if env_file:
+            threading.Thread(target=_deferred_delete, args=(env_file,), daemon=True).start()
 
         return True, pid, None
 
