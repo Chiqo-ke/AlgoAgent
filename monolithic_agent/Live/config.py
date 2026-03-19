@@ -42,6 +42,7 @@ class LiveConfig:
     
     # Strategy Parameters
     symbols: list = field(default_factory=lambda: os.getenv('SYMBOLS', 'EURUSD,GBPUSD').split(','))
+    exchange: str = os.getenv('EXCHANGE', 'FX')  # tvDatafeed exchange for all symbols
     timeframe: str = os.getenv('TIMEFRAME', '1d')
     strategy_id: str = os.getenv('STRATEGY_ID', 'default_strategy')
     magic_number: int = int(os.getenv('MAGIC_NUMBER', '123456'))

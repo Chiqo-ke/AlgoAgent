@@ -5,7 +5,7 @@ Reuses Backtesting module's functions for signal generation, sizing, and order b
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import logging
 
@@ -84,6 +84,12 @@ class BacktestingBridge:
             return pd.DataFrame()
         
         # Filter to requested time range
+        # Make from_ts / to_ts tz-aware (UTC) if the DataFrame index is tz-aware.
+        if df.index.tz is not None:
+            if from_ts.tzinfo is None:
+                from_ts = from_ts.replace(tzinfo=timezone.utc)
+            if to_ts.tzinfo is None:
+                to_ts = to_ts.replace(tzinfo=timezone.utc)
         df = df[(df.index >= from_ts) & (df.index <= to_ts)]
         
         if df.empty:
