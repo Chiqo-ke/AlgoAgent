@@ -10,7 +10,14 @@ from typing import Optional
 import logging
 
 from config import LiveConfig, setup_logging, MT5Constants
-from mt5_connector import MT5Connector, MT5ConnectionError
+
+# On Linux the native MetaTrader5 package is unavailable; use the HTTP bridge
+# connector instead.  Set MT5_USE_BRIDGE=true in the environment to activate.
+import os as _os
+if _os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+    from mt5_bridge_connector import MT5BridgeConnector as MT5Connector, MT5ConnectionError
+else:
+    from mt5_connector import MT5Connector, MT5ConnectionError
 from order_executor import OrderExecutor
 from state_manager import StateManager
 from audit_logger import AuditLogger
