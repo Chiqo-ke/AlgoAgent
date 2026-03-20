@@ -239,8 +239,22 @@ class LiveTrader:
                 logger.info(f"No signals generated for {symbol}")
                 return
             
-            # Get the latest signal
-            latest_signal = signals.iloc[-1]
+            # Prefer the most recent actionable (BUY/SELL) signal in the window.
+            # The bridge returns one row per bar; on most bars the signal is HOLD
+            # because EMA crossovers (and similar events) are rare.  Blindly taking
+            # iloc[-1] would always yield HOLD even when a crossover occurred earlier
+            # in the same 7-day window.  We pick the latest non-HOLD signal so that
+            # a real entry/exit is not missed, while still using the deduplication ID
+            # to avoid re-executing the same signal on every subsequent iteration.
+            actionable = signals[signals['signal'].isin(['BUY', 'SELL'])]
+            if not actionable.empty:
+                latest_signal = actionable.iloc[-1]
+                logger.info(
+                    f"Actionable signal found for {symbol}: "
+                    f"{latest_signal['signal']} @ {latest_signal.name}"
+                )
+            else:
+                latest_signal = signals.iloc[-1]
             signal_timestamp = latest_signal.name.strftime('%Y%m%d%H%M%S')
             signal_id = f"{self.config.strategy_id}_{symbol}_{signal_timestamp}"
             

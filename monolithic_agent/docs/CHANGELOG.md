@@ -20,6 +20,34 @@
 
 ## March 2026
 
+### March 20, 2026 (Evening) - Live Trader: Actionable Signal Pickup Fix
+
+#### Bug: `live_trader._process_symbol()` always picked the most recent bar (HOLD), never acting on BUY/SELL signals
+
+**Root cause:** `generate_signals()` returns one row per bar in the 7-day window. Entry/exit events (EMA crossovers, breakouts) fire on specific bars, not the final bar. `_process_symbol()` used `signals.iloc[-1]` unconditionally, so the strategy's BUY/SELL rows were silently discarded — only the most-recent-bar's HOLD was ever seen.
+
+**Fix (`Live/live_trader.py`):**
+Before falling back to `iloc[-1]`, filter for the most recent `BUY` or `SELL` row:
+```python
+actionable = signals[signals['signal'].isin(['BUY', 'SELL'])]
+latest_signal = actionable.iloc[-1] if not actionable.empty else signals.iloc[-1]
+```
+Deduplication via `signal_id` (which encodes the signal's own timestamp) still prevents the same event from being re-executed on future iterations.
+
+**Impact:** Sessions 8, 9, 10 restarted after this fix. BUY/SELL signals from crossover events within the 7-day window will now be picked up and forwarded to `_execute_signal()`.
+
+---
+
+### March 20, 2026 - Live Trading Signal Generation Fix (backtesting_bridge.py)
+
+*(See `docs/archive/LIVE_TRADING_SIGNAL_FIX_2026-03-20.md` for full details)*
+
+Two bugs caused 0 signals for 15+ hours. Fixed in `Live/backtesting_bridge.py`:
+- `period='max'` + `tail(500)` replaces `period='1mo'` to ensure indicator warmup
+- Correct `order_manager.orders_created` counter and `Order` dataclass attribute access
+
+---
+
 ### March 11, 2026 - Live Trading System E2E Testing & Fixes
 
 #### 🎯 Live Trading Sessions API - Full End-to-End Test Success ✅
