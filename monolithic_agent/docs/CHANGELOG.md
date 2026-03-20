@@ -1,6 +1,6 @@
 # AlgoAgent Monolithic Agent - Changelog
 
-**Last Updated:** March 11, 2026  
+**Last Updated:** March 20, 2026 (Evening)  
 **Purpose:** Comprehensive log of all fixes, improvements, and system changes
 
 ---
@@ -8,6 +8,9 @@
 ## Table of Contents
 
 - [March 2026](#march-2026)
+  - [March 20, 2026 (Evening) - File Permissions Fix & Data Loading Audit](#march-20-2026-evening---file-permissions-fix--data-loading-audit)
+  - [March 20, 2026 (Evening) - Live Trader Signal Pickup Fix](#march-20-2026-evening---live-trader-signal-pickup-fix)
+  - [March 20, 2026 - Live Trading Signal Generation Fix](#march-20-2026---live-trading-signal-generation-fix)
   - [March 11, 2026 - Live Trading System E2E Testing & Fixes](#march-11-2026---live-trading-system-e2e-testing--fixes)
 - [January 2026](#january-2026)
   - [January 23, 2026 - Execution & Auto-Fix Improvements](#january-23-2026---execution--auto-fix-improvements)
@@ -20,11 +23,37 @@
 
 ## March 2026
 
-### March 20, 2026 (Evening) - Live Trader: Actionable Signal Pickup Fix
+### March 20, 2026 (Evening) - File Permissions Fix & Data Loading Audit
+
+#### Critical: CSV Warehouse Files Were Not Writable by `algoagent` User
+
+**Issue:** Session 11 crashed on iteration 1 with `PermissionError: [Errno 13] Permission denied` when `live_data_fetcher.py` tried to write updated market data to CSV files.
+
+**Root cause:** CSV files in `/opt/algoagent/AlgoAgent/monolithic_agent/Data/data/` were owned by `root:root` with mode `0644` (read-only for group/others). The `algoagent` system user running the live trader subprocess had no write permission.
+
+**Fix:** Changed ownership of all warehouse CSVs:
+```bash
+chown -R algoagent:algoagent /opt/algoagent/AlgoAgent/monolithic_agent/Data/data/
+```
+
+**Impact:** 
+- Session 11 recovered after fix
+- Subsequent iterations show clean data loading
+- All symbols (BTCUSD, EURUSD, ETHUSD, US30, AAPL, etc.) now update successfully
+- Live data fetcher can write 500-row batches to warehouse every iteration
+- **Data pipeline fully operational:** Fetch → Warmup → Analysis → Execution
+
+**Verification:** See `docs/archive/DATA_LOADING_AUDIT_2026-03-20.md` for detailed analysis of all 4 stages. All systems green.
+
+---
+
+### March 20, 2026 (Evening) - Live Trader Signal Pickup Fix
 
 #### Bug: `live_trader._process_symbol()` always picked the most recent bar (HOLD), never acting on BUY/SELL signals
 
 **Root cause:** `generate_signals()` returns one row per bar in the 7-day window. Entry/exit events (EMA crossovers, breakouts) fire on specific bars, not the final bar. `_process_symbol()` used `signals.iloc[-1]` unconditionally, so the strategy's BUY/SELL rows were silently discarded — only the most-recent-bar's HOLD was ever seen.
+
+**Evidence:** BTCUSD had BULLISH crossover at 09:00 and BEARISH at 11:00 today; EURUSD had BULLISH at 2026-03-19 15:00. None were ever forwarded to order execution.
 
 **Fix (`Live/live_trader.py`):**
 Before falling back to `iloc[-1]`, filter for the most recent `BUY` or `SELL` row:
@@ -34,7 +63,7 @@ latest_signal = actionable.iloc[-1] if not actionable.empty else signals.iloc[-1
 ```
 Deduplication via `signal_id` (which encodes the signal's own timestamp) still prevents the same event from being re-executed on future iterations.
 
-**Impact:** Sessions 8, 9, 10 restarted after this fix. BUY/SELL signals from crossover events within the 7-day window will now be picked up and forwarded to `_execute_signal()`.
+**Impact:** Commit `1af424d`. Sessions 8, 9, 10 were stopped to apply fix. On restart, will pick up historical BUY/SELL signals within 7-day window and forward to `_execute_signal()`.
 
 ---
 
