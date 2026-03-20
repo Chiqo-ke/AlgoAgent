@@ -71,30 +71,37 @@ class BacktestingBridge:
         """
         logger.info(f"Generating signals for {symbol} from {from_ts} to {to_ts} ({timeframe})")
         
-        # Load market data with indicators
+        # Load market data with indicators — use 'max' period so strategy indicators
+        # (SMA, EMA, RSI, etc.) have enough historical bars to warm up properly.
         try:
             df, metadata = load_market_data(
                 ticker=symbol,
                 indicators=indicators,
-                period='1mo',  # Load enough history
+                period='max',
                 interval=timeframe
             )
         except Exception as e:
             logger.error(f"Failed to load market data: {e}")
             return pd.DataFrame()
         
-        # Filter to requested time range
-        # Make from_ts / to_ts tz-aware (UTC) if the DataFrame index is tz-aware.
+        if df.empty:
+            logger.warning(f"No warehouse data found for {symbol} ({timeframe})")
+            return pd.DataFrame()
+        
+        # Normalise timezone: ensure from_ts / to_ts are UTC-aware when the
+        # DataFrame index is tz-aware (it always is after _load_warehouse_csv).
         if df.index.tz is not None:
             if from_ts.tzinfo is None:
                 from_ts = from_ts.replace(tzinfo=timezone.utc)
             if to_ts.tzinfo is None:
                 to_ts = to_ts.replace(tzinfo=timezone.utc)
-        df = df[(df.index >= from_ts) & (df.index <= to_ts)]
         
-        if df.empty:
-            logger.warning(f"No data available for {symbol} in range {from_ts} to {to_ts}")
-            return pd.DataFrame()
+        # Run the strategy over ALL loaded bars so indicators warm up correctly,
+        # then filter the returned *signals* to those on or after from_ts.
+        # We keep a hard cap of 500 bars to avoid unbounded memory use.
+        df = df.tail(500)
+        logger.info(f"Running strategy over {len(df)} bars for {symbol} "
+                    f"(signals window: {from_ts} → {to_ts})")
         
         # Initialize mock broker for signal generation
         config = BacktestConfig(start_cash=100000)
@@ -125,28 +132,30 @@ class BacktestingBridge:
             
             # Call strategy's on_bar method
             # (Strategy will call broker.submit_signal internally)
-            old_signal_count = len(self.mock_broker.orders)
+            old_order_count = self.mock_broker.order_manager.orders_created
             
             self.strategy_instance.on_bar(timestamp, market_data)
             self.mock_broker.step_to(timestamp, market_data)
             
-            # Check if new signal was generated
-            new_signal_count = len(self.mock_broker.orders)
+            # Check if new order was created this bar
+            new_order_count = self.mock_broker.order_manager.orders_created
             
-            if new_signal_count > old_signal_count:
-                # New signal was generated
-                latest_order = list(self.mock_broker.orders.values())[-1]
+            if new_order_count > old_order_count:
+                # New order was placed — find the most recent one
+                all_orders = list(self.mock_broker.order_manager.orders.values())
+                latest_order = all_orders[-1]  # Order dataclass instance
                 
-                signal_type = 'BUY' if latest_order['side'] == 'BUY' else 'SELL'
+                # side is "BUY" or "SELL" string (OrderSide constant)
+                signal_type = 'BUY' if latest_order.side == 'BUY' else 'SELL'
                 
                 signals_list.append({
                     'timestamp': timestamp,
                     'signal': signal_type,
-                    'confidence': 1.0,  # Could be enhanced with strategy confidence
-                    'price': latest_order.get('price', row['Close']),
+                    'confidence': 1.0,
+                    'price': latest_order.price or row['Close'],
                     'strategy_id': self.strategy_class.__name__,
-                    'action': latest_order['action'],
-                    'size': latest_order['size']
+                    'action': latest_order.meta.get('action'),
+                    'size': latest_order.size_requested
                 })
             else:
                 # No signal - HOLD
@@ -163,7 +172,28 @@ class BacktestingBridge:
         signals_df = pd.DataFrame(signals_list)
         signals_df.set_index('timestamp', inplace=True)
         
-        logger.info(f"Generated {len(signals_df)} signals, "
+        # Filter to the caller's requested window so only recent signals are returned.
+        signals_df = signals_df[
+            (signals_df.index >= from_ts) & (signals_df.index <= to_ts)
+        ]
+        
+        if signals_df.empty:
+            logger.warning(
+                f"No signals in requested window [{from_ts} → {to_ts}] for {symbol}. "
+                f"Latest warehouse bar may be older than from_ts."
+            )
+            # Fall back: return the single most-recent signal regardless of window
+            # so the live trader always gets something to act on.
+            full_df = pd.DataFrame(signals_list)
+            full_df.set_index('timestamp', inplace=True)
+            if not full_df.empty:
+                signals_df = full_df.iloc[[-1]]
+                logger.info(
+                    f"Falling back to latest bar signal: "
+                    f"{signals_df.index[-1]} → {signals_df.iloc[-1]['signal']}"
+                )
+        
+        logger.info(f"Returning {len(signals_df)} signals, "
                    f"{len(signals_df[signals_df['signal'] != 'HOLD'])} actionable")
         
         return signals_df
