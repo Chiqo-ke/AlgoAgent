@@ -241,7 +241,8 @@ class LiveTrader:
             
             # Get the latest signal
             latest_signal = signals.iloc[-1]
-            signal_id = f"{symbol}_{latest_signal.name.strftime('%Y%m%d%H%M%S')}"
+            signal_timestamp = latest_signal.name.strftime('%Y%m%d%H%M%S')
+            signal_id = f"{self.config.strategy_id}_{symbol}_{signal_timestamp}"
             
             # Check if signal already processed
             if self.state.is_signal_processed(signal_id):
@@ -249,7 +250,7 @@ class LiveTrader:
                 return
             
             # Log signal
-            self.audit.log_signal(
+            signal_logged = self.audit.log_signal(
                 signal_id=signal_id,
                 symbol=symbol,
                 signal_type=latest_signal['signal'],
@@ -257,6 +258,12 @@ class LiveTrader:
                 price=latest_signal['price'],
                 strategy_id=latest_signal['strategy_id']
             )
+
+            if not signal_logged:
+                self.state.mark_signal_processed(signal_id)
+                self.state.update_last_signal_time(symbol)
+                logger.info(f"Signal already persisted, skipping reprocessing: {signal_id}")
+                return
             
             # Mark as processed
             self.state.mark_signal_processed(signal_id)
@@ -561,7 +568,7 @@ def main():
     # Load config
     if args.config:
         from dotenv import load_dotenv
-        load_dotenv(args.config)
+        load_dotenv(args.config, override=True)
     
     config = LiveConfig()
     

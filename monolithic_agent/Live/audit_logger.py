@@ -156,13 +156,19 @@ class AuditLogger:
         price: float,
         strategy_id: str,
         metadata: Optional[Dict[str, Any]] = None
-    ):
-        """Log a trading signal"""
+    ) -> bool:
+        """
+        Log a trading signal.
+
+        Returns:
+            True when a new audit row is created, False when the signal already
+            exists and was ignored.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
             cursor.execute("""
-                INSERT INTO signals 
+                INSERT OR IGNORE INTO signals 
                 (timestamp, signal_id, symbol, signal_type, confidence, price, strategy_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -177,6 +183,10 @@ class AuditLogger:
             ))
             
             conn.commit()
+            created = cursor.rowcount > 0
+            if not created:
+                logger.info(f"Signal already logged, skipping duplicate audit row: {signal_id}")
+            return created
     
     def log_order(
         self,
