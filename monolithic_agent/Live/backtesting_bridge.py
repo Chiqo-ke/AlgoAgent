@@ -71,6 +71,27 @@ class BacktestingBridge:
         """
         logger.info(f"Generating signals for {symbol} from {from_ts} to {to_ts} ({timeframe})")
         
+        # Resolve indicators to pass to load_market_data.
+        # Priority:
+        #   1. Explicitly passed `indicators` arg (caller knows best)
+        #   2. INDICATORS class attribute on the strategy (strategy declares its needs)
+        #   3. Auto-derive EMA columns by instantiating the strategy briefly and
+        #      reading fast_period/slow_period instance attributes.
+        if indicators is None:
+            indicators = getattr(self.strategy_class, 'INDICATORS', None)
+        if indicators is None:
+            try:
+                config_probe = BacktestConfig(start_cash=100000)
+                broker_probe = SimBroker(config_probe)
+                probe = self.strategy_class(broker_probe, symbol=symbol, **self.strategy_params)
+                fp = getattr(probe, 'fast_period', None)
+                sp = getattr(probe, 'slow_period', None)
+                if fp is not None and sp is not None:
+                    indicators = {'EMA': {'periods': [fp, sp]}}
+                    logger.info(f"Auto-detected EMA indicators from strategy: periods={[fp, sp]}")
+            except Exception as probe_exc:
+                logger.debug(f"Strategy probe for indicators failed (non-fatal): {probe_exc}")
+
         # Load market data with indicators — use 'max' period so strategy indicators
         # (SMA, EMA, RSI, etc.) have enough historical bars to warm up properly.
         try:
@@ -107,8 +128,8 @@ class BacktestingBridge:
         config = BacktestConfig(start_cash=100000)
         self.mock_broker = SimBroker(config)
         
-        # Initialize strategy
-        self.strategy_instance = self.strategy_class(self.mock_broker, **self.strategy_params)
+        # Initialize strategy — pass symbol so on_bar looks up the right key in market_data
+        self.strategy_instance = self.strategy_class(self.mock_broker, symbol=symbol, **self.strategy_params)
         
         # Collect signals
         signals_list = []
