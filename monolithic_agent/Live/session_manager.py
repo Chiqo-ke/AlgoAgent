@@ -28,7 +28,8 @@ LIVE_TRADER = LIVE_DIR / 'live_trader.py'
 TEMP_STRATEGIES_DIR = LIVE_DIR / 'temp_strategies'
 KILL_SWITCHES_DIR = LIVE_DIR / 'kill_switches'
 SESSION_LOGS_DIR = LIVE_DIR / 'session_logs'
-VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')
+# Production venv Python on Linux — resolved at runtime from sys.executable
+VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')  # legacy Windows path, never exists on Linux
 
 
 class SessionManager:
@@ -93,6 +94,10 @@ class SessionManager:
             'KILL_SWITCH_FILE': str(kill_switch_path),
             # Misc
             'INTERVAL_SECONDS': '60',
+            # MT5 bridge — explicitly propagate so subprocess never falls back to
+            # a stale .env or missing env (do not rely solely on parent-env inheritance)
+            'MT5_USE_BRIDGE': 'true',
+            'MT5_BRIDGE_URL': 'http://127.0.0.1:5555',
         }
 
         child_env = os.environ.copy()
