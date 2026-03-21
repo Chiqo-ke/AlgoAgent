@@ -59,8 +59,9 @@ class SessionManager:
         except Exception as e:
             return False, None, f'Failed to write strategy file: {e}'
 
-        # 2. Determine kill switch path
+        # 2. Determine kill switch path — remove any stale file from a previous stop
         kill_switch_path = KILL_SWITCHES_DIR / f'STOP_{session_id}'
+        kill_switch_path.unlink(missing_ok=True)
 
         # 3. Decrypt MT5 password
         try:
