@@ -134,26 +134,27 @@ class MT5BridgeConnector:
                 return False
             logger.info("MT5 initialised  version=%s", resp.get("version"))
 
-            # Step 2 – login (skip in dry_run mode)
+            # Step 2 – login (skip in dry_run mode, or when bridge is already
+            # authenticated and no credentials are provided in this process)
             if not self.config.dry_run:
                 if not self.config.mt5_login or not self.config.mt5_password:
-                    logger.error("MT5 credentials not configured")
-                    return False
+                    # Bridge manages its own persistent session; no re-login needed
+                    logger.info("Bridge mode: no credentials in env — using existing bridge session")
+                else:
+                    login_resp = self._post("/login", {
+                        "login":    self.config.mt5_login,
+                        "password": self.config.mt5_password,
+                        "server":   self.config.mt5_server,
+                    }, timeout=60)
 
-                login_resp = self._post("/login", {
-                    "login":    self.config.mt5_login,
-                    "password": self.config.mt5_password,
-                    "server":   self.config.mt5_server,
-                }, timeout=60)
+                    if not login_resp or login_resp.get("status") != "logged_in":
+                        logger.error("Bridge /login failed: %s", login_resp)
+                        return False
 
-                if not login_resp or login_resp.get("status") != "logged_in":
-                    logger.error("Bridge /login failed: %s", login_resp)
-                    return False
-
-                self.account_info = login_resp.get("account")
-                logger.info("MT5 login OK  account=%s  server=%s",
-                            self.account_info.get("login"),
-                            self.account_info.get("server"))
+                    self.account_info = login_resp.get("account")
+                    logger.info("MT5 login OK  account=%s  server=%s",
+                                self.account_info.get("login"),
+                                self.account_info.get("server"))
             else:
                 logger.info("DRY_RUN: skipping MT5 login")
 

@@ -82,7 +82,9 @@ class LiveConfig:
         self.audit_db_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Validate MT5 credentials
-        if not self.dry_run:
+        # When using the bridge the bridge manages its own auth, so credentials
+        # are not required at the config level.
+        if not self.dry_run and not self.mt5_use_bridge:
             if not self.mt5_login or not self.mt5_password or not self.mt5_server:
                 raise ValueError(
                     "MT5 credentials missing. Set MT5_LOGIN, MT5_PASSWORD, and MT5_SERVER "
@@ -212,7 +214,8 @@ class MT5Constants:
     
     # Trade return codes
     RETCODE_SUCCESS_CODES = {
-        10008: 'TRADE_RETCODE_DONE',  # Request completed
+        0:     'TRADE_RETCODE_DONE',          # order_check success (MT5 uses 0 for check OK)
+        10008: 'TRADE_RETCODE_DONE',          # order_send request completed
         10009: 'TRADE_RETCODE_DONE_PARTIAL',  # Partially executed
     }
     
