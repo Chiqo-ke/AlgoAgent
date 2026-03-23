@@ -461,7 +461,10 @@ class LiveTrader:
                 profit = (position['price_open'] - close_price) * position['volume'] * symbol_info['trade_contract_size']
             
             # Record trade
-            duration = (datetime.now() - position['open_time']).seconds
+            open_time = position['open_time']
+            if isinstance(open_time, (int, float)):
+                open_time = datetime.fromtimestamp(open_time)
+            duration = (datetime.now() - open_time).seconds
             
             self.audit.log_trade(
                 symbol=symbol,

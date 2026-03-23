@@ -66,7 +66,7 @@ class StateManager:
                 'sl': pos['sl'],
                 'tp': pos['tp'],
                 'profit': pos['profit'],
-                'open_time': pos['time'],
+                'open_time': datetime.fromtimestamp(pos['time']) if isinstance(pos['time'], (int, float)) else pos['time'],
                 'magic': pos['magic']
             }
         
