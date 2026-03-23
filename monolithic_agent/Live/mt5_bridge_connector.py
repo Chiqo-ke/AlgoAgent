@@ -243,24 +243,32 @@ class MT5BridgeConnector:
             else:
                 logger.info("DRY_RUN: skipping MT5 login")
 
-            # Step 3 – fetch terminal info and auto-enable Algo Trading if needed
+            # Step 3 – fetch terminal info; wait up to 30s for Algo Trading to
+            # be enabled (the mt5_algo_watchdog service enables it within ~5s)
             self.terminal_info = self._get("/terminal_info")
             if not self.account_info:
                 self.account_info = self._get("/account_info")
 
-            # If trade_allowed is False after login, try to auto-enable via bridge
             if (self.terminal_info
                     and self.terminal_info.get("trade_allowed") is False
                     and not self.config.dry_run):
+                import time as _time
                 logger.warning(
-                    "trade_allowed=False after login — requesting bridge to enable Algo Trading ..."
+                    "trade_allowed=False after login — waiting up to 30s for "
+                    "algo-trading watchdog to enable it ..."
                 )
-                enable_resp = self._post("/enable_algo_trading", {}, timeout=10)
-                if enable_resp and enable_resp.get("trade_allowed"):
-                    logger.info("Algo Trading enabled automatically via bridge")
-                    self.terminal_info = self._get("/terminal_info")  # refresh
-                else:
-                    logger.warning("Auto-enable Algo Trading failed: %s", enable_resp)
+                for _attempt in range(6):  # 6 × 5s = 30s
+                    _time.sleep(5)
+                    self.terminal_info = self._get("/terminal_info")
+                    if self.terminal_info and self.terminal_info.get("trade_allowed"):
+                        logger.info(
+                            "trade_allowed=True after %ds — proceeding",
+                            (_attempt + 1) * 5,
+                        )
+                        break
+                    logger.warning(
+                        "trade_allowed still False (attempt %d/6) ...", _attempt + 1
+                    )
 
             terminal_issue = self._describe_terminal_trading_issue(
                 terminal_info=self.terminal_info,
