@@ -243,10 +243,24 @@ class MT5BridgeConnector:
             else:
                 logger.info("DRY_RUN: skipping MT5 login")
 
-            # Step 3 – fetch terminal info
+            # Step 3 – fetch terminal info and auto-enable Algo Trading if needed
             self.terminal_info = self._get("/terminal_info")
             if not self.account_info:
                 self.account_info = self._get("/account_info")
+
+            # If trade_allowed is False after login, try to auto-enable via bridge
+            if (self.terminal_info
+                    and self.terminal_info.get("trade_allowed") is False
+                    and not self.config.dry_run):
+                logger.warning(
+                    "trade_allowed=False after login — requesting bridge to enable Algo Trading ..."
+                )
+                enable_resp = self._post("/enable_algo_trading", {}, timeout=10)
+                if enable_resp and enable_resp.get("trade_allowed"):
+                    logger.info("Algo Trading enabled automatically via bridge")
+                    self.terminal_info = self._get("/terminal_info")  # refresh
+                else:
+                    logger.warning("Auto-enable Algo Trading failed: %s", enable_resp)
 
             terminal_issue = self._describe_terminal_trading_issue(
                 terminal_info=self.terminal_info,
