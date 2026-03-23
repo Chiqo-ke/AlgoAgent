@@ -258,10 +258,15 @@ class LiveTrader:
             signal_timestamp = latest_signal.name.strftime('%Y%m%d%H%M%S')
             signal_id = f"{self.config.strategy_id}_{symbol}_{signal_timestamp}"
             
-            # Check if signal already processed
-            if self.state.is_signal_processed(signal_id):
-                logger.debug(f"Signal already processed: {signal_id}")
-                return
+            # Check if signal already processed.
+            # For HOLD signals, in-memory dedup is sufficient (they never execute).
+            # For BUY/SELL signals, bypass in-memory check and go straight to the DB
+            # so that failed orders (e.g. bridge was down) can be retried.
+            signal_type_value = latest_signal['signal']
+            if signal_type_value not in ['BUY', 'SELL']:
+                if self.state.is_signal_processed(signal_id):
+                    logger.debug(f"Signal already processed: {signal_id}")
+                    return
             
             # Log signal
             signal_logged = self.audit.log_signal(
@@ -274,10 +279,16 @@ class LiveTrader:
             )
 
             if not signal_logged:
-                self.state.mark_signal_processed(signal_id)
-                self.state.update_last_signal_time(symbol)
-                logger.info(f"Signal already persisted, skipping reprocessing: {signal_id}")
-                return
+                # Signal already in audit DB — only skip if a successful order exists.
+                # If the previous order failed (e.g. bridge was down), allow retry.
+                last_order = self.audit.get_last_order_for_signal(signal_id)
+                if last_order is None or last_order.get('status') != 'FAILED':
+                    self.state.mark_signal_processed(signal_id)
+                    self.state.update_last_signal_time(symbol)
+                    logger.info(f"Signal already persisted, skipping reprocessing: {signal_id}")
+                    return
+                else:
+                    logger.info(f"Signal {signal_id} previously failed ({last_order.get('error_message')}), retrying")
             
             # Mark as processed
             self.state.mark_signal_processed(signal_id)
@@ -347,7 +358,7 @@ class LiveTrader:
                 'magic': self.config.magic_number,
                 'deviation': 20,
                 'sl': stop_loss_price,
-                'comment': f"{self.config.strategy_id}_{signal_id}"
+                'comment': signal_id[-29:]
             },
             symbol_info=symbol_info
         )

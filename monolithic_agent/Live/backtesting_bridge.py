@@ -84,11 +84,27 @@ class BacktestingBridge:
                 config_probe = BacktestConfig(start_cash=100000)
                 broker_probe = SimBroker(config_probe)
                 probe = self.strategy_class(broker_probe, symbol=symbol, **self.strategy_params)
+                indicators = {}
+                # EMA: detect fast_period / slow_period
                 fp = getattr(probe, 'fast_period', None)
                 sp = getattr(probe, 'slow_period', None)
                 if fp is not None and sp is not None:
-                    indicators = {'EMA': {'periods': [fp, sp]}}
+                    indicators['EMA'] = {'periods': [fp, sp]}
                     logger.info(f"Auto-detected EMA indicators from strategy: periods={[fp, sp]}")
+                # ATR: detect atr_period or fallback to 14 when atr_multiplier present
+                atr_p = getattr(probe, 'atr_period', None)
+                if atr_p is None and getattr(probe, 'atr_multiplier', None) is not None:
+                    atr_p = 14  # standard default
+                if atr_p is not None:
+                    indicators['ATR'] = {'periods': [atr_p]}
+                    logger.info(f"Auto-detected ATR indicator from strategy: period={atr_p}")
+                # RSI: detect rsi_period
+                rsi_p = getattr(probe, 'rsi_period', None)
+                if rsi_p is not None:
+                    indicators['RSI'] = {'periods': [rsi_p]}
+                    logger.info(f"Auto-detected RSI indicator from strategy: period={rsi_p}")
+                if not indicators:
+                    indicators = None  # nothing detected, pass None to avoid empty-dict issues
             except Exception as probe_exc:
                 logger.debug(f"Strategy probe for indicators failed (non-fatal): {probe_exc}")
 
@@ -380,25 +396,19 @@ class BacktestingBridge:
             return result
         
         # Check margin requirement (if account info available)
+        # NOTE: We skip the margin estimate here because our simplified formula
+        # (volume * 1000 * price * 0.01) assumes forex lot sizing which is incorrect
+        # for crypto and other instruments. MT5's order_check (called in execute_order)
+        # performs the authoritative margin check with the correct contract size.
         if account_info:
             balance = account_info.get('balance', 0)
-            margin = account_info.get('margin', 0)
             free_margin = account_info.get('margin_free', balance)
-            
-            # Estimate required margin (simplified - actual calc is symbol-specific)
-            # This is a rough estimate; MT5's order_check provides accurate value
-            estimated_margin = volume * 1000 * price * 0.01  # Assume 1% margin
-            
-            if estimated_margin > free_margin:
+
+            # Only hard-block if free margin is essentially zero (avoid div-by-zero)
+            if free_margin <= 0:
                 result['pass'] = False
-                result['reason'] = (f"Insufficient margin. Required: ~${estimated_margin:.2f}, "
-                                  f"Available: ${free_margin:.2f}")
+                result['reason'] = f"No free margin available: ${free_margin:.2f}"
                 return result
-            
-            if estimated_margin > free_margin * 0.5:
-                result['warnings'].append(
-                    f"High margin usage: {(estimated_margin/free_margin)*100:.1f}% of free margin"
-                )
         
         # Check stop loss and take profit validity
         if 'sl' in order_request and order_request['sl'] > 0:

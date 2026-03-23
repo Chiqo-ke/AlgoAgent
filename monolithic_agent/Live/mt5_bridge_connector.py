@@ -123,16 +123,25 @@ class MT5BridgeConnector:
             return False
 
         try:
-            # Step 1 – initialise MT5 terminal inside Wine
-            init_payload: Dict[str, Any] = {"timeout": self.config.mt5_timeout}
-            if self.config.mt5_path:
-                init_payload["path"] = self.config.mt5_path
+            # Step 1 – initialise MT5 terminal inside Wine.
+            # Skip /initialize if bridge already reports initialised=true to avoid
+            # the race condition where concurrent sessions call /initialize, which
+            # triggers mt5.shutdown() + reinit and briefly sets _initialised=False,
+            # causing /login calls from other sessions to get a 503.
+            health = self._get("/health")
+            already_initialised = health and health.get("initialised") is True
+            if already_initialised:
+                logger.info("Bridge already initialised (health check) — skipping /initialize")
+            else:
+                init_payload: Dict[str, Any] = {"timeout": self.config.mt5_timeout}
+                if self.config.mt5_path:
+                    init_payload["path"] = self.config.mt5_path
 
-            resp = self._post("/initialize", init_payload, timeout=90)
-            if not resp or resp.get("status") != "initialised":
-                logger.error("Bridge /initialize failed: %s", resp)
-                return False
-            logger.info("MT5 initialised  version=%s", resp.get("version"))
+                resp = self._post("/initialize", init_payload, timeout=90)
+                if not resp or resp.get("status") != "initialised":
+                    logger.error("Bridge /initialize failed: %s", resp)
+                    return False
+                logger.info("MT5 initialised  version=%s", resp.get("version"))
 
             # Step 2 – login (skip in dry_run mode, or when bridge is already
             # authenticated and no credentials are provided in this process)
@@ -300,6 +309,7 @@ class MT5BridgeConnector:
     def check_order(self, request_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not self.ensure_connected():
             return None
+        logger.info("order_check request: %s", request_dict)
         result = self._post("/order_check", request_dict)
         if not result or "error" in result:
             logger.error("order_check failed: %s", result)
