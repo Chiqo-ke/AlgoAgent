@@ -50,6 +50,7 @@ class MT5BridgeConnector:
         self.is_connected = False
         self.account_info: Optional[Dict] = None
         self.terminal_info: Optional[Dict] = None
+        self.last_terminal_status_issue: Optional[str] = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
 
@@ -101,6 +102,60 @@ class MT5BridgeConnector:
         except Exception:
             return False
 
+    def _describe_terminal_trading_issue(
+        self,
+        terminal_info: Optional[Dict[str, Any]] = None,
+        account_info: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Return an actionable explanation when MT5 is connected but not permitted
+        to execute live orders from the client terminal / external API.
+        """
+        if self.config.dry_run:
+            self.last_terminal_status_issue = None
+            return None
+
+        terminal = terminal_info or self.terminal_info or self._get("/terminal_info")
+        account = account_info or self.account_info or self._get("/account_info")
+
+        issues = []
+        if terminal:
+            if terminal.get("trade_allowed") is False:
+                issues.append("terminal Algo Trading is disabled")
+            if terminal.get("tradeapi_disabled") is True:
+                issues.append("terminal blocks external Python/API trading")
+
+        if account:
+            if account.get("trade_allowed") is False:
+                issues.append("broker account trading is disabled")
+            if account.get("trade_expert") is False:
+                issues.append("broker account expert/API trading is disabled")
+
+        if not issues:
+            self.last_terminal_status_issue = None
+            return None
+
+        flags = []
+        if terminal:
+            flags.append(
+                "terminal.trade_allowed=%s terminal.tradeapi_disabled=%s"
+                % (terminal.get("trade_allowed"), terminal.get("tradeapi_disabled"))
+            )
+        if account:
+            flags.append(
+                "account.trade_allowed=%s account.trade_expert=%s"
+                % (account.get("trade_allowed"), account.get("trade_expert"))
+            )
+
+        issue_text = (
+            f"MT5 is connected but not allowed to place live orders: {', '.join(issues)}. "
+            "Enable 'Algo Trading' and uncheck 'Disable automatic trading via external Python API' "
+            "in MT5 (Tools -> Options -> Expert Advisors), then restart the MT5 terminal and bridge service. "
+            + (" ".join(flags) if flags else "")
+        ).strip()
+        self.last_terminal_status_issue = issue_text
+        return issue_text
+
     # ── Public API (matches MT5Connector exactly) ─────────────────────────────
 
     def initialize(self) -> bool:
@@ -130,15 +185,36 @@ class MT5BridgeConnector:
             # causing /login calls from other sessions to get a 503.
             health = self._get("/health")
             already_initialised = health and health.get("initialised") is True
+            init_in_progress = health and health.get("init_in_progress") is True
             if already_initialised:
                 logger.info("Bridge already initialised (health check) — skipping /initialize")
+            elif init_in_progress:
+                logger.info("Bridge auto-init in progress — waiting for it to complete ...")
+                # Poll until initialised or timeout (up to 3 minutes)
+                for _ in range(18):  # 18 × 10s = 3 min
+                    time.sleep(10)
+                    health = self._get("/health")
+                    if health and health.get("initialised") is True:
+                        logger.info("Bridge auto-init completed")
+                        break
+                else:
+                    logger.error("Bridge auto-init did not complete within 3 minutes")
+                    return False
             else:
                 init_payload: Dict[str, Any] = {"timeout": self.config.mt5_timeout}
                 if self.config.mt5_path:
                     init_payload["path"] = self.config.mt5_path
 
                 resp = self._post("/initialize", init_payload, timeout=90)
-                if not resp or resp.get("status") != "initialised":
+                if resp is None:
+                    logger.error("Bridge /initialize failed: no response")
+                    return False
+                # 202 means auto-init is in progress — retry on next cycle
+                if isinstance(resp, dict) and resp.get("retry_after"):
+                    logger.info("Bridge /initialize: init in progress, will retry (retry_after=%ss)",
+                                resp.get("retry_after"))
+                    return False
+                if resp.get("status") != "initialised":
                     logger.error("Bridge /initialize failed: %s", resp)
                     return False
                 logger.info("MT5 initialised  version=%s", resp.get("version"))
@@ -172,6 +248,15 @@ class MT5BridgeConnector:
             if not self.account_info:
                 self.account_info = self._get("/account_info")
 
+            terminal_issue = self._describe_terminal_trading_issue(
+                terminal_info=self.terminal_info,
+                account_info=self.account_info,
+            )
+            if terminal_issue:
+                logger.error("MT5 terminal is not ready for live trading: %s", terminal_issue)
+                self.is_connected = False
+                return False
+
             self.is_connected = True
             self.reconnect_attempts = 0
 
@@ -197,10 +282,21 @@ class MT5BridgeConnector:
             logger.info("✓ MT5 bridge connection closed")
 
     def reconnect(self) -> bool:
-        """Attempt to re-establish the connection (exponential back-off)."""
+        """Attempt to re-establish the connection (exponential back-off).
+
+        When max_reconnect_attempts is exhausted the counter is reset so the
+        live-trader loop will keep retrying indefinitely (spaced by the loop
+        sleep) rather than giving up permanently after 5 failures.
+        """
         if self.reconnect_attempts >= self.max_reconnect_attempts:
-            logger.error("Max reconnect attempts (%d) reached",
-                         self.max_reconnect_attempts)
+            # Bridge may be slow to initialise after a cold start — reset so
+            # the next loop iteration tries again instead of stopping forever.
+            logger.warning(
+                "Max reconnect attempts (%d) reached — resetting counter to "
+                "allow continued retries once the bridge comes back",
+                self.max_reconnect_attempts,
+            )
+            self.reconnect_attempts = 0
             return False
 
         self.reconnect_attempts += 1
@@ -257,6 +353,19 @@ class MT5BridgeConnector:
             "company":      data.get("company"),
         }
 
+    def get_terminal_info(self) -> Optional[Dict[str, Any]]:
+        if not self.ensure_connected():
+            return None
+        data = self._get("/terminal_info")
+        if not data or "error" in data:
+            return None
+        self.terminal_info = data
+        return data
+
+    def get_terminal_trading_issue(self) -> Optional[str]:
+        """Public helper for callers that want an actionable live-trading diagnosis."""
+        return self._describe_terminal_trading_issue()
+
     def get_symbol_info(self, symbol: str) -> Optional[Dict[str, Any]]:
         if not self.ensure_connected():
             return None
@@ -309,6 +418,14 @@ class MT5BridgeConnector:
     def check_order(self, request_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not self.ensure_connected():
             return None
+        terminal_issue = self._describe_terminal_trading_issue()
+        if terminal_issue:
+            logger.error("Blocking order_check: %s", terminal_issue)
+            return {
+                "retcode": 10027,
+                "comment": terminal_issue,
+                "retcode_message": MT5Constants.get_retcode_message(10027),
+            }
         logger.info("order_check request: %s", request_dict)
         result = self._post("/order_check", request_dict)
         if not result or "error" in result:
@@ -332,6 +449,15 @@ class MT5BridgeConnector:
                 "price":            request_dict.get("price", 0),
                 "comment":          "DRY_RUN",
                 "request_id":       0,
+            }
+
+        terminal_issue = self._describe_terminal_trading_issue()
+        if terminal_issue:
+            logger.error("Blocking order_send: %s", terminal_issue)
+            return {
+                "retcode": 10027,
+                "retcode_message": MT5Constants.get_retcode_message(10027),
+                "comment": terminal_issue,
             }
 
         logger.info("Sending order via bridge: action=%s  symbol=%s  volume=%s",

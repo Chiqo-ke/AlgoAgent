@@ -173,7 +173,24 @@ def main():
 
     ok(f"Account  : #{account['login']}  {account['server']}")
     ok(f"Balance  : ${account['balance']:.2f}  |  Free margin: ${account['margin_free']:.2f}")
-    ok(f"Trade allowed: {account.get('login') is not None}")
+    ok(f"Account trading flags: trade_allowed={account.get('trade_allowed')} trade_expert={account.get('trade_expert')}")
+
+    terminal = connector.get_terminal_info()
+    if terminal:
+        info(
+            "Terminal flags: "
+            f"trade_allowed={terminal.get('trade_allowed')} "
+            f"tradeapi_disabled={terminal.get('tradeapi_disabled')} "
+            f"dlls_allowed={terminal.get('dlls_allowed')}"
+        )
+
+    terminal_issue = connector.get_terminal_trading_issue()
+    if terminal_issue and not DRY_RUN:
+        fail(terminal_issue)
+        info("Fix in MT5: Tools -> Options -> Expert Advisors -> enable 'Algo Trading'")
+        info("and disable 'Disable automatic trading via external Python API', then restart MT5/bridge.")
+        connector.shutdown()
+        sys.exit(1)
 
     # ── 2. Fetch live quote ───────────────────────────────────────────────────
     section("STEP 2 — Fetch live quote")
