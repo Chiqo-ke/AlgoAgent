@@ -50,6 +50,18 @@ class LiveConfig:
     timeframe: str = field(default_factory=lambda: os.getenv('TIMEFRAME', '1d'))
     strategy_id: str = field(default_factory=lambda: os.getenv('STRATEGY_ID', 'default_strategy'))
     magic_number: int = field(default_factory=lambda: int(os.getenv('MAGIC_NUMBER', '123456')))
+
+    # Session-level fixed SL/TP in pips — used as the default exit whenever
+    # the bot strategy does not supply its own SL or TP values.
+    # A "pip" follows the MT5 convention: 10 × point for 5/3-digit pairs
+    # (e.g. EURUSD, USDJPY) and 1 × point for everything else (metals, indices).
+    # Leave unset (or empty string) to trade without a default SL or TP.
+    sl_pips: Optional[float] = field(default_factory=lambda: (
+        float(os.getenv('SL_PIPS')) if os.getenv('SL_PIPS', '').strip() else None
+    ))
+    tp_pips: Optional[float] = field(default_factory=lambda: (
+        float(os.getenv('TP_PIPS')) if os.getenv('TP_PIPS', '').strip() else None
+    ))
     
     # Safety Features
     enable_kill_switch: bool = field(default_factory=lambda: os.getenv('ENABLE_KILL_SWITCH', 'true').lower() == 'true')

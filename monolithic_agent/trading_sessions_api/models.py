@@ -103,6 +103,22 @@ class LiveTradingSession(models.Model):
     )
     risk_pct = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
     magic_number = models.IntegerField(default=234567)
+    sl_pips = models.FloatField(
+        null=True, blank=True,
+        help_text=(
+            'Fixed stop-loss distance in pips from entry price. '
+            'Used as the default SL whenever the bot strategy does not supply one. '
+            'Leave blank to trade without a stop-loss.'
+        )
+    )
+    tp_pips = models.FloatField(
+        null=True, blank=True,
+        help_text=(
+            'Fixed take-profit distance in pips from entry price. '
+            'Used as the default TP whenever the bot strategy does not supply one. '
+            'Leave blank to trade without a take-profit.'
+        )
+    )
 
     # Per-session MT5 credentials
     mt5_login = models.IntegerField(help_text="Broker account number")

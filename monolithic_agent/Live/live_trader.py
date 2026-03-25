@@ -303,6 +303,25 @@ class LiveTrader:
         except Exception as e:
             logger.error(f"Signal generation failed for {symbol}: {e}", exc_info=True)
     
+    @staticmethod
+    def _pip_size(symbol_info: dict) -> float:
+        """
+        Return the pip size for a symbol using MT5 symbol_info data.
+
+        Convention (matches MT5 standard):
+          - 5-digit FX (EURUSD) and 3-digit JPY pairs: 1 pip = 10 × point
+          - Everything else (metals, indices, crypto with 2-digit or 4-digit
+            prices): 1 pip = 1 × point
+
+        Example outputs:
+          EURUSD (digits=5, point=0.00001) → pip = 0.00010
+          USDJPY (digits=3, point=0.001)   → pip = 0.010
+          XAUUSD (digits=2, point=0.01)    → pip = 0.01
+        """
+        digits = symbol_info.get('digits', 5)
+        point  = symbol_info.get('point', 0.00001)
+        return point * 10 if digits in (5, 3) else point
+
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
         Execute a trading signal
@@ -334,14 +353,77 @@ class LiveTrader:
             logger.error("Could not get account info")
             return
         
-        # Simple stop loss calculation (could be enhanced)
         entry_price = symbol_info['ask'] if signal_type == 'BUY' else symbol_info['bid']
-        stop_loss_price = entry_price * 0.98 if signal_type == 'BUY' else entry_price * 1.02
-        
+
+        # ── SL/TP resolution (priority order) ─────────────────────────────
+        # 1. Strategy-computed value (from backtesting_bridge: self.stop_loss attr
+        #    or stop_loss_pct × entry_price)
+        # 2. Session-configured fixed pips (sl_pips / tp_pips set when the
+        #    session was started — independent of any bot script)
+        # 3. No SL/TP (trade runs until the strategy emits an exit signal)
+        # The old 2% percentage fallback has been removed; it produced arbitrary
+        # SL values that had nothing to do with the strategy's risk model.
+        # ------------------------------------------------------------------
+        signal_sl = signal.get('sl') if hasattr(signal, 'get') else None
+        signal_tp = signal.get('tp') if hasattr(signal, 'get') else None
+
+        # Priority 1: strategy-supplied SL/TP
+        stop_loss_price: Optional[float] = None
+        take_profit_price: Optional[float] = None
+
+        if signal_sl is not None:
+            stop_loss_price = float(signal_sl)
+            logger.info(f"Using strategy-defined SL for {symbol}: {stop_loss_price:.5f}")
+
+        if signal_tp is not None:
+            take_profit_price = float(signal_tp)
+            logger.info(f"Using strategy-defined TP for {symbol}: {take_profit_price:.5f}")
+
+        # Priority 2: session pip-based fallback
+        if stop_loss_price is None or take_profit_price is None:
+            pip_size = self._pip_size(symbol_info)
+
+            if stop_loss_price is None and self.config.sl_pips is not None:
+                dist = self.config.sl_pips * pip_size
+                stop_loss_price = (
+                    entry_price - dist if signal_type == 'BUY' else entry_price + dist
+                )
+                logger.info(
+                    f"Using session SL pips for {symbol}: "
+                    f"{self.config.sl_pips} pips → {stop_loss_price:.5f}"
+                )
+
+            if take_profit_price is None and self.config.tp_pips is not None:
+                dist = self.config.tp_pips * pip_size
+                take_profit_price = (
+                    entry_price + dist if signal_type == 'BUY' else entry_price - dist
+                )
+                logger.info(
+                    f"Using session TP pips for {symbol}: "
+                    f"{self.config.tp_pips} pips → {take_profit_price:.5f}"
+                )
+
+        # Priority 3: no SL/TP
+        if stop_loss_price is None:
+            logger.warning(
+                f"No SL configured for {symbol} (strategy provided none, no sl_pips set). "
+                f"Trade will run without a stop-loss."
+            )
+        if take_profit_price is None:
+            logger.debug(
+                f"No TP configured for {symbol}; trade will run until exit signal."
+            )
+
+        # When no SL is set, position_size falls back to default risk calculation.
+        # Pass entry_price as a sentinel stop_loss_price so the risk calc uses
+        # the configured DEFAULT_RISK_PCT with a 1% distance assumption.
+        effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
+            entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
+        )
         volume = self.bridge.position_size(
             account_balance=account['balance'],
             risk_pct=self.config.default_risk_pct,
-            stop_loss_price=stop_loss_price,
+            stop_loss_price=effective_sl_for_sizing,
             entry_price=entry_price,
             symbol=symbol
         )
@@ -350,16 +432,21 @@ class LiveTrader:
         volume = min(volume, self.config.max_position_size)
         
         # Build order request
+        order_meta = {
+            'symbol': symbol,
+            'magic': self.config.magic_number,
+            'deviation': 20,
+            'comment': signal_id[-29:]
+        }
+        if stop_loss_price is not None:
+            order_meta['sl'] = stop_loss_price
+        if take_profit_price is not None:
+            order_meta['tp'] = take_profit_price
+
         order_request = self.bridge.build_order_request(
             signal_row=signal,
             volume=volume,
-            meta={
-                'symbol': symbol,
-                'magic': self.config.magic_number,
-                'deviation': 20,
-                'sl': stop_loss_price,
-                'comment': signal_id[-29:]
-            },
+            meta=order_meta,
             symbol_info=symbol_info
         )
         
@@ -389,7 +476,8 @@ class LiveTrader:
             side=signal_type,
             volume=volume,
             price=entry_price,
-            sl=stop_loss_price
+            sl=stop_loss_price,
+            tp=take_profit_price
         )
         
         # Execute order
@@ -418,9 +506,14 @@ class LiveTrader:
                 'volume': volume,
                 'price_open': result.get('executed_price', entry_price),
                 'sl': stop_loss_price,
+                'tp': take_profit_price,
                 'open_time': datetime.now()
             })
-            logger.info(f"✓ Position opened: {symbol} {signal_type} {volume} @ {entry_price:.5f}")
+            logger.info(
+                f"✓ Position opened: {symbol} {signal_type} {volume} @ {entry_price:.5f} "
+                f"SL={stop_loss_price:.5f} "
+                f"TP={f'{take_profit_price:.5f}' if take_profit_price is not None else 'none'}"
+            )
         else:
             logger.error(f"✗ Order execution failed: {result.get('message')}")
     

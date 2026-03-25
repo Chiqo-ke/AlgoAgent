@@ -214,6 +214,8 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             dry_run=data['dry_run'],
             risk_pct=data['risk_pct'],
             magic_number=data['magic_number'],
+            sl_pips=data.get('sl_pips'),
+            tp_pips=data.get('tp_pips'),
             mt5_login=mt5_login,
             mt5_server=mt5_server,
             mt5_terminal_path=mt5_terminal_path,

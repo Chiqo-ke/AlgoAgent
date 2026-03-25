@@ -184,7 +184,76 @@ class BacktestingBridge:
                 
                 # side is "BUY" or "SELL" string (OrderSide constant)
                 signal_type = 'BUY' if latest_order.side == 'BUY' else 'SELL'
-                
+
+                # ── Extract SL/TP from the strategy instance ──────────────────
+                # Bot scripts compute SL/TP as instance attributes INSIDE on_bar()
+                # but do NOT pass them to create_signal().  We read them directly
+                # from the strategy object right after on_bar() has run.
+                #
+                # Convention 1 — absolute price already computed by strategy:
+                #   self.stop_loss   (e.g. ATR/breakout strategies)
+                #   self.take_profit (rarely set, same pattern)
+                #
+                # Convention 2 — percentage stored as parameter:
+                #   self.stop_loss_pct  (e.g. 0.02 = 2%)
+                #   self.take_profit_pct (e.g. 0.05 = 5%)
+                #   combined with self.entry_price set just after the signal
+                #
+                # In all cases we prefer a value the strategy computed over the
+                # fallback in live_trader._execute_signal().
+                # -----------------------------------------------------------------
+                strategy_sl: Optional[float] = None
+                strategy_tp: Optional[float] = None
+
+                # Convention 1: absolute price attribute
+                raw_sl = getattr(self.strategy_instance, 'stop_loss', None)
+                if raw_sl is not None and isinstance(raw_sl, (int, float)) and raw_sl > 0:
+                    strategy_sl = float(raw_sl)
+
+                raw_tp = getattr(self.strategy_instance, 'take_profit', None)
+                if raw_tp is not None and isinstance(raw_tp, (int, float)) and raw_tp > 0:
+                    strategy_tp = float(raw_tp)
+
+                # Convention 2: percentage-based (only applies to ENTRY signals)
+                if latest_order.meta.get('action') != 'EXIT':
+                    entry_px = getattr(self.strategy_instance, 'entry_price', None)
+                    sl_pct = getattr(self.strategy_instance, 'stop_loss_pct', None)
+                    tp_pct = getattr(self.strategy_instance, 'take_profit_pct', None)
+
+                    if sl_pct is not None and entry_px is not None and strategy_sl is None:
+                        sl_pct = float(sl_pct)
+                        entry_px_f = float(entry_px)
+                        strategy_sl = (
+                            entry_px_f * (1.0 - sl_pct)
+                            if signal_type == 'BUY'
+                            else entry_px_f * (1.0 + sl_pct)
+                        )
+
+                    if tp_pct is not None and entry_px is not None and strategy_tp is None:
+                        tp_pct = float(tp_pct)
+                        entry_px_f = float(entry_px)
+                        strategy_tp = (
+                            entry_px_f * (1.0 + tp_pct)
+                            if signal_type == 'BUY'
+                            else entry_px_f * (1.0 - tp_pct)
+                        )
+
+                # Merge: strategy-extracted values take priority over anything in
+                # the order meta (order meta is typically empty for current bots).
+                final_sl = strategy_sl or latest_order.meta.get('sl')
+                final_tp = strategy_tp or latest_order.meta.get('tp')
+
+                if final_sl:
+                    logger.debug(
+                        f"Signal SL extracted for {latest_order.symbol}: {final_sl:.5f} "
+                        f"(source: {'strategy attr' if strategy_sl else 'order meta'})"
+                    )
+                if final_tp:
+                    logger.debug(
+                        f"Signal TP extracted for {latest_order.symbol}: {final_tp:.5f} "
+                        f"(source: {'strategy attr' if strategy_tp else 'order meta'})"
+                    )
+
                 signals_list.append({
                     'timestamp': timestamp,
                     'signal': signal_type,
@@ -192,7 +261,9 @@ class BacktestingBridge:
                     'price': latest_order.price or row['Close'],
                     'strategy_id': self.strategy_class.__name__,
                     'action': latest_order.meta.get('action'),
-                    'size': latest_order.size_requested
+                    'size': latest_order.size_requested,
+                    'sl': final_sl,
+                    'tp': final_tp,
                 })
             else:
                 # No signal - HOLD
@@ -203,7 +274,9 @@ class BacktestingBridge:
                     'price': row['Close'],
                     'strategy_id': self.strategy_class.__name__,
                     'action': None,
-                    'size': 0
+                    'size': 0,
+                    'sl': None,
+                    'tp': None,
                 })
         
         signals_df = pd.DataFrame(signals_list)

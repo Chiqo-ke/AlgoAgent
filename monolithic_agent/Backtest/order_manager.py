@@ -77,6 +77,24 @@ class OrderManager:
         if signal.action == OrderAction.MODIFY:
             return self._handle_modify_signal(signal)
         
+        # Build order meta: start with signal.meta, then promote risk_params so
+        # that sl/tp are accessible as top-level keys for the live trading pipeline.
+        order_meta = signal.meta.copy()
+        if signal.risk_params is not None:
+            rp = (
+                signal.risk_params.to_dict()
+                if hasattr(signal.risk_params, 'to_dict')
+                else dict(signal.risk_params)
+            )
+            order_meta['risk_params'] = rp
+            # Promote stop_loss_price and take_profit_price to top-level 'sl'/'tp'
+            # so downstream code (generate_signals, live_trader) can access them
+            # without knowing the internal risk_params structure.
+            if rp.get('stop_loss_price') is not None:
+                order_meta.setdefault('sl', rp['stop_loss_price'])
+            if rp.get('take_profit_price') is not None:
+                order_meta.setdefault('tp', rp['take_profit_price'])
+
         # Create new order for ENTRY/EXIT
         order = Order(
             order_id=generate_id(),
@@ -89,7 +107,7 @@ class OrderManager:
             price=signal.price,
             stop_price=signal.stop_price,
             status=OrderStatus.PENDING,
-            meta=signal.meta.copy()
+            meta=order_meta
         )
         
         # Validate order

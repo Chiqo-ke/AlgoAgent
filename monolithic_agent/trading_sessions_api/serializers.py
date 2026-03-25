@@ -45,6 +45,14 @@ class LiveTradingSessionCreateSerializer(serializers.Serializer):
     dry_run = serializers.BooleanField(default=True)
     risk_pct = serializers.DecimalField(max_digits=5, decimal_places=2, default=1.0)
     magic_number = serializers.IntegerField(default=234567)
+    sl_pips = serializers.FloatField(
+        required=False, allow_null=True, default=None,
+        help_text='Fixed stop-loss in pips from entry. Overrides the strategy default when the bot has no SL.'
+    )
+    tp_pips = serializers.FloatField(
+        required=False, allow_null=True, default=None,
+        help_text='Fixed take-profit in pips from entry. Overrides the strategy default when the bot has no TP.'
+    )
     # Option A – reference a saved credential
     credential_id = serializers.IntegerField(required=False, allow_null=True)
     # Option B – inline MT5 credentials
