@@ -393,6 +393,20 @@ class AuditLogger:
             
             conn.commit()
     
+    def get_last_order_for_signal(self, signal_id: str) -> Optional[Dict[str, Any]]:
+        """Return the most recent order for a given signal_id, or None if none exists."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM orders
+                WHERE signal_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (signal_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_recent_signals(self, limit: int = 100) -> list:
         """Get recent signals"""
         with sqlite3.connect(self.db_path) as conn:

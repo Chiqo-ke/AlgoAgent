@@ -28,7 +28,8 @@ LIVE_TRADER = LIVE_DIR / 'live_trader.py'
 TEMP_STRATEGIES_DIR = LIVE_DIR / 'temp_strategies'
 KILL_SWITCHES_DIR = LIVE_DIR / 'kill_switches'
 SESSION_LOGS_DIR = LIVE_DIR / 'session_logs'
-VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')
+# Production venv Python on Linux — resolved at runtime from sys.executable
+VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')  # legacy Windows path, never exists on Linux
 
 
 class SessionManager:
@@ -58,8 +59,9 @@ class SessionManager:
         except Exception as e:
             return False, None, f'Failed to write strategy file: {e}'
 
-        # 2. Determine kill switch path
+        # 2. Determine kill switch path — remove any stale file from a previous stop
         kill_switch_path = KILL_SWITCHES_DIR / f'STOP_{session_id}'
+        kill_switch_path.unlink(missing_ok=True)
 
         # 3. Decrypt MT5 password
         try:
@@ -87,12 +89,18 @@ class SessionManager:
             'TIMEFRAME': session.timeframe,
             'DEFAULT_RISK_PCT': str(float(session.risk_pct)),
             'MAGIC_NUMBER': str(session.magic_number),
+            'SL_PIPS': str(session.sl_pips) if session.sl_pips is not None else '',
+            'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',
             'STRATEGY_ID': f'session_{session_id}',
             # Kill switch
             'ENABLE_KILL_SWITCH': 'true',
             'KILL_SWITCH_FILE': str(kill_switch_path),
             # Misc
             'INTERVAL_SECONDS': '60',
+            # MT5 bridge — explicitly propagate so subprocess never falls back to
+            # a stale .env or missing env (do not rely solely on parent-env inheritance)
+            'MT5_USE_BRIDGE': 'true',
+            'MT5_BRIDGE_URL': 'http://127.0.0.1:5555',
         }
 
         child_env = os.environ.copy()

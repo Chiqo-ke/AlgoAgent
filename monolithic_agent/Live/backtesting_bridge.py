@@ -71,6 +71,43 @@ class BacktestingBridge:
         """
         logger.info(f"Generating signals for {symbol} from {from_ts} to {to_ts} ({timeframe})")
         
+        # Resolve indicators to pass to load_market_data.
+        # Priority:
+        #   1. Explicitly passed `indicators` arg (caller knows best)
+        #   2. INDICATORS class attribute on the strategy (strategy declares its needs)
+        #   3. Auto-derive EMA columns by instantiating the strategy briefly and
+        #      reading fast_period/slow_period instance attributes.
+        if indicators is None:
+            indicators = getattr(self.strategy_class, 'INDICATORS', None)
+        if indicators is None:
+            try:
+                config_probe = BacktestConfig(start_cash=100000)
+                broker_probe = SimBroker(config_probe)
+                probe = self.strategy_class(broker_probe, symbol=symbol, **self.strategy_params)
+                indicators = {}
+                # EMA: detect fast_period / slow_period
+                fp = getattr(probe, 'fast_period', None)
+                sp = getattr(probe, 'slow_period', None)
+                if fp is not None and sp is not None:
+                    indicators['EMA'] = {'periods': [fp, sp]}
+                    logger.info(f"Auto-detected EMA indicators from strategy: periods={[fp, sp]}")
+                # ATR: detect atr_period or fallback to 14 when atr_multiplier present
+                atr_p = getattr(probe, 'atr_period', None)
+                if atr_p is None and getattr(probe, 'atr_multiplier', None) is not None:
+                    atr_p = 14  # standard default
+                if atr_p is not None:
+                    indicators['ATR'] = {'periods': [atr_p]}
+                    logger.info(f"Auto-detected ATR indicator from strategy: period={atr_p}")
+                # RSI: detect rsi_period
+                rsi_p = getattr(probe, 'rsi_period', None)
+                if rsi_p is not None:
+                    indicators['RSI'] = {'periods': [rsi_p]}
+                    logger.info(f"Auto-detected RSI indicator from strategy: period={rsi_p}")
+                if not indicators:
+                    indicators = None  # nothing detected, pass None to avoid empty-dict issues
+            except Exception as probe_exc:
+                logger.debug(f"Strategy probe for indicators failed (non-fatal): {probe_exc}")
+
         # Load market data with indicators — use 'max' period so strategy indicators
         # (SMA, EMA, RSI, etc.) have enough historical bars to warm up properly.
         try:
@@ -107,8 +144,8 @@ class BacktestingBridge:
         config = BacktestConfig(start_cash=100000)
         self.mock_broker = SimBroker(config)
         
-        # Initialize strategy
-        self.strategy_instance = self.strategy_class(self.mock_broker, **self.strategy_params)
+        # Initialize strategy — pass symbol so on_bar looks up the right key in market_data
+        self.strategy_instance = self.strategy_class(self.mock_broker, symbol=symbol, **self.strategy_params)
         
         # Collect signals
         signals_list = []
@@ -147,7 +184,76 @@ class BacktestingBridge:
                 
                 # side is "BUY" or "SELL" string (OrderSide constant)
                 signal_type = 'BUY' if latest_order.side == 'BUY' else 'SELL'
-                
+
+                # ── Extract SL/TP from the strategy instance ──────────────────
+                # Bot scripts compute SL/TP as instance attributes INSIDE on_bar()
+                # but do NOT pass them to create_signal().  We read them directly
+                # from the strategy object right after on_bar() has run.
+                #
+                # Convention 1 — absolute price already computed by strategy:
+                #   self.stop_loss   (e.g. ATR/breakout strategies)
+                #   self.take_profit (rarely set, same pattern)
+                #
+                # Convention 2 — percentage stored as parameter:
+                #   self.stop_loss_pct  (e.g. 0.02 = 2%)
+                #   self.take_profit_pct (e.g. 0.05 = 5%)
+                #   combined with self.entry_price set just after the signal
+                #
+                # In all cases we prefer a value the strategy computed over the
+                # fallback in live_trader._execute_signal().
+                # -----------------------------------------------------------------
+                strategy_sl: Optional[float] = None
+                strategy_tp: Optional[float] = None
+
+                # Convention 1: absolute price attribute
+                raw_sl = getattr(self.strategy_instance, 'stop_loss', None)
+                if raw_sl is not None and isinstance(raw_sl, (int, float)) and raw_sl > 0:
+                    strategy_sl = float(raw_sl)
+
+                raw_tp = getattr(self.strategy_instance, 'take_profit', None)
+                if raw_tp is not None and isinstance(raw_tp, (int, float)) and raw_tp > 0:
+                    strategy_tp = float(raw_tp)
+
+                # Convention 2: percentage-based (only applies to ENTRY signals)
+                if latest_order.meta.get('action') != 'EXIT':
+                    entry_px = getattr(self.strategy_instance, 'entry_price', None)
+                    sl_pct = getattr(self.strategy_instance, 'stop_loss_pct', None)
+                    tp_pct = getattr(self.strategy_instance, 'take_profit_pct', None)
+
+                    if sl_pct is not None and entry_px is not None and strategy_sl is None:
+                        sl_pct = float(sl_pct)
+                        entry_px_f = float(entry_px)
+                        strategy_sl = (
+                            entry_px_f * (1.0 - sl_pct)
+                            if signal_type == 'BUY'
+                            else entry_px_f * (1.0 + sl_pct)
+                        )
+
+                    if tp_pct is not None and entry_px is not None and strategy_tp is None:
+                        tp_pct = float(tp_pct)
+                        entry_px_f = float(entry_px)
+                        strategy_tp = (
+                            entry_px_f * (1.0 + tp_pct)
+                            if signal_type == 'BUY'
+                            else entry_px_f * (1.0 - tp_pct)
+                        )
+
+                # Merge: strategy-extracted values take priority over anything in
+                # the order meta (order meta is typically empty for current bots).
+                final_sl = strategy_sl or latest_order.meta.get('sl')
+                final_tp = strategy_tp or latest_order.meta.get('tp')
+
+                if final_sl:
+                    logger.debug(
+                        f"Signal SL extracted for {latest_order.symbol}: {final_sl:.5f} "
+                        f"(source: {'strategy attr' if strategy_sl else 'order meta'})"
+                    )
+                if final_tp:
+                    logger.debug(
+                        f"Signal TP extracted for {latest_order.symbol}: {final_tp:.5f} "
+                        f"(source: {'strategy attr' if strategy_tp else 'order meta'})"
+                    )
+
                 signals_list.append({
                     'timestamp': timestamp,
                     'signal': signal_type,
@@ -155,7 +261,9 @@ class BacktestingBridge:
                     'price': latest_order.price or row['Close'],
                     'strategy_id': self.strategy_class.__name__,
                     'action': latest_order.meta.get('action'),
-                    'size': latest_order.size_requested
+                    'size': latest_order.size_requested,
+                    'sl': final_sl,
+                    'tp': final_tp,
                 })
             else:
                 # No signal - HOLD
@@ -166,7 +274,9 @@ class BacktestingBridge:
                     'price': row['Close'],
                     'strategy_id': self.strategy_class.__name__,
                     'action': None,
-                    'size': 0
+                    'size': 0,
+                    'sl': None,
+                    'tp': None,
                 })
         
         signals_df = pd.DataFrame(signals_list)
@@ -359,25 +469,19 @@ class BacktestingBridge:
             return result
         
         # Check margin requirement (if account info available)
+        # NOTE: We skip the margin estimate here because our simplified formula
+        # (volume * 1000 * price * 0.01) assumes forex lot sizing which is incorrect
+        # for crypto and other instruments. MT5's order_check (called in execute_order)
+        # performs the authoritative margin check with the correct contract size.
         if account_info:
             balance = account_info.get('balance', 0)
-            margin = account_info.get('margin', 0)
             free_margin = account_info.get('margin_free', balance)
-            
-            # Estimate required margin (simplified - actual calc is symbol-specific)
-            # This is a rough estimate; MT5's order_check provides accurate value
-            estimated_margin = volume * 1000 * price * 0.01  # Assume 1% margin
-            
-            if estimated_margin > free_margin:
+
+            # Only hard-block if free margin is essentially zero (avoid div-by-zero)
+            if free_margin <= 0:
                 result['pass'] = False
-                result['reason'] = (f"Insufficient margin. Required: ~${estimated_margin:.2f}, "
-                                  f"Available: ${free_margin:.2f}")
+                result['reason'] = f"No free margin available: ${free_margin:.2f}"
                 return result
-            
-            if estimated_margin > free_margin * 0.5:
-                result['warnings'].append(
-                    f"High margin usage: {(estimated_margin/free_margin)*100:.1f}% of free margin"
-                )
         
         # Check stop loss and take profit validity
         if 'sl' in order_request and order_request['sl'] > 0:
