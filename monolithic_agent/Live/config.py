@@ -9,7 +9,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 import logging
 
-# Load environment variables
+# Load default environment variables as a fallback for direct/manual runs.
+# Per-session config files are loaded later by live_trader.py and must override
+# these defaults at process startup.
 load_dotenv()
 
 
@@ -18,51 +20,66 @@ class LiveConfig:
     """Configuration for live trading operations"""
     
     # MT5 Connection
-    mt5_login: int = int(os.getenv('MT5_LOGIN', '0'))
-    mt5_password: str = os.getenv('MT5_PASSWORD', '')
-    mt5_server: str = os.getenv('MT5_SERVER', '')
-    mt5_path: Optional[str] = os.getenv('MT5_PATH', None)  # Path to terminal64.exe
-    mt5_timeout: int = int(os.getenv('MT5_TIMEOUT', '60000'))  # milliseconds
+    mt5_login: int = field(default_factory=lambda: int(os.getenv('MT5_LOGIN', '0')))
+    mt5_password: str = field(default_factory=lambda: os.getenv('MT5_PASSWORD', ''))
+    mt5_server: str = field(default_factory=lambda: os.getenv('MT5_SERVER', ''))
+    mt5_path: Optional[str] = field(default_factory=lambda: os.getenv('MT5_PATH', None))  # Path to terminal64.exe
+    mt5_timeout: int = field(default_factory=lambda: int(os.getenv('MT5_TIMEOUT', '60000')))  # milliseconds
 
     # MT5 Bridge (Linux/Wine setup) — set MT5_USE_BRIDGE=true to use the HTTP bridge
-    mt5_use_bridge: bool = os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true'
-    mt5_bridge_url: str = os.getenv('MT5_BRIDGE_URL', 'http://127.0.0.1:5555')
+    mt5_use_bridge: bool = field(default_factory=lambda: os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true')
+    mt5_bridge_url: str = field(default_factory=lambda: os.getenv('MT5_BRIDGE_URL', 'http://127.0.0.1:5555'))
     
     # Trading Parameters
-    dry_run: bool = os.getenv('DRY_RUN', 'true').lower() == 'true'
-    interval_seconds: int = int(os.getenv('INTERVAL_SECONDS', '60'))
-    max_retry_attempts: int = int(os.getenv('MAX_RETRY_ATTEMPTS', '3'))
-    retry_backoff_base: float = float(os.getenv('RETRY_BACKOFF_BASE', '2.0'))
+    dry_run: bool = field(default_factory=lambda: os.getenv('DRY_RUN', 'true').lower() == 'true')
+    interval_seconds: int = field(default_factory=lambda: int(os.getenv('INTERVAL_SECONDS', '60')))
+    max_retry_attempts: int = field(default_factory=lambda: int(os.getenv('MAX_RETRY_ATTEMPTS', '3')))
+    retry_backoff_base: float = field(default_factory=lambda: float(os.getenv('RETRY_BACKOFF_BASE', '2.0')))
     
     # Risk Management
-    default_risk_pct: float = float(os.getenv('DEFAULT_RISK_PCT', '1.0'))
-    max_position_size: float = float(os.getenv('MAX_POSITION_SIZE', '10.0'))  # lots
-    max_daily_trades: int = int(os.getenv('MAX_DAILY_TRADES', '10'))
-    max_daily_loss_pct: float = float(os.getenv('MAX_DAILY_LOSS_PCT', '5.0'))
+    default_risk_pct: float = field(default_factory=lambda: float(os.getenv('DEFAULT_RISK_PCT', '1.0')))
+    max_position_size: float = field(default_factory=lambda: float(os.getenv('MAX_POSITION_SIZE', '10.0')))  # lots
+    max_daily_trades: int = field(default_factory=lambda: int(os.getenv('MAX_DAILY_TRADES', '10')))
+    max_daily_loss_pct: float = field(default_factory=lambda: float(os.getenv('MAX_DAILY_LOSS_PCT', '5.0')))
     
     # Strategy Parameters
-    symbols: list = field(default_factory=lambda: os.getenv('SYMBOLS', 'EURUSD,GBPUSD').split(','))
-    timeframe: str = os.getenv('TIMEFRAME', '1d')
-    strategy_id: str = os.getenv('STRATEGY_ID', 'default_strategy')
-    magic_number: int = int(os.getenv('MAGIC_NUMBER', '123456'))
+    symbols: list = field(default_factory=lambda: [
+        s.strip() for s in os.getenv('SYMBOLS', '').split(',') if s.strip()
+    ])
+    exchange: str = field(default_factory=lambda: os.getenv('EXCHANGE', 'FX'))  # tvDatafeed exchange for all symbols
+    timeframe: str = field(default_factory=lambda: os.getenv('TIMEFRAME', '1d'))
+    strategy_id: str = field(default_factory=lambda: os.getenv('STRATEGY_ID', 'default_strategy'))
+    magic_number: int = field(default_factory=lambda: int(os.getenv('MAGIC_NUMBER', '123456')))
+
+    # Session-level fixed SL/TP in pips — used as the default exit whenever
+    # the bot strategy does not supply its own SL or TP values.
+    # A "pip" follows the MT5 convention: 10 × point for 5/3-digit pairs
+    # (e.g. EURUSD, USDJPY) and 1 × point for everything else (metals, indices).
+    # Leave unset (or empty string) to trade without a default SL or TP.
+    sl_pips: Optional[float] = field(default_factory=lambda: (
+        float(os.getenv('SL_PIPS')) if os.getenv('SL_PIPS', '').strip() else None
+    ))
+    tp_pips: Optional[float] = field(default_factory=lambda: (
+        float(os.getenv('TP_PIPS')) if os.getenv('TP_PIPS', '').strip() else None
+    ))
     
     # Safety Features
-    enable_kill_switch: bool = os.getenv('ENABLE_KILL_SWITCH', 'true').lower() == 'true'
-    kill_switch_file: str = os.getenv('KILL_SWITCH_FILE', 'EMERGENCY_STOP')
-    require_approval: bool = os.getenv('REQUIRE_APPROVAL', 'false').lower() == 'true'
+    enable_kill_switch: bool = field(default_factory=lambda: os.getenv('ENABLE_KILL_SWITCH', 'true').lower() == 'true')
+    kill_switch_file: str = field(default_factory=lambda: os.getenv('KILL_SWITCH_FILE', 'EMERGENCY_STOP'))
+    require_approval: bool = field(default_factory=lambda: os.getenv('REQUIRE_APPROVAL', 'false').lower() == 'true')
     
     # Logging & Monitoring
-    log_level: str = os.getenv('LOG_LEVEL', 'INFO')
+    log_level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'INFO'))
     log_dir: Path = field(default_factory=lambda: Path(os.getenv('LOG_DIR', './logs')))
     audit_db_path: Path = field(default_factory=lambda: Path(os.getenv('AUDIT_DB_PATH', './data/audit.db')))
-    max_log_size_mb: int = int(os.getenv('MAX_LOG_SIZE_MB', '100'))
-    log_backup_count: int = int(os.getenv('LOG_BACKUP_COUNT', '10'))
+    max_log_size_mb: int = field(default_factory=lambda: int(os.getenv('MAX_LOG_SIZE_MB', '100')))
+    log_backup_count: int = field(default_factory=lambda: int(os.getenv('LOG_BACKUP_COUNT', '10')))
     
     # Alerts
-    enable_alerts: bool = os.getenv('ENABLE_ALERTS', 'false').lower() == 'true'
-    alert_webhook_url: Optional[str] = os.getenv('ALERT_WEBHOOK_URL', None)
-    telegram_bot_token: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN', None)
-    telegram_chat_id: Optional[str] = os.getenv('TELEGRAM_CHAT_ID', None)
+    enable_alerts: bool = field(default_factory=lambda: os.getenv('ENABLE_ALERTS', 'false').lower() == 'true')
+    alert_webhook_url: Optional[str] = field(default_factory=lambda: os.getenv('ALERT_WEBHOOK_URL', None))
+    telegram_bot_token: Optional[str] = field(default_factory=lambda: os.getenv('TELEGRAM_BOT_TOKEN', None))
+    telegram_chat_id: Optional[str] = field(default_factory=lambda: os.getenv('TELEGRAM_CHAT_ID', None))
     
     # Backtesting Bridge
     backtest_module_path: Path = field(default_factory=lambda: Path(os.getenv(
@@ -77,7 +94,9 @@ class LiveConfig:
         self.audit_db_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Validate MT5 credentials
-        if not self.dry_run:
+        # When using the bridge the bridge manages its own auth, so credentials
+        # are not required at the config level.
+        if not self.dry_run and not self.mt5_use_bridge:
             if not self.mt5_login or not self.mt5_password or not self.mt5_server:
                 raise ValueError(
                     "MT5 credentials missing. Set MT5_LOGIN, MT5_PASSWORD, and MT5_SERVER "
@@ -91,8 +110,13 @@ class LiveConfig:
         if not 0 < self.max_daily_loss_pct <= 100:
             raise ValueError(f"Invalid max daily loss: {self.max_daily_loss_pct}")
         
-        # Strip whitespace from symbols
-        self.symbols = [s.strip() for s in self.symbols]
+        # Validate and normalize symbols. Live sessions are expected to provide
+        # these explicitly so we do not silently trade fallback instruments.
+        self.symbols = [s.strip() for s in self.symbols if s and s.strip()]
+        if not self.symbols:
+            raise ValueError(
+                "No trading symbols configured. Set SYMBOLS or provide symbols via the session API."
+            )
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary (excluding sensitive data)"""
@@ -202,7 +226,8 @@ class MT5Constants:
     
     # Trade return codes
     RETCODE_SUCCESS_CODES = {
-        10008: 'TRADE_RETCODE_DONE',  # Request completed
+        0:     'TRADE_RETCODE_DONE',          # order_check success (MT5 uses 0 for check OK)
+        10008: 'TRADE_RETCODE_DONE',          # order_send request completed
         10009: 'TRADE_RETCODE_DONE_PARTIAL',  # Partially executed
     }
     

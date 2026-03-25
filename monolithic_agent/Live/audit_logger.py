@@ -156,13 +156,19 @@ class AuditLogger:
         price: float,
         strategy_id: str,
         metadata: Optional[Dict[str, Any]] = None
-    ):
-        """Log a trading signal"""
+    ) -> bool:
+        """
+        Log a trading signal.
+
+        Returns:
+            True when a new audit row is created, False when the signal already
+            exists and was ignored.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
             cursor.execute("""
-                INSERT INTO signals 
+                INSERT OR IGNORE INTO signals 
                 (timestamp, signal_id, symbol, signal_type, confidence, price, strategy_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
@@ -177,6 +183,10 @@ class AuditLogger:
             ))
             
             conn.commit()
+            created = cursor.rowcount > 0
+            if not created:
+                logger.info(f"Signal already logged, skipping duplicate audit row: {signal_id}")
+            return created
     
     def log_order(
         self,
@@ -383,6 +393,20 @@ class AuditLogger:
             
             conn.commit()
     
+    def get_last_order_for_signal(self, signal_id: str) -> Optional[Dict[str, Any]]:
+        """Return the most recent order for a given signal_id, or None if none exists."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM orders
+                WHERE signal_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (signal_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def get_recent_signals(self, limit: int = 100) -> list:
         """Get recent signals"""
         with sqlite3.connect(self.db_path) as conn:

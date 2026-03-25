@@ -9,7 +9,12 @@ from datetime import datetime
 import logging
 
 from config import LiveConfig, MT5Constants
-from mt5_connector import MT5Connector
+
+import os as _os
+if _os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+    from mt5_bridge_connector import MT5BridgeConnector as MT5Connector
+else:
+    from mt5_connector import MT5Connector
 
 logger = logging.getLogger('LiveTrader.OrderExecutor')
 
@@ -171,6 +176,7 @@ class OrderExecutor:
                     logger.error(f"Attempt {attempt} failed: {last_error}")
                 else:
                     retcode = result['retcode']
+                    error_message = self._format_mt5_error(result)
                     
                     if MT5Constants.is_success(retcode):
                         # Success!
@@ -189,7 +195,7 @@ class OrderExecutor:
                     else:
                         # Check if error is retryable
                         if self._is_retryable_error(retcode):
-                            last_error = f"Retryable error: {result.get('retcode_message')} (code {retcode})"
+                            last_error = f"Retryable error: {error_message} (code {retcode})"
                             logger.warning(f"Attempt {attempt} failed with retryable error: {last_error}")
                         else:
                             # Non-retryable error - fail immediately
@@ -197,8 +203,9 @@ class OrderExecutor:
                                 'success': False,
                                 'client_order_id': client_order_id,
                                 'error': 'NON_RETRYABLE_ERROR',
-                                'message': result.get('retcode_message'),
+                                'message': error_message,
                                 'retcode': retcode,
+                                'retcode_message': result.get('retcode_message'),
                                 'attempts': attempt
                             }
             
@@ -266,9 +273,10 @@ class OrderExecutor:
             }
         
         if not MT5Constants.is_success(check_result['retcode']):
+            reason = check_result.get('comment') or check_result.get('retcode_message') or 'Unknown error'
             return {
                 'valid': False,
-                'reason': f"MT5 check failed: {check_result.get('comment', 'Unknown error')}"
+                'reason': f"MT5 check failed: {reason}"
             }
         
         # Check margin requirements
@@ -305,6 +313,14 @@ class OrderExecutor:
         }
         
         return retcode in retryable_codes
+
+    def _format_mt5_error(self, result: Dict[str, Any]) -> str:
+        """Compose a user-facing MT5 error with any bridge-provided guidance."""
+        retcode_message = result.get('retcode_message') or 'Unknown MT5 error'
+        comment = result.get('comment')
+        if comment and comment != retcode_message:
+            return f"{retcode_message}: {comment}"
+        return retcode_message
     
     def cancel_pending_order(self, client_order_id: str) -> bool:
         """
@@ -390,7 +406,11 @@ class OrderExecutor:
 # Example usage
 if __name__ == "__main__":
     from config import LiveConfig, setup_logging
-    from mt5_connector import MT5Connector
+    import os as _os2
+    if _os2.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+        from mt5_bridge_connector import MT5BridgeConnector as MT5Connector
+    else:
+        from mt5_connector import MT5Connector
     
     config = LiveConfig()
     logger = setup_logging(config)

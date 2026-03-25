@@ -2,9 +2,8 @@
 Session Manager
 Spawns and manages live trader subprocesses (one per session).
 
-Each subprocess runs live_trader.py with its own .env file containing
-per-session MT5 credentials and trading config. The temp .env is deleted
-immediately after the process starts.
+Each subprocess runs live_trader.py with per-session environment variables
+passed directly at process start so it does not fall back to global defaults.
 
 MT5 SDK constraint: mt5.initialize() is global-state per Python process.
 One subprocess = one MT5 terminal connection = one broker account.
@@ -14,7 +13,6 @@ import sys
 import time
 import uuid
 import logging
-import tempfile
 import subprocess
 from pathlib import Path
 from typing import Tuple, Optional, TYPE_CHECKING
@@ -30,7 +28,8 @@ LIVE_TRADER = LIVE_DIR / 'live_trader.py'
 TEMP_STRATEGIES_DIR = LIVE_DIR / 'temp_strategies'
 KILL_SWITCHES_DIR = LIVE_DIR / 'kill_switches'
 SESSION_LOGS_DIR = LIVE_DIR / 'session_logs'
-VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')
+# Production venv Python on Linux — resolved at runtime from sys.executable
+VENV_PYTHON = Path(r'C:\Users\nyaga\Documents\.venv\Scripts\python.exe')  # legacy Windows path, never exists on Linux
 
 
 class SessionManager:
@@ -60,8 +59,9 @@ class SessionManager:
         except Exception as e:
             return False, None, f'Failed to write strategy file: {e}'
 
-        # 2. Determine kill switch path
+        # 2. Determine kill switch path — remove any stale file from a previous stop
         kill_switch_path = KILL_SWITCHES_DIR / f'STOP_{session_id}'
+        kill_switch_path.unlink(missing_ok=True)
 
         # 3. Decrypt MT5 password
         try:
@@ -70,8 +70,13 @@ class SessionManager:
             strategy_file.unlink(missing_ok=True)
             return False, None, f'Failed to decrypt MT5 password: {e}'
 
-        # 4. Build env file contents — pass all config as environment variables
-        symbols_str = ','.join(session.symbols) if session.symbols else 'EURUSD'
+        # 4. Build child environment — pass all config directly so the subprocess
+        # does not depend on a temporary file surviving long enough to be read.
+        if not session.symbols:
+            strategy_file.unlink(missing_ok=True)
+            return False, None, 'Session has no symbols configured'
+
+        symbols_str = ','.join(session.symbols)
         env_vars = {
             # MT5 credentials
             'MT5_LOGIN': str(session.mt5_login),
@@ -84,28 +89,22 @@ class SessionManager:
             'TIMEFRAME': session.timeframe,
             'DEFAULT_RISK_PCT': str(float(session.risk_pct)),
             'MAGIC_NUMBER': str(session.magic_number),
+            'SL_PIPS': str(session.sl_pips) if session.sl_pips is not None else '',
+            'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',
             'STRATEGY_ID': f'session_{session_id}',
             # Kill switch
             'ENABLE_KILL_SWITCH': 'true',
             'KILL_SWITCH_FILE': str(kill_switch_path),
             # Misc
             'INTERVAL_SECONDS': '60',
+            # MT5 bridge — explicitly propagate so subprocess never falls back to
+            # a stale .env or missing env (do not rely solely on parent-env inheritance)
+            'MT5_USE_BRIDGE': 'true',
+            'MT5_BRIDGE_URL': 'http://127.0.0.1:5555',
         }
 
-        # Write temp .env file
-        env_file = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.env', delete=False, encoding='utf-8'
-            ) as f:
-                env_file = Path(f.name)
-                for k, v in env_vars.items():
-                    # Escape any double quotes in values
-                    safe_v = str(v).replace('"', '\\"')
-                    f.write(f'{k}="{safe_v}"\n')
-        except Exception as e:
-            strategy_file.unlink(missing_ok=True)
-            return False, None, f'Failed to create env file: {e}'
+        child_env = os.environ.copy()
+        child_env.update({k: str(v) for k, v in env_vars.items()})
 
         # 5. Determine Python executable
         python_exe = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
@@ -120,8 +119,9 @@ class SessionManager:
 
         try:
             proc = subprocess.Popen(
-                [python_exe, str(LIVE_TRADER), '--strategy', str(strategy_file), '--config', str(env_file)],
+                [python_exe, str(LIVE_TRADER), '--strategy', str(strategy_file)],
                 cwd=str(LIVE_DIR),
+                env=child_env,
                 stdout=log_file_handle or subprocess.DEVNULL,
                 stderr=subprocess.STDOUT if log_file_handle else subprocess.DEVNULL,
                 # Detach from parent process so it survives Django worker restarts
@@ -131,8 +131,6 @@ class SessionManager:
             logger.info(f'Session {session_id}: subprocess started (PID={pid})')
         except Exception as e:
             strategy_file.unlink(missing_ok=True)
-            if env_file:
-                env_file.unlink(missing_ok=True)
             return False, None, f'Failed to spawn subprocess: {e}'
         finally:
             # Close the log file handle in the parent process — the child has its own copy
@@ -141,12 +139,6 @@ class SessionManager:
                     log_file_handle.close()
                 except Exception:
                     pass
-            # Delete the .env file immediately — credentials no longer needed on disk
-            if env_file and env_file.exists():
-                try:
-                    env_file.unlink()
-                except Exception:
-                    pass  # Best-effort
 
         # 7. Persist file paths on session for cleanup
         session.temp_file_path = str(strategy_file)

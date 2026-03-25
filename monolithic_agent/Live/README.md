@@ -441,6 +441,21 @@ python live_trader.py --strategy ../Backtest/codes/my_strategy.py
 - Verify lot size meets broker's min/max/step
 - Use `mt5.order_check()` for detailed validation
 
+### MT5 Client/API Trading Disabled
+**Error:** `TRADE_RETCODE_CLIENT_DISABLES_AT`
+
+**Meaning:** The Linux bridge is reachable and logged in, but the MT5 terminal itself is refusing automated order placement.
+
+**Fix:**
+- In MT5, open `Tools -> Options -> Expert Advisors`
+- Enable `Algo Trading`
+- Disable `Disable automatic trading via external Python API`
+- Restart the MT5 terminal and the bridge service
+
+The bridge health endpoint will usually show this state as:
+- `terminal_info.trade_allowed=false`
+- `terminal_info.tradeapi_disabled=true`
+
 ### High Slippage
 **Issue:** Execution price differs significantly from signal price
 

@@ -4,17 +4,25 @@ Live Trader - Main trading loop and orchestration
 import signal
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 import logging
 
 from config import LiveConfig, setup_logging, MT5Constants
-from mt5_connector import MT5Connector, MT5ConnectionError
+
+# On Linux the native MetaTrader5 package is unavailable; use the HTTP bridge
+# connector instead.  Set MT5_USE_BRIDGE=true in the environment to activate.
+import os as _os
+if _os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true':
+    from mt5_bridge_connector import MT5BridgeConnector as MT5Connector, MT5ConnectionError
+else:
+    from mt5_connector import MT5Connector, MT5ConnectionError
 from order_executor import OrderExecutor
 from state_manager import StateManager
 from audit_logger import AuditLogger
 from backtesting_bridge import BacktestingBridge, get_strategy_from_file
+from live_data_fetcher import LiveDataFetcher
 
 logger = logging.getLogger('LiveTrader')
 
@@ -44,6 +52,7 @@ class LiveTrader:
         self.executor = OrderExecutor(config, self.connector)
         self.state = StateManager(config)
         self.audit = AuditLogger(config.audit_db_path)
+        self.data_fetcher = LiveDataFetcher()
         
         # Load strategy
         logger.info(f"Loading strategy from: {strategy_path}")
@@ -186,15 +195,37 @@ class LiveTrader:
         """
         logger.info(f"Processing {symbol}...")
         
+        # Resolve the correct tvDatafeed exchange for this symbol.
+        # FX pairs use 'FX', gold uses 'OANDA', crypto uses 'COINBASE'.
+        exchange = self._resolve_exchange(symbol)
+        
+        # Refresh warehouse data before generating signals
+        fetch_result = self.data_fetcher.refresh(
+            symbol=symbol,
+            exchange=exchange,
+            interval=self.config.timeframe,
+        )
+        if fetch_result['status'] not in ('ok',):
+            logger.warning(
+                f"Data refresh for {symbol} returned status={fetch_result['status']}: "
+                f"{fetch_result['message']} — proceeding with existing warehouse data"
+            )
+        else:
+            logger.info(
+                f"Data refresh {symbol}: +{fetch_result['new_rows']} new bars, "
+                f"latest={fetch_result['latest_bar']}"
+            )
+        
         # Get symbol info
         symbol_info = self.connector.get_symbol_info(symbol)
         if not symbol_info:
             logger.warning(f"Could not get symbol info for {symbol}")
             return
         
-        # Generate signals
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=1)  # Look at last day of data
+        # Generate signals — use a 7-day lookback so the window always
+        # contains recent bars regardless of weekends or data gaps.
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=7)
         
         try:
             signals = self.bridge.generate_signals(
@@ -208,17 +239,37 @@ class LiveTrader:
                 logger.info(f"No signals generated for {symbol}")
                 return
             
-            # Get the latest signal
-            latest_signal = signals.iloc[-1]
-            signal_id = f"{symbol}_{latest_signal.name.strftime('%Y%m%d%H%M%S')}"
+            # Prefer the most recent actionable (BUY/SELL) signal in the window.
+            # The bridge returns one row per bar; on most bars the signal is HOLD
+            # because EMA crossovers (and similar events) are rare.  Blindly taking
+            # iloc[-1] would always yield HOLD even when a crossover occurred earlier
+            # in the same 7-day window.  We pick the latest non-HOLD signal so that
+            # a real entry/exit is not missed, while still using the deduplication ID
+            # to avoid re-executing the same signal on every subsequent iteration.
+            actionable = signals[signals['signal'].isin(['BUY', 'SELL'])]
+            if not actionable.empty:
+                latest_signal = actionable.iloc[-1]
+                logger.info(
+                    f"Actionable signal found for {symbol}: "
+                    f"{latest_signal['signal']} @ {latest_signal.name}"
+                )
+            else:
+                latest_signal = signals.iloc[-1]
+            signal_timestamp = latest_signal.name.strftime('%Y%m%d%H%M%S')
+            signal_id = f"{self.config.strategy_id}_{symbol}_{signal_timestamp}"
             
-            # Check if signal already processed
-            if self.state.is_signal_processed(signal_id):
-                logger.debug(f"Signal already processed: {signal_id}")
-                return
+            # Check if signal already processed.
+            # For HOLD signals, in-memory dedup is sufficient (they never execute).
+            # For BUY/SELL signals, bypass in-memory check and go straight to the DB
+            # so that failed orders (e.g. bridge was down) can be retried.
+            signal_type_value = latest_signal['signal']
+            if signal_type_value not in ['BUY', 'SELL']:
+                if self.state.is_signal_processed(signal_id):
+                    logger.debug(f"Signal already processed: {signal_id}")
+                    return
             
             # Log signal
-            self.audit.log_signal(
+            signal_logged = self.audit.log_signal(
                 signal_id=signal_id,
                 symbol=symbol,
                 signal_type=latest_signal['signal'],
@@ -226,6 +277,18 @@ class LiveTrader:
                 price=latest_signal['price'],
                 strategy_id=latest_signal['strategy_id']
             )
+
+            if not signal_logged:
+                # Signal already in audit DB — only skip if a successful order exists.
+                # If the previous order failed (e.g. bridge was down), allow retry.
+                last_order = self.audit.get_last_order_for_signal(signal_id)
+                if last_order is None or last_order.get('status') != 'FAILED':
+                    self.state.mark_signal_processed(signal_id)
+                    self.state.update_last_signal_time(symbol)
+                    logger.info(f"Signal already persisted, skipping reprocessing: {signal_id}")
+                    return
+                else:
+                    logger.info(f"Signal {signal_id} previously failed ({last_order.get('error_message')}), retrying")
             
             # Mark as processed
             self.state.mark_signal_processed(signal_id)
@@ -240,6 +303,25 @@ class LiveTrader:
         except Exception as e:
             logger.error(f"Signal generation failed for {symbol}: {e}", exc_info=True)
     
+    @staticmethod
+    def _pip_size(symbol_info: dict) -> float:
+        """
+        Return the pip size for a symbol using MT5 symbol_info data.
+
+        Convention (matches MT5 standard):
+          - 5-digit FX (EURUSD) and 3-digit JPY pairs: 1 pip = 10 × point
+          - Everything else (metals, indices, crypto with 2-digit or 4-digit
+            prices): 1 pip = 1 × point
+
+        Example outputs:
+          EURUSD (digits=5, point=0.00001) → pip = 0.00010
+          USDJPY (digits=3, point=0.001)   → pip = 0.010
+          XAUUSD (digits=2, point=0.01)    → pip = 0.01
+        """
+        digits = symbol_info.get('digits', 5)
+        point  = symbol_info.get('point', 0.00001)
+        return point * 10 if digits in (5, 3) else point
+
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
         Execute a trading signal
@@ -271,14 +353,77 @@ class LiveTrader:
             logger.error("Could not get account info")
             return
         
-        # Simple stop loss calculation (could be enhanced)
         entry_price = symbol_info['ask'] if signal_type == 'BUY' else symbol_info['bid']
-        stop_loss_price = entry_price * 0.98 if signal_type == 'BUY' else entry_price * 1.02
-        
+
+        # ── SL/TP resolution (priority order) ─────────────────────────────
+        # 1. Strategy-computed value (from backtesting_bridge: self.stop_loss attr
+        #    or stop_loss_pct × entry_price)
+        # 2. Session-configured fixed pips (sl_pips / tp_pips set when the
+        #    session was started — independent of any bot script)
+        # 3. No SL/TP (trade runs until the strategy emits an exit signal)
+        # The old 2% percentage fallback has been removed; it produced arbitrary
+        # SL values that had nothing to do with the strategy's risk model.
+        # ------------------------------------------------------------------
+        signal_sl = signal.get('sl') if hasattr(signal, 'get') else None
+        signal_tp = signal.get('tp') if hasattr(signal, 'get') else None
+
+        # Priority 1: strategy-supplied SL/TP
+        stop_loss_price: Optional[float] = None
+        take_profit_price: Optional[float] = None
+
+        if signal_sl is not None:
+            stop_loss_price = float(signal_sl)
+            logger.info(f"Using strategy-defined SL for {symbol}: {stop_loss_price:.5f}")
+
+        if signal_tp is not None:
+            take_profit_price = float(signal_tp)
+            logger.info(f"Using strategy-defined TP for {symbol}: {take_profit_price:.5f}")
+
+        # Priority 2: session pip-based fallback
+        if stop_loss_price is None or take_profit_price is None:
+            pip_size = self._pip_size(symbol_info)
+
+            if stop_loss_price is None and self.config.sl_pips is not None:
+                dist = self.config.sl_pips * pip_size
+                stop_loss_price = (
+                    entry_price - dist if signal_type == 'BUY' else entry_price + dist
+                )
+                logger.info(
+                    f"Using session SL pips for {symbol}: "
+                    f"{self.config.sl_pips} pips → {stop_loss_price:.5f}"
+                )
+
+            if take_profit_price is None and self.config.tp_pips is not None:
+                dist = self.config.tp_pips * pip_size
+                take_profit_price = (
+                    entry_price + dist if signal_type == 'BUY' else entry_price - dist
+                )
+                logger.info(
+                    f"Using session TP pips for {symbol}: "
+                    f"{self.config.tp_pips} pips → {take_profit_price:.5f}"
+                )
+
+        # Priority 3: no SL/TP
+        if stop_loss_price is None:
+            logger.warning(
+                f"No SL configured for {symbol} (strategy provided none, no sl_pips set). "
+                f"Trade will run without a stop-loss."
+            )
+        if take_profit_price is None:
+            logger.debug(
+                f"No TP configured for {symbol}; trade will run until exit signal."
+            )
+
+        # When no SL is set, position_size falls back to default risk calculation.
+        # Pass entry_price as a sentinel stop_loss_price so the risk calc uses
+        # the configured DEFAULT_RISK_PCT with a 1% distance assumption.
+        effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
+            entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
+        )
         volume = self.bridge.position_size(
             account_balance=account['balance'],
             risk_pct=self.config.default_risk_pct,
-            stop_loss_price=stop_loss_price,
+            stop_loss_price=effective_sl_for_sizing,
             entry_price=entry_price,
             symbol=symbol
         )
@@ -287,16 +432,21 @@ class LiveTrader:
         volume = min(volume, self.config.max_position_size)
         
         # Build order request
+        order_meta = {
+            'symbol': symbol,
+            'magic': self.config.magic_number,
+            'deviation': 20,
+            'comment': signal_id[-29:]
+        }
+        if stop_loss_price is not None:
+            order_meta['sl'] = stop_loss_price
+        if take_profit_price is not None:
+            order_meta['tp'] = take_profit_price
+
         order_request = self.bridge.build_order_request(
             signal_row=signal,
             volume=volume,
-            meta={
-                'symbol': symbol,
-                'magic': self.config.magic_number,
-                'deviation': 20,
-                'sl': stop_loss_price,
-                'comment': f"{self.config.strategy_id}_{signal_id}"
-            },
+            meta=order_meta,
             symbol_info=symbol_info
         )
         
@@ -326,7 +476,8 @@ class LiveTrader:
             side=signal_type,
             volume=volume,
             price=entry_price,
-            sl=stop_loss_price
+            sl=stop_loss_price,
+            tp=take_profit_price
         )
         
         # Execute order
@@ -355,9 +506,14 @@ class LiveTrader:
                 'volume': volume,
                 'price_open': result.get('executed_price', entry_price),
                 'sl': stop_loss_price,
+                'tp': take_profit_price,
                 'open_time': datetime.now()
             })
-            logger.info(f"✓ Position opened: {symbol} {signal_type} {volume} @ {entry_price:.5f}")
+            logger.info(
+                f"✓ Position opened: {symbol} {signal_type} {volume} @ {entry_price:.5f} "
+                f"SL={stop_loss_price:.5f} "
+                f"TP={f'{take_profit_price:.5f}' if take_profit_price is not None else 'none'}"
+            )
         else:
             logger.error(f"✗ Order execution failed: {result.get('message')}")
     
@@ -398,7 +554,10 @@ class LiveTrader:
                 profit = (position['price_open'] - close_price) * position['volume'] * symbol_info['trade_contract_size']
             
             # Record trade
-            duration = (datetime.now() - position['open_time']).seconds
+            open_time = position['open_time']
+            if isinstance(open_time, (int, float)):
+                open_time = datetime.fromtimestamp(open_time)
+            duration = (datetime.now() - open_time).seconds
             
             self.audit.log_trade(
                 symbol=symbol,
@@ -445,6 +604,23 @@ class LiveTrader:
                        f"Equity=${account['equity']:.2f}, "
                        f"P/L=${account['profit']:.2f}")
     
+    def _resolve_exchange(self, symbol: str) -> str:
+        """
+        Return the correct tvDatafeed exchange string for a given symbol.
+        Falls back to self.config.exchange (default 'FX') if not recognised.
+        """
+        symbol_upper = symbol.upper()
+        # Explicit overrides for non-FX symbols
+        EXCHANGE_MAP = {
+            'XAUUSD': 'OANDA',
+            'XAGUSD': 'OANDA',
+            'BTCUSD': 'COINBASE',
+            'ETHUSD': 'COINBASE',
+            'BTCUSDT': 'BINANCE',
+            'ETHUSDT': 'BINANCE',
+        }
+        return EXCHANGE_MAP.get(symbol_upper, self.config.exchange)
+
     def _check_kill_switch(self) -> bool:
         """Check if kill switch file exists"""
         if not self.config.enable_kill_switch:
@@ -513,7 +689,7 @@ def main():
     # Load config
     if args.config:
         from dotenv import load_dotenv
-        load_dotenv(args.config)
+        load_dotenv(args.config, override=True)
     
     config = LiveConfig()
     
