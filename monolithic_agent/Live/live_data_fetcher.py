@@ -50,7 +50,7 @@ INTERVAL_MINUTES: dict[str, int] = {
     '1mo':  43200,
 }
 
-MAX_BARS = 4000  # tvDatafeed hard limit
+MAX_BARS = 5000  # tvDatafeed supports up to 5000 bars
 
 # Warehouse: monolithic_agent/Data/data/
 WAREHOUSE_DIR = Path(__file__).parent.parent / 'Data' / 'data'

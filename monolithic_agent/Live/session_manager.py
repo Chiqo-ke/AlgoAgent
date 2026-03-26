@@ -91,6 +91,7 @@ class SessionManager:
             'MAGIC_NUMBER': str(session.magic_number),
             'SL_PIPS': str(session.sl_pips) if session.sl_pips is not None else '',
             'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',
+            'DATA_BARS': str(session.data_bars) if session.data_bars is not None else '5000',
             'STRATEGY_ID': f'session_{session_id}',
             # Kill switch
             'ENABLE_KILL_SWITCH': 'true',

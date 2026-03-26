@@ -2,6 +2,7 @@
 Backtesting Bridge - Stable API for Live Trading
 Reuses Backtesting module's functions for signal generation, sizing, and order building
 """
+import math
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -53,7 +54,8 @@ class BacktestingBridge:
         from_ts: datetime, 
         to_ts: datetime, 
         timeframe: str = '1d',
-        indicators: Optional[Dict[str, Any]] = None
+        indicators: Optional[Dict[str, Any]] = None,
+        n_bars: int = 5000,
     ) -> pd.DataFrame:
         """
         Generate trading signals using the backtesting strategy
@@ -64,6 +66,9 @@ class BacktestingBridge:
             to_ts: End timestamp
             timeframe: Timeframe/interval (e.g., '1d', '1h', '5m')
             indicators: Optional dict of indicators to load
+            n_bars: Number of historical bars to run the strategy over for
+                    indicator warm-up. Larger values reduce NaN in ATR/EMA/RSI
+                    at signal time. Defaults to 5000.
         
         Returns:
             DataFrame with columns: timestamp, signal, confidence, price, strategy_id
@@ -133,10 +138,9 @@ class BacktestingBridge:
             if to_ts.tzinfo is None:
                 to_ts = to_ts.replace(tzinfo=timezone.utc)
         
-        # Run the strategy over ALL loaded bars so indicators warm up correctly,
-        # then filter the returned *signals* to those on or after from_ts.
-        # We keep a hard cap of 500 bars to avoid unbounded memory use.
-        df = df.tail(500)
+        # Run the strategy over the most recent n_bars so indicators warm up
+        # correctly, then filter the returned *signals* to those on or after from_ts.
+        df = df.tail(n_bars)
         logger.info(f"Running strategy over {len(df)} bars for {symbol} "
                     f"(signals window: {from_ts} → {to_ts})")
         
@@ -331,8 +335,8 @@ class BacktestingBridge:
         Returns:
             Position size in lots/volume
         """
-        if stop_loss_price == entry_price:
-            logger.warning("Stop loss equals entry price, using minimum position size")
+        if stop_loss_price == entry_price or math.isnan(stop_loss_price) or math.isnan(entry_price):
+            logger.warning("Stop loss equals entry price or is NaN, using minimum position size")
             return 0.01  # Minimum lot size
         
         # Calculate risk amount in account currency
