@@ -2,7 +2,7 @@
 Serializers for Live Trading Sessions
 """
 from rest_framework import serializers
-from .models import LiveTradingSession, BrokerCredential, SessionStatus
+from .models import LiveTradingSession, BrokerCredential, SessionStatus, ExitMode
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,13 @@ class LiveTradingSessionCreateSerializer(serializers.Serializer):
     symbols = serializers.ListField(child=serializers.CharField(), min_length=1)
     timeframe = serializers.CharField(max_length=10)
     dry_run = serializers.BooleanField(default=True)
-    risk_pct = serializers.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    risk_pct = serializers.DecimalField(max_digits=5, decimal_places=2, default=2.0)
+    exit_mode = serializers.ChoiceField(
+        choices=ExitMode.values,
+        required=False,
+        default=ExitMode.PERCENTAGE,
+        help_text='Explicit exit mode: bot, percentage, or fixed_pips.'
+    )
     magic_number = serializers.IntegerField(default=234567)
     sl_pips = serializers.FloatField(
         required=False, allow_null=True, default=None,
@@ -66,6 +72,13 @@ class LiveTradingSessionCreateSerializer(serializers.Serializer):
     mt5_terminal_path = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
 
     def validate(self, data):
+        # Backward compatibility: infer mode for old clients that do not send exit_mode.
+        if 'exit_mode' not in self.initial_data:
+            if data.get('sl_pips') is not None or data.get('tp_pips') is not None:
+                data['exit_mode'] = ExitMode.FIXED_PIPS
+            else:
+                data['exit_mode'] = ExitMode.PERCENTAGE
+
         has_credential_id = bool(data.get('credential_id'))
         has_inline = bool(data.get('mt5_login')) and bool(data.get('mt5_password')) and bool(data.get('mt5_server'))
         if not has_credential_id and not has_inline:
@@ -73,6 +86,28 @@ class LiveTradingSessionCreateSerializer(serializers.Serializer):
                 'Provide either "credential_id" (saved broker credential) '
                 'or "mt5_login", "mt5_password", and "mt5_server" inline.'
             )
+
+        exit_mode = data.get('exit_mode', ExitMode.PERCENTAGE)
+        sl_pips = data.get('sl_pips')
+        tp_pips = data.get('tp_pips')
+
+        if exit_mode in (ExitMode.BOT, ExitMode.PERCENTAGE):
+            if sl_pips is not None or tp_pips is not None:
+                raise serializers.ValidationError(
+                    f'"{exit_mode}" mode does not allow session-level sl_pips/tp_pips. '
+                    'Use fixed_pips mode to provide SL/TP pips.'
+                )
+
+        if exit_mode == ExitMode.FIXED_PIPS:
+            if sl_pips is None and tp_pips is None:
+                raise serializers.ValidationError(
+                    'fixed_pips mode requires at least one of sl_pips or tp_pips.'
+                )
+            if sl_pips is not None and sl_pips <= 0:
+                raise serializers.ValidationError('sl_pips must be greater than 0 when provided.')
+            if tp_pips is not None and tp_pips <= 0:
+                raise serializers.ValidationError('tp_pips must be greater than 0 when provided.')
+
         return data
 
 

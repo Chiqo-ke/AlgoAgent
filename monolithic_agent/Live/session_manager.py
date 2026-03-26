@@ -88,6 +88,7 @@ class SessionManager:
             'SYMBOLS': symbols_str,
             'TIMEFRAME': session.timeframe,
             'DEFAULT_RISK_PCT': str(float(session.risk_pct)),
+            'EXIT_MODE': session.exit_mode,
             'MAGIC_NUMBER': str(session.magic_number),
             'SL_PIPS': str(session.sl_pips) if session.sl_pips is not None else '',
             'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',

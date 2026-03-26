@@ -31,6 +31,12 @@ class SessionStatus(models.TextChoices):
     ERROR = 'ERROR', 'Error'
 
 
+class ExitMode(models.TextChoices):
+    BOT = 'bot', 'Bot Inbuilt'
+    PERCENTAGE = 'percentage', 'Percentage Risk'
+    FIXED_PIPS = 'fixed_pips', 'Fixed Pips SL/TP'
+
+
 class BrokerCredential(models.Model):
     """
     Saved MT5 broker credentials for a user.
@@ -101,7 +107,13 @@ class LiveTradingSession(models.Model):
         default=True,
         help_text="When True, connection is established but NO real orders are sent. Always start with True."
     )
-    risk_pct = models.DecimalField(max_digits=5, decimal_places=2, default=1.0)
+    risk_pct = models.DecimalField(max_digits=5, decimal_places=2, default=2.0)
+    exit_mode = models.CharField(
+        max_length=20,
+        choices=ExitMode.choices,
+        default=ExitMode.PERCENTAGE,
+        help_text='Exit behavior mode: bot inbuilt, percentage-risk, or fixed pip SL/TP.'
+    )
     magic_number = models.IntegerField(default=234567)
     sl_pips = models.FloatField(
         null=True, blank=True,

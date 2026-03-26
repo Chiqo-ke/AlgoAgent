@@ -390,8 +390,8 @@ class LiveTrader:
             else:
                 logger.debug(f"Strategy TP for {symbol} is {_tp_val!r} (invalid) — ignoring.")
 
-        # Priority 2: session pip-based fallback
-        if stop_loss_price is None or take_profit_price is None:
+        # Priority 2: session pip-based fallback (fixed_pips mode only)
+        if self.config.exit_mode == 'fixed_pips' and (stop_loss_price is None or take_profit_price is None):
             pip_size = self._pip_size(symbol_info)
 
             if stop_loss_price is None and self.config.sl_pips is not None:
@@ -447,7 +447,8 @@ class LiveTrader:
             'symbol': symbol,
             'magic': self.config.magic_number,
             'deviation': 20,
-            'comment': signal_id[-29:]
+            'comment': signal_id[-29:],
+            'exit_mode': self.config.exit_mode,
         }
         if stop_loss_price is not None:
             order_meta['sl'] = stop_loss_price
@@ -488,7 +489,10 @@ class LiveTrader:
             volume=volume,
             price=entry_price,
             sl=stop_loss_price,
-            tp=take_profit_price
+            tp=take_profit_price,
+            metadata={
+                'exit_mode': self.config.exit_mode,
+            }
         )
         
         # Execute order
@@ -580,7 +584,11 @@ class LiveTrader:
                 duration_seconds=duration,
                 entry_order_id=str(position.get('ticket', '')),
                 exit_order_id=str(result.get('mt5_order_id', '')),
-                strategy_id=self.config.strategy_id
+                strategy_id=self.config.strategy_id,
+                metadata={
+                    'exit_mode': self.config.exit_mode,
+                    'exit_reason': 'strategy_signal',
+                }
             )
             
             # Update state
