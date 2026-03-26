@@ -12,27 +12,9 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 import logging
-import os
 import sys
 import collections
 from pathlib import Path
-
-import requests as _requests  # used for MT5 bridge calls
-
-# MT5 bridge constants (mirrors MetaTrader5 package values)
-_MT5_ORDER_TYPE_BUY      = 0
-_MT5_ORDER_TYPE_SELL     = 1
-_MT5_TRADE_ACTION_DEAL   = 1
-_MT5_ORDER_FILLING_FOK   = 0
-_MT5_ORDER_FILLING_IOC   = 1
-_MT5_ORDER_FILLING_RETURN = 2
-_MT5_ORDER_TIME_GTC      = 0
-_MT5_RETCODE_DONE        = 10009
-
-
-def _bridge_url() -> str:
-    """Return the MT5 bridge base URL from env (default: http://127.0.0.1:5555)."""
-    return os.environ.get('MT5_BRIDGE_URL', 'http://127.0.0.1:5555').rstrip('/')
 
 from .models import LiveTradingSession, BrokerCredential, SessionStatus
 from .serializers import (
@@ -234,6 +216,7 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             magic_number=data['magic_number'],
             sl_pips=data.get('sl_pips'),
             tp_pips=data.get('tp_pips'),
+            data_bars=data.get('data_bars', 5000),
             mt5_login=mt5_login,
             mt5_server=mt5_server,
             mt5_terminal_path=mt5_terminal_path,
@@ -314,49 +297,67 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
     @action(detail=True, methods=['get'], url_path='positions')
     def positions(self, request, pk=None):
         """
-        Fetch current open positions from the MT5 bridge service.
-        The bridge runs on the server (Wine + MT5 terminal) at MT5_BRIDGE_URL.
-        Returns an empty list if the bridge is unavailable.
+        Fetch current open positions from MT5 for this session's account.
+        Returns an empty list if MT5 is unavailable or the session is not running.
         """
         session = get_object_or_404(LiveTradingSession, pk=pk, created_by=request.user)
 
-        bridge = _bridge_url()
         try:
-            resp = _requests.get(f"{bridge}/positions_get", timeout=10)
-            resp.raise_for_status()
-            raw = resp.json()
-        except _requests.exceptions.ConnectionError:
-            logger.warning("MT5 bridge unreachable at %s — session %s positions returning empty", bridge, pk)
+            import MetaTrader5 as mt5
+        except ImportError:
             return Response(
-                {'positions': [], 'warning': f'MT5 bridge not reachable at {bridge}. Ensure the bridge service is running.'},
-                status=status.HTTP_200_OK,
+                {'positions': [], 'warning': 'MetaTrader5 package not installed on server.'},
+                status=status.HTTP_200_OK
             )
+
+        try:
+            # Build initialize kwargs — pass login/password/server directly as the
+            # docs show: mt5.initialize(path, login=LOGIN, password="PWD", server="SRV")
+            password = session.get_mt5_password()
+            init_kwargs = {
+                'login': session.mt5_login,
+                'password': password,
+                'server': session.mt5_server,
+            }
+            if session.mt5_terminal_path:
+                init_kwargs['path'] = session.mt5_terminal_path
+
+            if not mt5.initialize(**init_kwargs):
+                return Response(
+                    {'positions': [], 'warning': f'MT5 init failed: {mt5.last_error()}'},
+                    status=status.HTTP_200_OK
+                )
+
+            raw = mt5.positions_get()
+            mt5.shutdown()
+
+            if raw is None:
+                return Response({'positions': []}, status=status.HTTP_200_OK)
+
+            positions = []
+            for pos in raw:
+                positions.append({
+                    'ticket': pos.ticket,
+                    'symbol': pos.symbol,
+                    'type': 'buy' if pos.type == mt5.ORDER_TYPE_BUY else 'sell',
+                    'volume': pos.volume,
+                    'open_price': pos.price_open,
+                    'current_price': pos.price_current,
+                    'profit': pos.profit,
+                    'swap': pos.swap,
+                    'open_time': str(pos.time),
+                    'comment': pos.comment,
+                    'magic': pos.magic,
+                })
+
+            return Response({'positions': positions}, status=status.HTTP_200_OK)
+
         except Exception as exc:
-            logger.exception("Error querying MT5 bridge positions for session %s: %s", pk, exc)
+            logger.exception("Error fetching MT5 positions for session %s: %s", pk, exc)
             return Response(
                 {'positions': [], 'warning': str(exc)},
-                status=status.HTTP_200_OK,
+                status=status.HTTP_200_OK
             )
-
-        # Bridge returns a list of dicts with MT5 field names.
-        # Map them to the frontend's expected format.
-        positions = []
-        for pos in (raw if isinstance(raw, list) else []):
-            positions.append({
-                'ticket':        pos.get('ticket'),
-                'symbol':        pos.get('symbol'),
-                'type':          'buy' if pos.get('type') == _MT5_ORDER_TYPE_BUY else 'sell',
-                'volume':        pos.get('volume'),
-                'open_price':    pos.get('price_open'),
-                'current_price': pos.get('price_current'),
-                'profit':        pos.get('profit', 0),
-                'swap':          pos.get('swap', 0),
-                'open_time':     str(pos.get('time', '')),
-                'comment':       pos.get('comment', ''),
-                'magic':         pos.get('magic'),
-            })
-
-        return Response({'positions': positions}, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # POST /api/trading/sessions/{id}/close_position/  — close a trade
@@ -364,7 +365,7 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
     @action(detail=True, methods=['post'], url_path='close_position')
     def close_position(self, request, pk=None):
         """
-        Close a specific open position by ticket number via the MT5 bridge.
+        Close a specific open position by ticket number.
         Uses a market order to close at the best available price.
         """
         session = get_object_or_404(LiveTradingSession, pk=pk, created_by=request.user)
@@ -378,85 +379,81 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
         except (TypeError, ValueError):
             return Response({'error': '"ticket" must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        bridge = _bridge_url()
         try:
-            # 1. Retrieve all open positions then filter by ticket.
-            pos_resp = _requests.get(f"{bridge}/positions_get", timeout=10)
-            pos_resp.raise_for_status()
-            all_positions = pos_resp.json()
-            if not isinstance(all_positions, list):
-                all_positions = []
+            import MetaTrader5 as mt5
+        except ImportError:
+            return Response({'error': 'MetaTrader5 package not installed on server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            matched = [p for p in all_positions if p.get('ticket') == ticket]
-            if not matched:
+        try:
+            password = session.get_mt5_password()
+            init_kwargs = {
+                'login': session.mt5_login,
+                'password': password,
+                'server': session.mt5_server,
+            }
+            if session.mt5_terminal_path:
+                init_kwargs['path'] = session.mt5_terminal_path
+
+            if not mt5.initialize(**init_kwargs):
+                return Response({'error': f'MT5 init failed: {mt5.last_error()}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+            # Find the position
+            position = mt5.positions_get(ticket=ticket)
+            if not position:
+                mt5.shutdown()
                 return Response({'error': f'Position #{ticket} not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-            pos = matched[0]
-            pos_type     = pos.get('type', _MT5_ORDER_TYPE_BUY)  # 0=BUY, 1=SELL
-            pos_symbol   = pos.get('symbol')
-            pos_volume   = pos.get('volume')
-            pos_magic    = pos.get('magic', 0)
+            pos = position[0]
+            # Determine close order type (opposite of position type)
+            close_order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+            tick = mt5.symbol_info_tick(pos.symbol)
+            price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
 
-            # 2. Get current bid/ask and filling mode from bridge symbol_info.
-            sym_resp = _requests.get(f"{bridge}/symbol_info", params={'symbol': pos_symbol}, timeout=10)
-            sym_resp.raise_for_status()
-            sym_data = sym_resp.json()
+            # Detect the filling mode supported by the broker for this symbol.
+            # filling_mode is a bitmask: bit-0 = FOK supported, bit-1 = IOC supported.
+            # ORDER_FILLING_FOK=0, ORDER_FILLING_IOC=1, ORDER_FILLING_RETURN=2
+            sym_info = mt5.symbol_info(pos.symbol)
+            filling_mode = sym_info.filling_mode if sym_info else 0
+            if filling_mode & 1:          # FOK supported
+                type_filling = mt5.ORDER_FILLING_FOK
+            elif filling_mode & 2:        # IOC supported
+                type_filling = mt5.ORDER_FILLING_IOC
+            else:                         # Market execution / RETURN
+                type_filling = mt5.ORDER_FILLING_RETURN
 
-            # Close price: BUY positions close at Bid, SELL positions close at Ask
-            price = sym_data.get('bid') if pos_type == _MT5_ORDER_TYPE_BUY else sym_data.get('ask')
-
-            # Detect filling mode (bitmask: bit-0=FOK, bit-1=IOC; else RETURN)
-            filling_mode = sym_data.get('filling_mode', 0) or 0
-            if filling_mode & 1:
-                type_filling = _MT5_ORDER_FILLING_FOK
-            elif filling_mode & 2:
-                type_filling = _MT5_ORDER_FILLING_IOC
-            else:
-                type_filling = _MT5_ORDER_FILLING_RETURN
-
-            # Opposite order type to close
-            close_order_type = _MT5_ORDER_TYPE_SELL if pos_type == _MT5_ORDER_TYPE_BUY else _MT5_ORDER_TYPE_BUY
-
-            # 3. Send close order via bridge.
-            order_payload = {
-                'action':       _MT5_TRADE_ACTION_DEAL,
-                'symbol':       pos_symbol,
-                'volume':       pos_volume,
-                'type':         close_order_type,
-                'position':     ticket,
-                'price':        price,
-                'deviation':    20,
-                'magic':        pos_magic,
-                'comment':      'AlgoAgent close',
-                'type_time':    _MT5_ORDER_TIME_GTC,
+            request_payload = {
+                'action': mt5.TRADE_ACTION_DEAL,
+                'symbol': pos.symbol,
+                'volume': pos.volume,
+                'type': close_order_type,
+                'position': ticket,
+                'price': price,
+                'deviation': 20,
+                'magic': pos.magic,
+                'comment': 'AlgoAgent close',
+                'type_time': mt5.ORDER_TIME_GTC,
                 'type_filling': type_filling,
             }
-            order_resp = _requests.post(f"{bridge}/order_send", json=order_payload, timeout=30)
-            order_resp.raise_for_status()
-            result = order_resp.json()
 
-        except _requests.exceptions.ConnectionError:
-            logger.warning("MT5 bridge unreachable at %s — cannot close position %s", bridge, ticket)
-            return Response(
-                {'error': f'MT5 bridge not reachable at {bridge}. Ensure the bridge service is running.'},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+            result = mt5.order_send(request_payload)
+            mt5.shutdown()
+
+            if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+                retcode = result.retcode if result else 'unknown'
+                return Response(
+                    {'error': f'Close order failed. MT5 retcode: {retcode}'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            return Response({
+                'detail': f'Position #{ticket} closed successfully.',
+                'order': result.order,
+                'retcode': result.retcode,
+            }, status=status.HTTP_200_OK)
+
         except Exception as exc:
             logger.exception("Error closing MT5 position %s for session %s: %s", ticket, pk, exc)
             return Response({'error': str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        retcode = result.get('retcode')
-        if retcode != _MT5_RETCODE_DONE:
-            return Response(
-                {'error': f'Close order failed. MT5 retcode: {retcode}  ({result.get("retcode_message", "") or ""})', 'detail': result},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        return Response({
-            'detail': f'Position #{ticket} closed successfully.',
-            'order':   result.get('order'),
-            'retcode': retcode,
-        }, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # GET /api/trading/sessions/{id}/logs/  — tail subprocess activity log

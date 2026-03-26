@@ -205,6 +205,7 @@ class LiveTrader:
             symbol=symbol,
             exchange=exchange,
             interval=self.config.timeframe,
+            n_bars=self.config.data_bars,
         )
         if fetch_result['status'] not in ('ok',):
             logger.warning(
@@ -233,7 +234,8 @@ class LiveTrader:
                 symbol=symbol,
                 from_ts=start_time,
                 to_ts=end_time,
-                timeframe=self.config.timeframe
+                timeframe=self.config.timeframe,
+                n_bars=self.config.data_bars,
             )
             
             if signals.empty:

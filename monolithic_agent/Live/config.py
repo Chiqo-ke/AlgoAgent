@@ -51,6 +51,12 @@ class LiveConfig:
     strategy_id: str = field(default_factory=lambda: os.getenv('STRATEGY_ID', 'default_strategy'))
     magic_number: int = field(default_factory=lambda: int(os.getenv('MAGIC_NUMBER', '123456')))
 
+    # Number of historical bars to fetch and run the strategy over.
+    # More bars give indicators (ATR, EMA, RSI, etc.) a longer warm-up period
+    # and reduce the chance of NaN values at signal time.
+    # Capped internally by live_data_fetcher.MAX_BARS (5000).
+    data_bars: int = field(default_factory=lambda: int(os.getenv('DATA_BARS', '5000')))
+
     # Session-level fixed SL/TP in pips — used as the default exit whenever
     # the bot strategy does not supply its own SL or TP values.
     # A "pip" follows the MT5 convention: 10 × point for 5/3-digit pairs

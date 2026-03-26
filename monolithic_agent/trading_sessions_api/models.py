@@ -119,6 +119,15 @@ class LiveTradingSession(models.Model):
             'Leave blank to trade without a take-profit.'
         )
     )
+    data_bars = models.IntegerField(
+        null=True, blank=True,
+        default=5000,
+        help_text=(
+            'Number of historical bars fetched and used for indicator warm-up '
+            '(ATR, EMA, RSI, etc.). Higher values reduce NaN signals. '
+            'Max 5000 (tvDatafeed limit). Defaults to 5000.'
+        )
+    )
 
     # Per-session MT5 credentials
     mt5_login = models.IntegerField(help_text="Broker account number")

@@ -53,6 +53,10 @@ class LiveTradingSessionCreateSerializer(serializers.Serializer):
         required=False, allow_null=True, default=None,
         help_text='Fixed take-profit in pips from entry. Overrides the strategy default when the bot has no TP.'
     )
+    data_bars = serializers.IntegerField(
+        required=False, allow_null=True, default=5000, min_value=100, max_value=5000,
+        help_text='Historical bars for indicator warm-up (100–5000). Defaults to 5000.'
+    )
     # Option A – reference a saved credential
     credential_id = serializers.IntegerField(required=False, allow_null=True)
     # Option B – inline MT5 credentials
