@@ -213,6 +213,7 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             timeframe=data['timeframe'],
             dry_run=data['dry_run'],
             risk_pct=data['risk_pct'],
+            exit_mode=data.get('exit_mode'),
             magic_number=data['magic_number'],
             sl_pips=data.get('sl_pips'),
             tp_pips=data.get('tp_pips'),

@@ -72,7 +72,7 @@ def ensure_redis_running() -> bool:
     Returns True if Redis is ready, False otherwise.
     """
     if _redis_is_running():
-        logger.info("[Redis] Already running on %s:%s ✅", REDIS_HOST, REDIS_PORT)
+        logger.info("[Redis] Already running on %s:%s", REDIS_HOST, REDIS_PORT)
         return True
 
     logger.info("[Redis] Not detected on port %s — attempting to start via Docker...", REDIS_PORT)
@@ -111,7 +111,7 @@ def ensure_redis_running() -> bool:
         for attempt in range(1, 16):
             time.sleep(1)
             if _redis_is_running():
-                logger.info("[Redis] ✅ Ready after %ds", attempt)
+                logger.info("[Redis] Ready after %ds", attempt)
                 return True
 
         logger.error(
