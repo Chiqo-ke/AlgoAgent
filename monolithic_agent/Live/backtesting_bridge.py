@@ -2,6 +2,7 @@
 Backtesting Bridge - Stable API for Live Trading
 Reuses Backtesting module's functions for signal generation, sizing, and order building
 """
+import math
 import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
@@ -331,8 +332,8 @@ class BacktestingBridge:
         Returns:
             Position size in lots/volume
         """
-        if stop_loss_price == entry_price:
-            logger.warning("Stop loss equals entry price, using minimum position size")
+        if stop_loss_price == entry_price or math.isnan(stop_loss_price) or math.isnan(entry_price):
+            logger.warning("Stop loss equals entry price or is NaN, using minimum position size")
             return 0.01  # Minimum lot size
         
         # Calculate risk amount in account currency

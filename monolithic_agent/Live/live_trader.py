@@ -1,6 +1,7 @@
 """
 Live Trader - Main trading loop and orchestration
 """
+import math
 import signal
 import sys
 import time
@@ -372,12 +373,20 @@ class LiveTrader:
         take_profit_price: Optional[float] = None
 
         if signal_sl is not None:
-            stop_loss_price = float(signal_sl)
-            logger.info(f"Using strategy-defined SL for {symbol}: {stop_loss_price:.5f}")
+            _sl_val = float(signal_sl)
+            if not math.isnan(_sl_val) and _sl_val > 0:
+                stop_loss_price = _sl_val
+                logger.info(f"Using strategy-defined SL for {symbol}: {stop_loss_price:.5f}")
+            else:
+                logger.debug(f"Strategy SL for {symbol} is {_sl_val!r} (invalid) — ignoring.")
 
         if signal_tp is not None:
-            take_profit_price = float(signal_tp)
-            logger.info(f"Using strategy-defined TP for {symbol}: {take_profit_price:.5f}")
+            _tp_val = float(signal_tp)
+            if not math.isnan(_tp_val) and _tp_val > 0:
+                take_profit_price = _tp_val
+                logger.info(f"Using strategy-defined TP for {symbol}: {take_profit_price:.5f}")
+            else:
+                logger.debug(f"Strategy TP for {symbol} is {_tp_val!r} (invalid) — ignoring.")
 
         # Priority 2: session pip-based fallback
         if stop_loss_price is None or take_profit_price is None:
