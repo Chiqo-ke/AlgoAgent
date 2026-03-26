@@ -448,7 +448,7 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
         retcode = result.get('retcode')
         if retcode != _MT5_RETCODE_DONE:
             return Response(
-                {'error': f'Close order failed. MT5 retcode: {retcode}  ({result.get("retcode_message", "")||""})', 'detail': result},
+                {'error': f'Close order failed. MT5 retcode: {retcode}  ({result.get("retcode_message", "") or ""})', 'detail': result},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
