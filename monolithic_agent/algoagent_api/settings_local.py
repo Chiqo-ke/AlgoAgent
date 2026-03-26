@@ -27,11 +27,15 @@ ALLOWED_HOSTS = [
     '*.devtunnels.ms',
 ]
 
-# Database - Use SQLite for local development
+# Database - PostgreSQL (mirrors production to catch migration issues early)
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'algoagent'),
+        'USER': os.environ.get('DB_USER', 'algoagent'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
@@ -150,10 +154,10 @@ if not os.path.exists(logs_dir):
 #     INTERNAL_IPS = ['127.0.0.1', 'localhost']
 
 print("=" * 60)
-print("🔧 LOCAL DEVELOPMENT SETTINGS LOADED")
+print("LOCAL DEVELOPMENT SETTINGS LOADED")
 print("=" * 60)
 print(f"DEBUG: {DEBUG}")
-print(f"DATABASE: SQLite ({DATABASES['default']['NAME']})")
+print(f"DATABASE: PostgreSQL ({DATABASES['default']['NAME']})")
 print(f"CORS: Allow all origins")
 print(f"CACHE: Local memory")
 print(f"CHANNELS: In-memory layer")
