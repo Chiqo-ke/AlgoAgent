@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 import logging
+import os
 import sys
 import collections
 from pathlib import Path
@@ -30,6 +31,52 @@ if str(LIVE_DIR) not in sys.path:
 from session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# MT5 connectivity helper
+# ---------------------------------------------------------------------------
+# The production server (Linux) uses the HTTP bridge connector.
+# The developer's Windows machine has the native MetaTrader5 SDK installed.
+# MT5_USE_BRIDGE=true in .env (loaded by Daphne's EnvironmentFile) selects
+# bridge mode; the dev env leaves it unset or false for native SDK mode.
+
+_USE_BRIDGE = os.getenv('MT5_USE_BRIDGE', 'false').lower() == 'true'
+_BRIDGE_URL  = os.getenv('MT5_BRIDGE_URL', 'http://127.0.0.1:5555')
+
+
+def _get_mt5_positions_bridge() -> list:
+    """Return open positions via the HTTP bridge (Linux/production)."""
+    import requests
+    # Direct HTTP call — no LiveConfig needed, no MT5 credentials required
+    # (the bridge is already authenticated to the terminal)
+    try:
+        resp = requests.get(f"{_BRIDGE_URL}/positions_get", timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception:
+        return []
+
+
+def _normalize_bridge_position(pos: dict) -> dict:
+    """Normalise a bridge position dict to the standard API shape."""
+    return {
+        'ticket':        pos.get('ticket'),
+        'symbol':        pos.get('symbol'),
+        'type':          'buy' if pos.get('type') == 0 else 'sell',
+        'volume':        pos.get('volume'),
+        'open_price':    pos.get('price_open'),
+        'current_price': pos.get('price_current'),
+        'sl':            pos.get('sl'),
+        'tp':            pos.get('tp'),
+        'profit':        pos.get('profit'),
+        'swap':          pos.get('swap'),
+        'open_time':     str(pos.get('time', '')),
+        'comment':       pos.get('comment', ''),
+        'magic':         pos.get('magic'),
+    }
 
 
 # ===========================================================================
@@ -299,62 +346,175 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
     def positions(self, request, pk=None):
         """
         Fetch current open positions from MT5 for this session's account.
-        Returns an empty list if MT5 is unavailable or the session is not running.
+
+        On the production server MT5_USE_BRIDGE=true routes through the HTTP
+        bridge connector (Linux / Wine setup).  On the developer's Windows
+        machine the native MetaTrader5 SDK is used instead.
         """
         session = get_object_or_404(LiveTradingSession, pk=pk, created_by=request.user)
 
         try:
-            import MetaTrader5 as mt5
-        except ImportError:
-            return Response(
-                {'positions': [], 'warning': 'MetaTrader5 package not installed on server.'},
-                status=status.HTTP_200_OK
-            )
+            if _USE_BRIDGE:
+                # ── Bridge path (production / Linux) ──────────────────────
+                raw = _get_mt5_positions_bridge()
+                positions = [_normalize_bridge_position(p) for p in raw]
+            else:
+                # ── Native SDK path (developer Windows machine) ────────────
+                try:
+                    import MetaTrader5 as mt5
+                except ImportError:
+                    return Response(
+                        {'positions': [], 'warning': 'MetaTrader5 package not installed.'},
+                        status=status.HTTP_200_OK
+                    )
+                password = session.get_mt5_password()
+                init_kwargs = {
+                    'login':    session.mt5_login,
+                    'password': password,
+                    'server':   session.mt5_server,
+                }
+                if session.mt5_terminal_path:
+                    init_kwargs['path'] = session.mt5_terminal_path
 
-        try:
-            # Build initialize kwargs — pass login/password/server directly as the
-            # docs show: mt5.initialize(path, login=LOGIN, password="PWD", server="SRV")
-            password = session.get_mt5_password()
-            init_kwargs = {
-                'login': session.mt5_login,
-                'password': password,
-                'server': session.mt5_server,
-            }
-            if session.mt5_terminal_path:
-                init_kwargs['path'] = session.mt5_terminal_path
+                if not mt5.initialize(**init_kwargs):
+                    return Response(
+                        {'positions': [], 'warning': f'MT5 init failed: {mt5.last_error()}'},
+                        status=status.HTTP_200_OK
+                    )
+                raw = mt5.positions_get()
+                mt5.shutdown()
 
-            if not mt5.initialize(**init_kwargs):
-                return Response(
-                    {'positions': [], 'warning': f'MT5 init failed: {mt5.last_error()}'},
-                    status=status.HTTP_200_OK
-                )
+                if raw is None:
+                    return Response({'positions': []}, status=status.HTTP_200_OK)
 
-            raw = mt5.positions_get()
-            mt5.shutdown()
-
-            if raw is None:
-                return Response({'positions': []}, status=status.HTTP_200_OK)
-
-            positions = []
-            for pos in raw:
-                positions.append({
-                    'ticket': pos.ticket,
-                    'symbol': pos.symbol,
-                    'type': 'buy' if pos.type == mt5.ORDER_TYPE_BUY else 'sell',
-                    'volume': pos.volume,
-                    'open_price': pos.price_open,
-                    'current_price': pos.price_current,
-                    'profit': pos.profit,
-                    'swap': pos.swap,
-                    'open_time': str(pos.time),
-                    'comment': pos.comment,
-                    'magic': pos.magic,
-                })
+                positions = []
+                for pos in raw:
+                    positions.append({
+                        'ticket':        pos.ticket,
+                        'symbol':        pos.symbol,
+                        'type':          'buy' if pos.type == mt5.ORDER_TYPE_BUY else 'sell',
+                        'volume':        pos.volume,
+                        'open_price':    pos.price_open,
+                        'current_price': pos.price_current,
+                        'sl':            pos.sl,
+                        'tp':            pos.tp,
+                        'profit':        pos.profit,
+                        'swap':          pos.swap,
+                        'open_time':     str(pos.time),
+                        'comment':       pos.comment,
+                        'magic':         pos.magic,
+                    })
 
             return Response({'positions': positions}, status=status.HTTP_200_OK)
 
         except Exception as exc:
             logger.exception("Error fetching MT5 positions for session %s: %s", pk, exc)
+            return Response(
+                {'positions': [], 'warning': str(exc)},
+                status=status.HTTP_200_OK
+            )
+
+    # ------------------------------------------------------------------
+    # GET /api/trading/sessions/all_positions/  — positions across all
+    #     RUNNING sessions owned by the logged-in user
+    # ------------------------------------------------------------------
+    @action(detail=False, methods=['get'], url_path='all_positions')
+    def all_positions(self, request):
+        """
+        Return all open MT5 positions across every RUNNING session for the
+        logged-in user.  Each position is enriched with session metadata
+        (session_id, strategy name, timeframe, symbols) so the frontend
+        knows which bot opened each trade.
+
+        The magic number is used to match a position to its session when
+        multiple sessions share the same broker account.
+        """
+        user_sessions = LiveTradingSession.objects.filter(
+            created_by=request.user,
+            status=SessionStatus.RUNNING,
+        )
+
+        # Build magic-number → session metadata lookup
+        magic_map = {
+            s.magic_number: {
+                'session_id':    s.pk,
+                'strategy_name': str(s.strategy),
+                'timeframe':     s.timeframe,
+                'symbols':       s.symbols,
+            }
+            for s in user_sessions
+        }
+
+        if not magic_map:
+            return Response({'positions': [], 'sessions_checked': 0}, status=status.HTTP_200_OK)
+
+        try:
+            if _USE_BRIDGE:
+                raw = _get_mt5_positions_bridge()
+                all_pos = [_normalize_bridge_position(p) for p in raw]
+            else:
+                try:
+                    import MetaTrader5 as mt5
+                except ImportError:
+                    return Response(
+                        {'positions': [], 'warning': 'MetaTrader5 package not installed.'},
+                        status=status.HTTP_200_OK
+                    )
+                # Use credentials from the first running session to authenticate
+                first = user_sessions.first()
+                password = first.get_mt5_password()
+                init_kwargs = {
+                    'login':    first.mt5_login,
+                    'password': password,
+                    'server':   first.mt5_server,
+                }
+                if first.mt5_terminal_path:
+                    init_kwargs['path'] = first.mt5_terminal_path
+
+                if not mt5.initialize(**init_kwargs):
+                    return Response(
+                        {'positions': [], 'warning': f'MT5 init failed: {mt5.last_error()}'},
+                        status=status.HTTP_200_OK
+                    )
+                raw = mt5.positions_get() or []
+                mt5.shutdown()
+                all_pos = [{
+                    'ticket':        p.ticket,
+                    'symbol':        p.symbol,
+                    'type':          'buy' if p.type == mt5.ORDER_TYPE_BUY else 'sell',
+                    'volume':        p.volume,
+                    'open_price':    p.price_open,
+                    'current_price': p.price_current,
+                    'sl':            p.sl,
+                    'tp':            p.tp,
+                    'profit':        p.profit,
+                    'swap':          p.swap,
+                    'open_time':     str(p.time),
+                    'comment':       p.comment,
+                    'magic':         p.magic,
+                } for p in raw]
+
+            # Enrich each position with session metadata via magic number
+            for pos in all_pos:
+                meta = magic_map.get(pos.get('magic'))
+                if meta:
+                    pos.update(meta)
+                else:
+                    # Position exists on account but doesn't match any running session
+                    pos.update({
+                        'session_id':    None,
+                        'strategy_name': None,
+                        'timeframe':     None,
+                        'symbols':       None,
+                    })
+
+            return Response({
+                'positions':       all_pos,
+                'sessions_checked': user_sessions.count(),
+            }, status=status.HTTP_200_OK)
+
+        except Exception as exc:
+            logger.exception("Error fetching all positions for user %s: %s", request.user, exc)
             return Response(
                 {'positions': [], 'warning': str(exc)},
                 status=status.HTTP_200_OK
@@ -368,6 +528,9 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
         """
         Close a specific open position by ticket number.
         Uses a market order to close at the best available price.
+
+        Respects MT5_USE_BRIDGE to choose bridge (production) or native SDK
+        (developer machine) — same pattern as the positions() endpoint.
         """
         session = get_object_or_404(LiveTradingSession, pk=pk, created_by=request.user)
         ticket = request.data.get('ticket')
@@ -381,76 +544,151 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             return Response({'error': '"ticket" must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            import MetaTrader5 as mt5
-        except ImportError:
-            return Response({'error': 'MetaTrader5 package not installed on server.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            if _USE_BRIDGE:
+                # ── Bridge path (production / Linux) ──────────────────────
+                import requests as _requests
 
-        try:
-            password = session.get_mt5_password()
-            init_kwargs = {
-                'login': session.mt5_login,
-                'password': password,
-                'server': session.mt5_server,
-            }
-            if session.mt5_terminal_path:
-                init_kwargs['path'] = session.mt5_terminal_path
+                # Find the position directly via the bridge HTTP API
+                positions = _get_mt5_positions_bridge()
+                pos = next((p for p in positions if p.get('ticket') == ticket), None)
+                if pos is None:
+                    return Response(
+                        {'error': f'Position #{ticket} not found.'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
 
-            if not mt5.initialize(**init_kwargs):
-                return Response({'error': f'MT5 init failed: {mt5.last_error()}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                # Get current bid/ask from symbol info
+                try:
+                    sym_resp = _requests.get(
+                        f"{_BRIDGE_URL}/symbol_info",
+                        params={"symbol": pos['symbol']},
+                        timeout=10
+                    )
+                    sym_resp.raise_for_status()
+                    sym_info = sym_resp.json()
+                except Exception as e:
+                    return Response(
+                        {'error': f'Could not get symbol info: {e}'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    )
 
-            # Find the position
-            position = mt5.positions_get(ticket=ticket)
-            if not position:
+                # type==0 is BUY → close with SELL at bid; type==1 is SELL → close with BUY at ask
+                is_buy = pos.get('type') == 0
+                price = sym_info.get('bid') if is_buy else sym_info.get('ask')
+                close_type = 1 if is_buy else 0  # SELL=1, BUY=0
+
+                request_payload = {
+                    'action':       1,  # TRADE_ACTION_DEAL
+                    'symbol':       pos['symbol'],
+                    'volume':       pos['volume'],
+                    'type':         close_type,
+                    'position':     ticket,
+                    'price':        price,
+                    'deviation':    20,
+                    'magic':        pos.get('magic', session.magic_number),
+                    'comment':      'AlgoAgent close',
+                    'type_time':    0,   # ORDER_TIME_GTC
+                    'type_filling': 2,   # ORDER_FILLING_RETURN (market execution)
+                }
+                try:
+                    result_resp = _requests.post(
+                        f"{_BRIDGE_URL}/order_send",
+                        json=request_payload,
+                        timeout=60
+                    )
+                    result_resp.raise_for_status()
+                    result = result_resp.json()
+                except Exception as e:
+                    return Response({'error': f'Bridge order_send failed: {e}'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+                if result is None or result.get('retcode') not in (10008, 10009):
+                    retcode = result.get('retcode', 'unknown') if result else 'unknown'
+                    return Response(
+                        {'error': f'Close order failed. MT5 retcode: {retcode}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                return Response({
+                    'detail':  f'Position #{ticket} closed successfully.',
+                    'order':   result.get('order'),
+                    'retcode': result.get('retcode'),
+                }, status=status.HTTP_200_OK)
+
+            else:
+                # ── Native SDK path (developer Windows machine) ────────────
+                try:
+                    import MetaTrader5 as mt5
+                except ImportError:
+                    return Response(
+                        {'error': 'MetaTrader5 package not installed.'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    )
+
+                password = session.get_mt5_password()
+                init_kwargs = {
+                    'login':    session.mt5_login,
+                    'password': password,
+                    'server':   session.mt5_server,
+                }
+                if session.mt5_terminal_path:
+                    init_kwargs['path'] = session.mt5_terminal_path
+
+                if not mt5.initialize(**init_kwargs):
+                    return Response(
+                        {'error': f'MT5 init failed: {mt5.last_error()}'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE
+                    )
+
+                position = mt5.positions_get(ticket=ticket)
+                if not position:
+                    mt5.shutdown()
+                    return Response(
+                        {'error': f'Position #{ticket} not found.'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+
+                pos = position[0]
+                close_order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+                tick = mt5.symbol_info_tick(pos.symbol)
+                price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+
+                sym_info = mt5.symbol_info(pos.symbol)
+                filling_mode = sym_info.filling_mode if sym_info else 0
+                if filling_mode & 1:
+                    type_filling = mt5.ORDER_FILLING_FOK
+                elif filling_mode & 2:
+                    type_filling = mt5.ORDER_FILLING_IOC
+                else:
+                    type_filling = mt5.ORDER_FILLING_RETURN
+
+                request_payload = {
+                    'action':       mt5.TRADE_ACTION_DEAL,
+                    'symbol':       pos.symbol,
+                    'volume':       pos.volume,
+                    'type':         close_order_type,
+                    'position':     ticket,
+                    'price':        price,
+                    'deviation':    20,
+                    'magic':        pos.magic,
+                    'comment':      'AlgoAgent close',
+                    'type_time':    mt5.ORDER_TIME_GTC,
+                    'type_filling': type_filling,
+                }
+                result = mt5.order_send(request_payload)
                 mt5.shutdown()
-                return Response({'error': f'Position #{ticket} not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-            pos = position[0]
-            # Determine close order type (opposite of position type)
-            close_order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
-            tick = mt5.symbol_info_tick(pos.symbol)
-            price = tick.bid if pos.type == mt5.ORDER_TYPE_BUY else tick.ask
+                if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+                    retcode = result.retcode if result else 'unknown'
+                    return Response(
+                        {'error': f'Close order failed. MT5 retcode: {retcode}'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-            # Detect the filling mode supported by the broker for this symbol.
-            # filling_mode is a bitmask: bit-0 = FOK supported, bit-1 = IOC supported.
-            # ORDER_FILLING_FOK=0, ORDER_FILLING_IOC=1, ORDER_FILLING_RETURN=2
-            sym_info = mt5.symbol_info(pos.symbol)
-            filling_mode = sym_info.filling_mode if sym_info else 0
-            if filling_mode & 1:          # FOK supported
-                type_filling = mt5.ORDER_FILLING_FOK
-            elif filling_mode & 2:        # IOC supported
-                type_filling = mt5.ORDER_FILLING_IOC
-            else:                         # Market execution / RETURN
-                type_filling = mt5.ORDER_FILLING_RETURN
-
-            request_payload = {
-                'action': mt5.TRADE_ACTION_DEAL,
-                'symbol': pos.symbol,
-                'volume': pos.volume,
-                'type': close_order_type,
-                'position': ticket,
-                'price': price,
-                'deviation': 20,
-                'magic': pos.magic,
-                'comment': 'AlgoAgent close',
-                'type_time': mt5.ORDER_TIME_GTC,
-                'type_filling': type_filling,
-            }
-
-            result = mt5.order_send(request_payload)
-            mt5.shutdown()
-
-            if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
-                retcode = result.retcode if result else 'unknown'
-                return Response(
-                    {'error': f'Close order failed. MT5 retcode: {retcode}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            return Response({
-                'detail': f'Position #{ticket} closed successfully.',
-                'order': result.order,
-                'retcode': result.retcode,
-            }, status=status.HTTP_200_OK)
+                return Response({
+                    'detail':  f'Position #{ticket} closed successfully.',
+                    'order':   result.order,
+                    'retcode': result.retcode,
+                }, status=status.HTTP_200_OK)
 
         except Exception as exc:
             logger.exception("Error closing MT5 position %s for session %s: %s", ticket, pk, exc)
