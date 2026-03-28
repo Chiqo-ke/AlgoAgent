@@ -18,6 +18,9 @@ import collections
 from pathlib import Path
 
 from .models import LiveTradingSession, BrokerCredential, SessionStatus
+
+# Free-tier limit: max concurrent live bots (PENDING + RUNNING)
+FREE_BOT_LIMIT = 5
 from .serializers import (
     LiveTradingSessionSerializer, LiveTradingSessionCreateSerializer,
     BrokerCredentialSerializer, BrokerCredentialWriteSerializer,
@@ -216,6 +219,32 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         data = serializer.validated_data
+
+        # ----------------------------------------------------------------
+        # Subscription enforcement: free users are limited to FREE_BOT_LIMIT
+        # concurrent live bots (PENDING + RUNNING both count).
+        # ----------------------------------------------------------------
+        profile = getattr(request.user, 'profile', None)
+        if profile is None or profile.subscription_plan == 'free':
+            active_count = LiveTradingSession.objects.filter(
+                created_by=request.user,
+                status__in=[SessionStatus.PENDING, SessionStatus.RUNNING],
+            ).count()
+            if active_count >= FREE_BOT_LIMIT:
+                return Response(
+                    {
+                        'error': (
+                            f'Free plan allows up to {FREE_BOT_LIMIT} live bots running at the same time. '
+                            f'You currently have {active_count} active. '
+                            'Stop or delete an existing bot to free up a slot, '
+                            'or upgrade to Premium for unlimited live bots.'
+                        ),
+                        'code': 'bot_limit_reached',
+                        'active_bot_count': active_count,
+                        'bot_limit': FREE_BOT_LIMIT,
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         # Resolve MT5 credentials: saved credential or inline
         credential_id = data.get('credential_id')

@@ -497,3 +497,67 @@ def frontend_error_log(request):
     except Exception as e:
         logger.error(f"Failed to process frontend error log: {e}")
         return Response({'status': 'error'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ========================================
+# Admin: Subscription Management
+# ========================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def set_subscription_view(request):
+    """
+    Staff-only endpoint to upgrade or downgrade a user's subscription plan.
+
+    POST /api/auth/admin/set-subscription/
+    Body: { "user_id": <int>, "plan": "free" | "premium" }
+    """
+    if not request.user.is_staff:
+        return Response(
+            {'error': 'You do not have permission to perform this action.'},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    user_id = request.data.get('user_id')
+    plan = request.data.get('plan')
+
+    valid_plans = [UserProfile.PLAN_FREE, UserProfile.PLAN_PREMIUM]
+    if plan not in valid_plans:
+        return Response(
+            {'error': f'Invalid plan. Choose one of: {valid_plans}'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not user_id:
+        return Response(
+            {'error': 'user_id is required.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        target_user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return Response(
+            {'error': f'User with id {user_id} not found.'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    profile, _ = UserProfile.objects.get_or_create(user=target_user)
+    old_plan = profile.subscription_plan
+    profile.subscription_plan = plan
+    profile.subscription_updated_at = timezone.now()
+    profile.save(update_fields=['subscription_plan', 'subscription_updated_at'])
+
+    logger.info(
+        f"[ADMIN] {request.user.username} changed subscription for "
+        f"{target_user.username} (id={user_id}): {old_plan} → {plan}"
+    )
+
+    return Response({
+        'message': f"Subscription updated for {target_user.username}.",
+        'user_id': user_id,
+        'username': target_user.username,
+        'old_plan': old_plan,
+        'new_plan': plan,
+        'updated_at': profile.subscription_updated_at,
+    }, status=status.HTTP_200_OK)

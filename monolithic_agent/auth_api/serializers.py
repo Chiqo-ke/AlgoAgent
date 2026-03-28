@@ -25,7 +25,23 @@ class UserProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     first_name = serializers.CharField(source='user.first_name', required=False)
     last_name = serializers.CharField(source='user.last_name', required=False)
-    
+    bot_limit = serializers.SerializerMethodField()
+    active_bot_count = serializers.SerializerMethodField()
+
+    def get_bot_limit(self, obj):
+        """Return the max concurrent live bots allowed. None means unlimited."""
+        if obj.subscription_plan == UserProfile.PLAN_FREE:
+            return 5
+        return None  # premium = unlimited
+
+    def get_active_bot_count(self, obj):
+        """Count PENDING + RUNNING sessions owned by this user."""
+        from trading_sessions_api.models import LiveTradingSession, SessionStatus
+        return LiveTradingSession.objects.filter(
+            created_by=obj.user,
+            status__in=[SessionStatus.PENDING, SessionStatus.RUNNING],
+        ).count()
+
     class Meta:
         model = UserProfile
         fields = [
@@ -35,9 +51,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'risk_parameters',
             'default_currency', 'default_simulation_mode',
             'notification_email', 'notification_push',
+            'subscription_plan', 'bot_limit', 'active_bot_count',
+            'subscription_updated_at',
             'created_at', 'updated_at', 'last_active',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'last_active']
+        read_only_fields = [
+            'id', 'subscription_plan', 'subscription_updated_at',
+            'created_at', 'updated_at', 'last_active',
+        ]
 
     def update(self, instance, validated_data):
         # Extract nested user fields before saving the profile

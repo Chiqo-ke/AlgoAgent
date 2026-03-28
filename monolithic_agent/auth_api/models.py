@@ -47,6 +47,24 @@ class UserProfile(models.Model):
     strategy_preferences = models.TextField(blank=True, help_text="Preferred strategy types and approaches")
     risk_parameters = models.JSONField(default=dict, help_text="Custom risk parameters")
     
+    # Subscription
+    PLAN_FREE = 'free'
+    PLAN_PREMIUM = 'premium'
+    SUBSCRIPTION_PLAN_CHOICES = [
+        (PLAN_FREE, 'Free'),
+        (PLAN_PREMIUM, 'Premium'),
+    ]
+    subscription_plan = models.CharField(
+        max_length=20,
+        choices=SUBSCRIPTION_PLAN_CHOICES,
+        default=PLAN_FREE,
+        help_text="User subscription tier. Free = up to 5 concurrent live bots; Premium = unlimited."
+    )
+    subscription_updated_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When the subscription plan was last changed."
+    )
+
     # Metadata
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
