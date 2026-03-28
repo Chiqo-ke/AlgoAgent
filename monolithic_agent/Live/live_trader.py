@@ -223,7 +223,15 @@ class LiveTrader:
         if not symbol_info:
             logger.warning(f"Could not get symbol info for {symbol}")
             return
-        
+
+        # Skip when the market is closed (bid/ask == 0.0) to avoid stale-signal
+        # retry storms and "Invalid price: 0.0" precheck failures.
+        bid = symbol_info.get('bid', 0)
+        ask = symbol_info.get('ask', 0)
+        if bid == 0 and ask == 0:
+            logger.info(f"{symbol} market appears closed (bid/ask = 0.0) — skipping iteration")
+            return
+
         # Generate signals — use a 7-day lookback so the window always
         # contains recent bars regardless of weekends or data gaps.
         end_time = datetime.now(timezone.utc)
@@ -323,7 +331,12 @@ class LiveTrader:
         """
         digits = symbol_info.get('digits', 5)
         point  = symbol_info.get('point', 0.00001)
-        return point * 10 if digits in (5, 3) else point
+        if digits in (5, 3):
+            return point * 10    # 5-digit FX / 3-digit JPY pairs
+        elif digits == 2:
+            return point * 100   # Metals (XAUUSD, XAGUSD etc.) → 1.0 per pip
+        else:
+            return point
 
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
@@ -431,16 +444,24 @@ class LiveTrader:
         effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
             entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
         )
+        # Compute the correct price-per-point for position sizing.
+        # For metals: tick_value / tick_size = 0.1 / 0.01 = 10 (not 1.0).
+        tick_value = symbol_info.get('trade_tick_value', 1.0)
+        tick_size  = symbol_info.get('trade_tick_size', 1.0)
+        price_per_point = (tick_value / tick_size) if tick_size else 1.0
+
         volume = self.bridge.position_size(
             account_balance=account['balance'],
             risk_pct=self.config.default_risk_pct,
             stop_loss_price=effective_sl_for_sizing,
             entry_price=entry_price,
-            symbol=symbol
+            symbol=symbol,
+            price_per_point=price_per_point
         )
-        
-        # Limit position size
+
+        # Limit position size: global config cap, then broker's volume_max for this symbol
         volume = min(volume, self.config.max_position_size)
+        volume = min(volume, symbol_info.get('volume_max', volume))
         
         # Build order request
         order_meta = {

@@ -53,6 +53,7 @@ class MT5BridgeConnector:
         self.last_terminal_status_issue: Optional[str] = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
+        self._auth_failed = False  # set True when /login returns 401
 
         # HTTP session with retry logic
         self._session = requests.Session()
@@ -89,6 +90,16 @@ class MT5BridgeConnector:
         except requests.exceptions.ConnectionError:
             logger.error("Bridge unreachable at %s — is mt5_bridge running?",
                          self.bridge_url)
+            return None
+        except requests.exceptions.HTTPError as http_err:
+            if http_err.response is not None and http_err.response.status_code == 401:
+                logger.critical(
+                    "POST %s returned 401 UNAUTHORIZED — bridge session expired; "
+                    "extended back-off will apply on next reconnect.", path
+                )
+                self._auth_failed = True
+            else:
+                logger.error("POST %s failed: %s", path, http_err)
             return None
         except Exception as e:
             logger.error("POST %s failed: %s", path, e)
@@ -323,6 +334,12 @@ class MT5BridgeConnector:
 
         self.reconnect_attempts += 1
         wait = min(2 ** self.reconnect_attempts, 60)
+        if self._auth_failed:
+            wait = max(wait, 300)  # 5-minute minimum after a 401 UNAUTHORIZED
+            logger.critical(
+                "Auth failure (401) detected — extending reconnect back-off to %ds", wait
+            )
+            self._auth_failed = False
         logger.warning("Reconnect attempt %d/%d in %ds …",
                        self.reconnect_attempts,
                        self.max_reconnect_attempts, wait)
