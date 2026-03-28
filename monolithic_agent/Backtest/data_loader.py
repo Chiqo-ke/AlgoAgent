@@ -72,6 +72,139 @@ class DataFormat:
 
 WAREHOUSE_DIR = PARENT_DIR / "Data" / "data"
 
+# ---------------------------------------------------------------------------
+# Live-data pre-fetch helpers
+# ---------------------------------------------------------------------------
+
+# Symbol → tvDatafeed exchange mapping for known instruments.
+# Pattern-based fallback applies for symbols not in this table.
+_TV_EXCHANGE_MAP: dict[str, str] = {
+    # Forex
+    'EURUSD': 'FX', 'GBPUSD': 'FX', 'USDJPY': 'FX', 'USDCHF': 'FX',
+    'AUDUSD': 'FX', 'NZDUSD': 'FX', 'USDCAD': 'FX', 'EURGBP': 'FX',
+    'EURJPY': 'FX', 'GBPJPY': 'FX', 'EURCHF': 'FX', 'AUDCAD': 'FX',
+    # Commodities / metals (as CFDs on TradingView)
+    'XAUUSD': 'OANDA', 'XAGUSD': 'OANDA', 'USOIL': 'NYMEX', 'UKOIL': 'ICEEUR',
+    # Crypto
+    'BTCUSD': 'BITSTAMP', 'ETHUSD': 'BITSTAMP', 'BNBUSD': 'BINANCE',
+    'SOLUSD': 'BINANCE', 'ADAUSD': 'BINANCE', 'XRPUSD': 'BITSTAMP',
+    'DOGEUSD': 'BINANCE', 'LTCUSD': 'BITSTAMP',
+    # US Equities
+    'AAPL': 'NASDAQ', 'MSFT': 'NASDAQ', 'GOOGL': 'NASDAQ', 'GOOG': 'NASDAQ',
+    'AMZN': 'NASDAQ', 'NVDA': 'NASDAQ', 'META': 'NASDAQ', 'TSLA': 'NASDAQ',
+    'NFLX': 'NASDAQ', 'INTC': 'NASDAQ', 'AMD': 'NASDAQ', 'QCOM': 'NASDAQ',
+    'CSCO': 'NASDAQ', 'ADBE': 'NASDAQ', 'PYPL': 'NASDAQ',
+    'JPM': 'NYSE', 'BAC': 'NYSE', 'WFC': 'NYSE', 'GS': 'NYSE',
+    'JNJ': 'NYSE', 'UNH': 'NYSE', 'PG': 'NYSE', 'KO': 'NYSE',
+    'DIS': 'NYSE', 'VZ': 'NYSE', 'T': 'NYSE', 'XOM': 'NYSE',
+    # ETFs
+    'SPY': 'AMEX', 'QQQ': 'NASDAQ', 'IWM': 'AMEX', 'GLD': 'AMEX',
+    'TLT': 'NASDAQ', 'VTI': 'AMEX', 'VOO': 'AMEX',
+}
+
+# Patterns (checked in order) used when the symbol is not in _TV_EXCHANGE_MAP.
+_FOREX_PAIRS = {
+    'AUD', 'CAD', 'CHF', 'EUR', 'GBP', 'JPY', 'NOK', 'NZD',
+    'SEK', 'SGD', 'USD', 'ZAR', 'MXN', 'HKD', 'CNH',
+}
+_CRYPTO_SUFFIXES = ('BTC', 'ETH', 'BNB', 'SOL', 'ADA', 'XRP', 'DOGE', 'USDT', 'USDC')
+
+
+def _resolve_tv_exchange(symbol: str) -> str:
+    """
+    Resolve the tvDatafeed exchange string for a given symbol.
+
+    Priority:
+      1. Exact match in _TV_EXCHANGE_MAP
+      2. Forex pattern: 6-char string composed of two known 3-letter currency codes
+      3. Crypto pattern: symbol ends with a known crypto base
+      4. Default: 'NASDAQ' (covers most US equities not explicitly listed)
+    """
+    upper = symbol.strip().upper()
+    if upper in _TV_EXCHANGE_MAP:
+        return _TV_EXCHANGE_MAP[upper]
+
+    # Forex: exactly 6 chars, both halves are known currency codes
+    if len(upper) == 6:
+        base, quote = upper[:3], upper[3:]
+        if base in _FOREX_PAIRS and quote in _FOREX_PAIRS:
+            return 'FX'
+
+    # Crypto: ends with a known crypto ticker
+    for suffix in _CRYPTO_SUFFIXES:
+        if upper.endswith(suffix) and upper != suffix:
+            return 'BITSTAMP'
+
+    return 'NASDAQ'
+
+
+_PREFETCH_MAX_RETRIES = 3
+_PREFETCH_RETRY_DELAY_S = 2  # seconds between attempts
+
+
+def _prefetch_backtest_data(symbol: str, interval: str) -> None:
+    """
+    Fetch 4500 bars of fresh data from tvDatafeed and upsert into the warehouse
+    before a backtest reads the warehouse CSV.  Uses the same LiveDataFetcher
+    mechanism as live trading.
+
+    Retries up to _PREFETCH_MAX_RETRIES times with a short delay between
+    attempts.  If all attempts fail the error is logged as a warning and
+    silently swallowed so that the backtest can still proceed from whatever
+    data already exists in the warehouse.
+    """
+    import time
+    from Live.live_data_fetcher import LiveDataFetcher  # deferred — avoids circular imports
+
+    exchange = _resolve_tv_exchange(symbol)
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(1, _PREFETCH_MAX_RETRIES + 1):
+        try:
+            logger.info(
+                f"[Backtest] Pre-fetching 4500 bars for {symbol} ({exchange}) {interval} "
+                f"via LiveDataFetcher (attempt {attempt}/{_PREFETCH_MAX_RETRIES})."
+            )
+            result = LiveDataFetcher().refresh(
+                symbol=symbol,
+                exchange=exchange,
+                interval=interval,
+                n_bars=4500,
+            )
+            status = result.get('status', 'unknown')
+            new_rows = result.get('new_rows', 0)
+            total_rows = result.get('total_rows', '?')
+            if status in ('ok', 'no_new_rows'):
+                logger.info(
+                    f"[Backtest] Pre-fetch complete for {symbol} {interval}: "
+                    f"status={status}, new_rows={new_rows}, total_rows={total_rows}"
+                )
+                return  # success — stop retrying
+            else:
+                # Non-exception failure returned by the fetcher (e.g. 'error', 'no_data')
+                msg = result.get('message', '')
+                logger.warning(
+                    f"[Backtest] Pre-fetch attempt {attempt}/{_PREFETCH_MAX_RETRIES} "
+                    f"for {symbol} {interval} returned status='{status}': {msg}"
+                )
+                last_exc = RuntimeError(f"status={status}: {msg}")
+
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            logger.warning(
+                f"[Backtest] Pre-fetch attempt {attempt}/{_PREFETCH_MAX_RETRIES} "
+                f"for {symbol} {interval} raised: {exc}"
+            )
+
+        if attempt < _PREFETCH_MAX_RETRIES:
+            time.sleep(_PREFETCH_RETRY_DELAY_S)
+
+    logger.warning(
+        f"[Backtest] All {_PREFETCH_MAX_RETRIES} pre-fetch attempts failed for "
+        f"{symbol} {interval} — will use cached warehouse data. Last error: {last_exc}"
+    )
+
+
 
 def _normalize_interval(interval: str) -> str:
     """Normalize requested interval to warehouse filename suffix format."""
@@ -277,6 +410,7 @@ def fetch_market_data(
     Returns:
         DataFrame with DatetimeIndex and OHLCV columns
     """
+    _prefetch_backtest_data(ticker, interval)
     logger.info(f"Loading warehouse data for {ticker}: period={period}, interval={interval}")
     df, csv_file = _load_warehouse_csv(ticker=ticker, interval=interval)
     df = _normalize_period_slice(df, period=period)
@@ -414,6 +548,7 @@ def fetch_market_data_by_date_range(
     Returns:
         DataFrame with DatetimeIndex and OHLCV columns
     """
+    _prefetch_backtest_data(ticker, interval)
     logger.info(
         f"Loading warehouse data for {ticker}: start_date={start_date}, end_date={end_date}, interval={interval}"
     )

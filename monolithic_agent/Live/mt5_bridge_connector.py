@@ -53,6 +53,7 @@ class MT5BridgeConnector:
         self.last_terminal_status_issue: Optional[str] = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
+        self._auth_failed = False  # set True when /login returns 401
 
         # HTTP session with retry logic
         self._session = requests.Session()
@@ -89,6 +90,16 @@ class MT5BridgeConnector:
         except requests.exceptions.ConnectionError:
             logger.error("Bridge unreachable at %s — is mt5_bridge running?",
                          self.bridge_url)
+            return None
+        except requests.exceptions.HTTPError as http_err:
+            if http_err.response is not None and http_err.response.status_code == 401:
+                logger.critical(
+                    "POST %s returned 401 UNAUTHORIZED — bridge session expired; "
+                    "extended back-off will apply on next reconnect.", path
+                )
+                self._auth_failed = True
+            else:
+                logger.error("POST %s failed: %s", path, http_err)
             return None
         except Exception as e:
             logger.error("POST %s failed: %s", path, e)
@@ -323,6 +334,12 @@ class MT5BridgeConnector:
 
         self.reconnect_attempts += 1
         wait = min(2 ** self.reconnect_attempts, 60)
+        if self._auth_failed:
+            wait = max(wait, 300)  # 5-minute minimum after a 401 UNAUTHORIZED
+            logger.critical(
+                "Auth failure (401) detected — extending reconnect back-off to %ds", wait
+            )
+            self._auth_failed = False
         logger.warning("Reconnect attempt %d/%d in %ds …",
                        self.reconnect_attempts,
                        self.max_reconnect_attempts, wait)
@@ -410,12 +427,72 @@ class MT5BridgeConnector:
             "digits":               data.get("digits"),
             "spread":               data.get("spread"),
             "trade_mode":           data.get("trade_mode"),
-            "currency_base":        data.get("currency_base"),
-            "currency_profit":      data.get("currency_profit"),
-            "currency_margin":      data.get("currency_margin"),
+            "currency_base":              data.get("currency_base"),
+            "currency_profit":            data.get("currency_profit"),
+            "currency_margin":            data.get("currency_margin"),
+            "trade_stops_level":          data.get("trade_stops_level"),
+            "trade_tick_value_profit":    data.get("trade_tick_value_profit"),
+            "trade_tick_value_loss":      data.get("trade_tick_value_loss"),
         }
 
     # ── Positions & Orders ────────────────────────────────────────────────────
+
+    def get_pip_value(self, symbol: str, pip_size: float, entry_price: float,
+                      action: int = 0) -> Optional[float]:
+        """
+        Return the monetary value of one pip per lot for *symbol* in the
+        account's base currency.
+
+        Uses the bridge ``/order_calc_profit`` endpoint when available (most
+        accurate — broker-supplied), otherwise falls back to the
+        ``tick_value / tick_size`` ratio from ``symbol_info``.
+
+        Args:
+            symbol:       Instrument name (e.g. "XAUUSD").
+            pip_size:     Pip size in price units (from ``_pip_size()``).
+            entry_price:  Current entry price used as the open price.
+            action:       0 = BUY (default), 1 = SELL.
+
+        Returns:
+            Monetary value of 1 pip on a 1-lot position, or ``None`` if
+            both methods fail.
+        """
+        if not self.ensure_connected():
+            return None
+
+        # Phase 2: broker-side accurate calculation via /order_calc_profit
+        close_price = entry_price + pip_size if action == 0 else entry_price - pip_size
+        result = self._post("/order_calc_profit", {
+            "action": action,
+            "symbol": symbol,
+            "volume": 1.0,
+            "price_open": entry_price,
+            "price_close": close_price,
+        })
+        if result and "profit" in result and result["profit"] is not None:
+            pip_value = float(result["profit"])
+            logger.debug(
+                "%s: broker calc pip_value=%.4f (action=%d open=%.5f close=%.5f)",
+                symbol, pip_value, action, entry_price, close_price,
+            )
+            return pip_value
+
+        # Fallback: tick_value / tick_size (Phase 1 approach)
+        info = self.get_symbol_info(symbol)
+        if info:
+            tick_value = info.get("trade_tick_value") or info.get("trade_tick_value_profit")
+            tick_size  = info.get("trade_tick_size")
+            if tick_value and tick_size:
+                ratio = tick_value / tick_size
+                pip_value = ratio * pip_size / tick_size
+                logger.debug(
+                    "%s: fallback pip_value=%.4f (tick_value=%.6f tick_size=%.6f pip_size=%.6f)",
+                    symbol, pip_value, tick_value, tick_size, pip_size,
+                )
+                return pip_value
+
+        logger.warning("%s: could not determine pip value; position sizing will be inaccurate", symbol)
+        return None
 
     def get_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         if not self.ensure_connected():
