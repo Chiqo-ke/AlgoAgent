@@ -1,1 +1,0 @@
-signal_id,timestamp,symbol,side,action,order_type,size,price,limit_price,stop_price,reason,indicator_values,market_data,strategy_state,order_id,notes

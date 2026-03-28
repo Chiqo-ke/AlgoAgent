@@ -1,2 +1,0 @@
-timestamp,symbol,step_id,step_title,pattern_condition,pattern_found,close,open,high,low,volume,indicator_values,notes
-2025-01-27 00:00:00,AAPL,entry_check,Entry Pattern Check - First Bar,First bar of backtest period,True,228.82508850097656,223.01138591977585,231.10477141655377,222.9715575076631,94863400.0,{},

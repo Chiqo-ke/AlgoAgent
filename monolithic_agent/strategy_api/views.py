@@ -1592,7 +1592,20 @@ Original request: {strategy.description}
                     strategy.parameters['generated_code_filename'] = python_file.name
                     strategy.parameters['validation_status'] = validation_status
                     strategy.parameters['fix_attempts'] = len(fix_history)
-                    strategy.save(update_fields=['parameters'])
+                    update_fields = ['parameters']
+
+                    # Always sync strategy_code in DB with the file on disk so that
+                    # subsequent /execute calls use the same (potentially fixed) code
+                    # that the auto-backtest ran against.
+                    try:
+                        with open(python_file, 'r', encoding='utf-8') as _f:
+                            strategy.strategy_code = _f.read()
+                        update_fields.append('strategy_code')
+                        logger.info(f"[GENERATE] Synced strategy_code in DB with fixed file: {python_file.name}")
+                    except Exception as sync_err:
+                        logger.warning(f"[GENERATE] Could not sync strategy_code from file: {sync_err}")
+
+                    strategy.save(update_fields=update_fields)
                     logger.info(f"Updated strategy {strategy_id} with generated code path and execution status")
                 except Strategy.DoesNotExist:
                     logger.warning(f"Strategy {strategy_id} not found for update")
@@ -1826,7 +1839,18 @@ Original request: {strategy.description}
                     strategy.parameters['generated_code_filename'] = python_file.name
                     strategy.parameters['validation_passed'] = success
                     strategy.parameters['fix_attempts'] = current_attempt
-                    strategy.save(update_fields=['parameters'])
+                    update_fields = ['parameters']
+
+                    # Sync strategy_code with the file on disk (may have been patched by fixer)
+                    try:
+                        with open(python_file, 'r', encoding='utf-8') as _f:
+                            strategy.strategy_code = _f.read()
+                        update_fields.append('strategy_code')
+                        logger.info(f"[GENERATE] Synced strategy_code in DB with file: {python_file.name}")
+                    except Exception as sync_err:
+                        logger.warning(f"[GENERATE] Could not sync strategy_code from file: {sync_err}")
+
+                    strategy.save(update_fields=update_fields)
                     logger.info(f"Updated strategy {strategy_id} with code path and validation status")
                 except Strategy.DoesNotExist:
                     logger.warning(f"Strategy {strategy_id} not found for update")
@@ -2425,8 +2449,15 @@ Original request: {strategy.description}
                     strategy.parameters['fix_attempts'] = len(fix_history)
                     strategy.parameters['ai_provider'] = actual_provider
                     
-                    # Write generated Python back so execute endpoint has real code
-                    strategy.strategy_code = strategy_code
+                    # Write the file's final content (may have been patched by fixer)
+                    # rather than the in-memory strategy_code which could be pre-fix
+                    try:
+                        with open(python_file, 'r', encoding='utf-8') as _f:
+                            strategy.strategy_code = _f.read()
+                        logger.info(f"[UNIFIED] Synced strategy_code in DB with file: {python_file.name}")
+                    except Exception as sync_err:
+                        logger.warning(f"[UNIFIED] Could not sync strategy_code from file, using in-memory: {sync_err}")
+                        strategy.strategy_code = strategy_code
                     
                     # Update strategy status based on validation result
                     if validation_status == 'passed':

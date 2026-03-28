@@ -37,7 +37,7 @@ class LiveConfig:
     retry_backoff_base: float = field(default_factory=lambda: float(os.getenv('RETRY_BACKOFF_BASE', '2.0')))
     
     # Risk Management
-    default_risk_pct: float = field(default_factory=lambda: float(os.getenv('DEFAULT_RISK_PCT', '2.0')))
+    default_risk_pct: float = field(default_factory=lambda: float(os.getenv('DEFAULT_RISK_PCT', '1.0')))
     max_position_size: float = field(default_factory=lambda: float(os.getenv('MAX_POSITION_SIZE', '10.0')))  # lots
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv('MAX_DAILY_TRADES', '10')))
     max_daily_loss_pct: float = field(default_factory=lambda: float(os.getenv('MAX_DAILY_LOSS_PCT', '5.0')))
@@ -68,7 +68,6 @@ class LiveConfig:
     tp_pips: Optional[float] = field(default_factory=lambda: (
         float(os.getenv('TP_PIPS')) if os.getenv('TP_PIPS', '').strip() else None
     ))
-    exit_mode: str = field(default_factory=lambda: os.getenv('EXIT_MODE', 'percentage'))
     
     # Safety Features
     enable_kill_switch: bool = field(default_factory=lambda: os.getenv('ENABLE_KILL_SWITCH', 'true').lower() == 'true')
@@ -116,17 +115,6 @@ class LiveConfig:
         
         if not 0 < self.max_daily_loss_pct <= 100:
             raise ValueError(f"Invalid max daily loss: {self.max_daily_loss_pct}")
-
-        if self.exit_mode not in ('bot', 'percentage', 'fixed_pips'):
-            raise ValueError(f"Invalid exit mode: {self.exit_mode}")
-
-        if self.exit_mode in ('bot', 'percentage') and (self.sl_pips is not None or self.tp_pips is not None):
-            raise ValueError(
-                f"Exit mode '{self.exit_mode}' does not allow SL_PIPS/TP_PIPS in session config"
-            )
-
-        if self.exit_mode == 'fixed_pips' and self.sl_pips is None and self.tp_pips is None:
-            raise ValueError("Exit mode 'fixed_pips' requires SL_PIPS or TP_PIPS")
         
         # Validate and normalize symbols. Live sessions are expected to provide
         # these explicitly so we do not silently trade fallback instruments.

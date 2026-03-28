@@ -1,6 +1,6 @@
 # AlgoAgent Monolithic Agent - Changelog
 
-**Last Updated:** March 20, 2026 (Evening)  
+**Last Updated:** March 25, 2026  
 **Purpose:** Comprehensive log of all fixes, improvements, and system changes
 
 ---
@@ -8,6 +8,7 @@
 ## Table of Contents
 
 - [March 2026](#march-2026)
+  - [March 25, 2026 - MT5 Bridge Documentation & session_manager.py Fix](#march-25-2026---mt5-bridge-documentation--session_managerpy-fix)
   - [March 20, 2026 (Evening) - File Permissions Fix & Data Loading Audit](#march-20-2026-evening---file-permissions-fix--data-loading-audit)
   - [March 20, 2026 (Evening) - Live Trader Signal Pickup Fix](#march-20-2026-evening---live-trader-signal-pickup-fix)
   - [March 20, 2026 - Live Trading Signal Generation Fix](#march-20-2026---live-trading-signal-generation-fix)
@@ -22,6 +23,42 @@
 ---
 
 ## March 2026
+
+### March 25, 2026 - MT5 Bridge Documentation & session_manager.py Fix
+
+#### Fix: `MT5_USE_BRIDGE` and `MT5_BRIDGE_URL` not explicitly set in subprocess env
+
+**Commit:** `e46a7dc`  
+**File:** `monolithic_agent/trading_sessions_api/session_manager.py`
+
+**Issue:** `MT5_USE_BRIDGE` and `MT5_BRIDGE_URL` were only inherited from the parent `daphne` process environment — they were not explicitly set in the `env_vars` dict passed to the `live_trader.py` subprocess. This meant that if daphne was started without those variables (e.g. via a fresh systemd restart or a direct `manage.py` invocation), subprocesses would fall through to the Windows-only MT5 import path and fail immediately on Linux.
+
+**Fix:** Added both variables explicitly to `env_vars` in `session_manager.py`:
+```python
+env_vars['MT5_USE_BRIDGE'] = 'true'
+env_vars['MT5_BRIDGE_URL'] = os.getenv('MT5_BRIDGE_URL', 'http://127.0.0.1:5555')
+```
+
+**Impact:** Live trader subprocesses now always use the HTTP bridge regardless of how the parent daphne process was launched.
+
+**Also annotated:** The legacy `VENV_PYTHON` constant (Windows-only path; never exists on Linux — `sys.executable` fallback is what actually runs subprocesses).
+
+#### Documentation: MT5 Bridge Service
+
+Created comprehensive reference documentation at `docs/MT5_BRIDGE_SERVICE.md` covering:
+- Full architecture diagram and 4-service dependency chain
+- All file locations for every component
+- Complete HTTP API reference for all 15 endpoints
+- Startup sequence (cold-start time ~60–120s)
+- Auto-initialisation background thread behaviour
+- Algo Trading watchdog mechanism (trigger file → Ctrl+E → coordinate click fallback)
+- Two MT5 accounts (bridge auto-init `105891299` vs live trading `102641850`)
+- Credentials file locations
+- Integration walkthrough with `live_trader.py` via `MT5BridgeConnector`
+- Health check commands and service management procedures
+- Log file locations
+
+---
 
 ### March 20, 2026 (Evening) - File Permissions Fix & Data Loading Audit
 

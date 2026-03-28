@@ -223,15 +223,7 @@ class LiveTrader:
         if not symbol_info:
             logger.warning(f"Could not get symbol info for {symbol}")
             return
-
-        # Skip when the market is closed (bid/ask == 0.0) to avoid stale-signal
-        # retry storms and "Invalid price: 0.0" precheck failures.
-        bid = symbol_info.get('bid', 0)
-        ask = symbol_info.get('ask', 0)
-        if bid == 0 and ask == 0:
-            logger.info(f"{symbol} market appears closed (bid/ask = 0.0) — skipping iteration")
-            return
-
+        
         # Generate signals — use a 7-day lookback so the window always
         # contains recent bars regardless of weekends or data gaps.
         end_time = datetime.now(timezone.utc)
@@ -317,38 +309,21 @@ class LiveTrader:
     @staticmethod
     def _pip_size(symbol_info: dict) -> float:
         """
-        Return the pip size for a symbol using MT5 tick_size data.
+        Return the pip size for a symbol using MT5 symbol_info data.
 
-        Uses broker-supplied ``trade_tick_size`` (the minimum price movement
-        for the instrument) rather than a ``digits``-based heuristic, which
-        breaks for non-standard instruments.
-
-        Mapping:
-          - tick_size ≤ 0.001 (5-digit FX, 3-digit JPY):  pip = tick_size × 10
-          - tick_size > 0.001 (metals, indices, crypto …): pip = tick_size
-
-        Fallback: if tick_size is unavailable, falls back to the digits heuristic
-        so existing behaviour is preserved for older broker data.
+        Convention (matches MT5 standard):
+          - 5-digit FX (EURUSD) and 3-digit JPY pairs: 1 pip = 10 × point
+          - Everything else (metals, indices, crypto with 2-digit or 4-digit
+            prices): 1 pip = 1 × point
 
         Example outputs:
-          EURUSD (tick_size=0.00001) → pip = 0.00010
-          USDJPY (tick_size=0.001)   → pip = 0.010
-          XAUUSD (tick_size=0.01)    → pip = 0.01
-          US30   (tick_size=1.0)     → pip = 1.0
+          EURUSD (digits=5, point=0.00001) → pip = 0.00010
+          USDJPY (digits=3, point=0.001)   → pip = 0.010
+          XAUUSD (digits=2, point=0.01)    → pip = 0.01
         """
-        tick_size = symbol_info.get('trade_tick_size')
-        if tick_size:
-            return tick_size * 10 if tick_size <= 0.001 else tick_size
-
-        # Fallback: digits heuristic (for brokers that omit tick_size)
         digits = symbol_info.get('digits', 5)
         point  = symbol_info.get('point', 0.00001)
-        if digits in (5, 3):
-            return point * 10
-        elif digits == 2:
-            return point * 100
-        else:
-            return point
+        return point * 10 if digits in (5, 3) else point
 
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
@@ -415,8 +390,8 @@ class LiveTrader:
             else:
                 logger.debug(f"Strategy TP for {symbol} is {_tp_val!r} (invalid) — ignoring.")
 
-        # Priority 2: session pip-based fallback (fixed_pips mode only)
-        if self.config.exit_mode == 'fixed_pips' and (stop_loss_price is None or take_profit_price is None):
+        # Priority 2: session pip-based fallback
+        if stop_loss_price is None or take_profit_price is None:
             pip_size = self._pip_size(symbol_info)
 
             if stop_loss_price is None and self.config.sl_pips is not None:
@@ -450,67 +425,29 @@ class LiveTrader:
                 f"No TP configured for {symbol}; trade will run until exit signal."
             )
 
-        # Enforce broker minimum stop distance (trade_stops_level × point).
-        # Some brokers (e.g. Exness on metals) require SL/TP to be at least
-        # N points away from the current price, otherwise the order is rejected.
-        stops_level = symbol_info.get('trade_stops_level', 0) or 0
-        point = symbol_info.get('point', 0.00001)
-        if stops_level > 0 and stop_loss_price is not None:
-            min_stop_dist = stops_level * point * 1.2   # 20 % buffer above the hard minimum
-            actual_dist = abs(entry_price - stop_loss_price)
-            if actual_dist < min_stop_dist:
-                logger.warning(
-                    f"{symbol} SL distance {actual_dist:.5f} < broker minimum {min_stop_dist:.5f} "
-                    f"(stops_level={stops_level}). Widening SL to broker minimum."
-                )
-                stop_loss_price = (
-                    entry_price - min_stop_dist if signal_type == 'BUY'
-                    else entry_price + min_stop_dist
-                )
-
-
+        # When no SL is set, position_size falls back to default risk calculation.
         # Pass entry_price as a sentinel stop_loss_price so the risk calc uses
         # the configured DEFAULT_RISK_PCT with a 1% distance assumption.
         effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
             entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
         )
-        # Compute the correct price-per-point for position sizing.
-        # Prefer broker-side order_calc_profit (Phase 2); fall back to
-        # tick_value / tick_size ratio when the endpoint is unavailable.
-        pip_size_for_sizing = self._pip_size(symbol_info)
-        action_code = 0 if signal_type == 'BUY' else 1
-        broker_pip_value = self.connector.get_pip_value(
-            symbol, pip_size_for_sizing, entry_price, action=action_code
-        )
-        if broker_pip_value is not None and pip_size_for_sizing:
-            # broker_pip_value = monetary value of 1 pip on 1 lot
-            # price_per_point  = pip_value / pip_size  (value per 1 price unit)
-            price_per_point = broker_pip_value / pip_size_for_sizing
-        else:
-            tick_value = symbol_info.get('trade_tick_value', 1.0)
-            tick_size  = symbol_info.get('trade_tick_size', 1.0)
-            price_per_point = (tick_value / tick_size) if tick_size else 1.0
-
         volume = self.bridge.position_size(
             account_balance=account['balance'],
             risk_pct=self.config.default_risk_pct,
             stop_loss_price=effective_sl_for_sizing,
             entry_price=entry_price,
-            symbol=symbol,
-            price_per_point=price_per_point
+            symbol=symbol
         )
-
-        # Limit position size: global config cap, then broker's volume_max for this symbol
+        
+        # Limit position size
         volume = min(volume, self.config.max_position_size)
-        volume = min(volume, symbol_info.get('volume_max', volume))
         
         # Build order request
         order_meta = {
             'symbol': symbol,
             'magic': self.config.magic_number,
             'deviation': 20,
-            'comment': signal_id[-29:],
-            'exit_mode': self.config.exit_mode,
+            'comment': signal_id[-29:]
         }
         if stop_loss_price is not None:
             order_meta['sl'] = stop_loss_price
@@ -551,10 +488,7 @@ class LiveTrader:
             volume=volume,
             price=entry_price,
             sl=stop_loss_price,
-            tp=take_profit_price,
-            metadata={
-                'exit_mode': self.config.exit_mode,
-            }
+            tp=take_profit_price
         )
         
         # Execute order
@@ -646,11 +580,7 @@ class LiveTrader:
                 duration_seconds=duration,
                 entry_order_id=str(position.get('ticket', '')),
                 exit_order_id=str(result.get('mt5_order_id', '')),
-                strategy_id=self.config.strategy_id,
-                metadata={
-                    'exit_mode': self.config.exit_mode,
-                    'exit_reason': 'strategy_signal',
-                }
+                strategy_id=self.config.strategy_id
             )
             
             # Update state
