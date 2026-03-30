@@ -92,10 +92,19 @@ class MT5BridgeConnector:
                          self.bridge_url)
             return None
         except requests.exceptions.HTTPError as http_err:
-            if http_err.response is not None and http_err.response.status_code == 401:
+            # http_err.response may be None with some adapter configurations even
+            # when the status code is embedded in the error string, so also fall
+            # back to parsing the string representation.
+            status_code = (
+                http_err.response.status_code
+                if http_err.response is not None
+                else (401 if "401" in str(http_err) else None)
+            )
+            if status_code == 401:
                 logger.critical(
-                    "POST %s returned 401 UNAUTHORIZED — bridge session expired; "
-                    "extended back-off will apply on next reconnect.", path
+                    "POST %s returned 401 UNAUTHORIZED — MT5 credentials rejected "
+                    "(wrong login/password/server). Extended back-off will apply on "
+                    "next reconnect.", path
                 )
                 self._auth_failed = True
             else:
