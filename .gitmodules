@@ -1,0 +1,3 @@
+[submodule "mt5_bridge"]
+	path = mt5_bridge
+	url = https://github.com/Chiqo-ke/mt5-bridge.git
