@@ -324,6 +324,10 @@ class LatestBacktestResult(models.Model):
     final_equity = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
     max_drawdown = models.DecimalField(max_digits=15, decimal_places=6, default=0)
     sharpe_ratio = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    profit_factor = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    buy_hold_return_pct = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    best_trade_pct = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
+    worst_trade_pct = models.DecimalField(max_digits=15, decimal_places=6, null=True, blank=True)
     
     # Trade list (JSON for flexibility)
     trades = models.JSONField(default=list, help_text="List of all trades with entry/exit details")
@@ -375,6 +379,10 @@ class LatestBacktestResult(models.Model):
             'final_equity': Decimal(str(result_data.get('final_equity', 0))) if result_data.get('final_equity') else None,
             'max_drawdown': Decimal(str(result_data.get('max_drawdown', 0))),
             'sharpe_ratio': Decimal(str(result_data.get('sharpe_ratio', 0))) if result_data.get('sharpe_ratio') else None,
+            'profit_factor': Decimal(str(result_data['profit_factor'])) if result_data.get('profit_factor') is not None else None,
+            'buy_hold_return_pct': Decimal(str(result_data['buy_hold_return_pct'])) if result_data.get('buy_hold_return_pct') is not None else None,
+            'best_trade_pct': Decimal(str(result_data['best_trade_pct'])) if result_data.get('best_trade_pct') is not None else None,
+            'worst_trade_pct': Decimal(str(result_data['worst_trade_pct'])) if result_data.get('worst_trade_pct') is not None else None,
             'trades': result_data.get('trades', []),
             'symbol_stats': result_data.get('symbol_stats', []),
             'equity_curve': result_data.get('equity_curve', []),

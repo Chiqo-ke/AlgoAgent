@@ -1,6 +1,11 @@
+# ── Bridge server only (mt5_bridge.py — runs inside Wine on Ubuntu, or natively on Windows) ──
+# DO NOT install MetaTrader5 or flask on the Linux Django/Celery server.
+# These belong in the mt5_bridge submodule environment only.
 MetaTrader5>=5.0.45
+flask>=3.0.0
+
+# ── Django Live module (monolithic_agent — installed on all environments) ────
 pandas>=2.0.0
 numpy>=1.24.0
 python-dotenv>=1.0.0
 requests>=2.31.0
-flask>=3.0.0

@@ -474,6 +474,14 @@ class StrategyViewSet(viewsets.ModelViewSet):
             test_symbol = request.data.get('test_symbol', 'GOOG')
             interval = request.data.get('interval', '1d')
             initial_capital = float(request.data.get('initial_capital', 1000))
+
+            # Exit mode parameters (mirrors live trading options)
+            exit_mode = request.data.get('exit_mode', 'bot')
+            if exit_mode not in ('bot', 'percentage', 'fixed_pips'):
+                exit_mode = 'bot'
+            sl_pips = request.data.get('sl_pips')
+            tp_pips = request.data.get('tp_pips')
+            risk_pct = request.data.get('risk_pct')
             
             # Import executor
             try:
@@ -619,6 +627,63 @@ if str(monolithic_agent_dir) not in sys.path:
                 )
             logger.info("[EXECUTE] Injected fractional sizing support (removed int(), set min_lot_size=1e-8)")
 
+            # Inject rich data output hook for SimBroker-based strategies:
+            # Monkey-patches SimBroker.__init__ to collect all broker instances,
+            # then replaces the __main__ block to serialize equity_curve, trades,
+            # profit_factor, winning/losing counts to a BACKTEST_RESULTS_JSON: marker.
+            _RICH_OUTPUT_SUFFIX = '''
+# === PLATFORM RICH DATA OUTPUT (injected) ===
+import json as _plat_json
+_plat_brokers = []
+try:
+    from Backtest.sim_broker import SimBroker as _PlSimBroker
+    _plat_orig_init = _PlSimBroker.__init__
+    def _plat_hook_init(self_b, *_a, **_kw):
+        _plat_orig_init(self_b, *_a, **_kw)
+        _plat_brokers.append(self_b)
+    _PlSimBroker.__init__ = _plat_hook_init
+except Exception:
+    pass
+
+if __name__ == "__main__":
+    run_backtest()
+    try:
+        _eq_all, _tr_all, _pfs = [], [], []
+        _winning, _losing, _initial = 0, 0, 1000.0
+        for _b in _plat_brokers:
+            try:
+                _m = _b.compute_metrics()
+                _initial = float(_m.get('start_cash', 1000) or 1000)
+                _peak = float(_m.get('peak_equity', _initial) or _initial) or _initial
+                _pfs.append(float(_m.get('profit_factor', 0) or 0))
+                _winning += int(_m.get('winning_trades', 0) or 0)
+                _losing += int(_m.get('losing_trades', 0) or 0)
+                _eq = _b.get_equity_curve()
+                _step = max(1, len(_eq) // 500)
+                for _pt in _eq[::_step]:
+                    _d = _pt if isinstance(_pt, dict) else _pt.to_dict()
+                    _eq_all.append({'timestamp': str(_d.get('timestamp', '')), 'equity': float(_d.get('equity', 0)), 'drawdown_pct': float((_d.get('equity', 0) - _peak) / _peak) if _peak else 0.0})
+                for _t in _b.get_trade_log():
+                    _td = _t if isinstance(_t, dict) else _t.to_dict()
+                    _tr_all.append({'exit_time': str(_td.get('timestamp', '')), 'entry_time': str(_td.get('timestamp', '')), 'pnl': float(_td.get('realized_pnl', 0) or 0), 'size': float(_td.get('size', 0) or 0), 'price': float(_td.get('price', 0) or 0), 'side': str(_td.get('side', ''))})
+            except Exception:
+                pass
+        _wins_p = [_t['pnl'] for _t in _tr_all if _t['pnl'] > 0]
+        _loss_p = [_t['pnl'] for _t in _tr_all if _t['pnl'] <= 0]
+        _rich = {'equity_curve': _eq_all, 'trades': _tr_all, 'profit_factor': (max(_pfs) if _pfs else None), 'best_trade_pct': (max(_wins_p) / _initial * 100 if _wins_p else None), 'worst_trade_pct': (min(_loss_p) / _initial * 100 if _loss_p else None), 'winning_trades': _winning, 'losing_trades': _losing}
+        print("BACKTEST_RESULTS_JSON:" + _plat_json.dumps(_rich, default=str))
+    except Exception as _e:
+        print(f"BACKTEST_RICH_ERROR:{_e}")
+'''
+            # Replace the existing __main__ block with the enriched version
+            _main_marker = 'if __name__ == "__main__":'
+            _main_pos = code.rfind(_main_marker)
+            if _main_pos != -1:
+                code = code[:_main_pos] + _RICH_OUTPUT_SUFFIX
+            else:
+                code = code + _RICH_OUTPUT_SUFFIX
+            logger.info("[EXECUTE] Injected rich data output hook")
+
             # Debug: Log first 1000 chars of code being executed
             logger.info(f"[EXECUTE] Code preview (first 1000 chars):\n{code[:1000]}")
             logger.info(f"[EXECUTE] Import check - has 'import data_loader': {'import data_loader' in code}")
@@ -634,7 +699,14 @@ if str(monolithic_agent_dir) not in sys.path:
                 result = executor.execute_bot(
                     strategy_file=tmp_file_path,
                     test_symbol=test_symbol,
-                    parameters={'test_interval': interval, 'initial_capital': initial_capital}
+                    parameters={
+                        'test_interval': interval,
+                        'initial_capital': initial_capital,
+                        'exit_mode': exit_mode,
+                        'sl_pips': sl_pips,
+                        'tp_pips': tp_pips,
+                        'risk_pct': risk_pct,
+                    }
                 )
             finally:
                 # Clean up temporary file
@@ -651,19 +723,118 @@ if str(monolithic_agent_dir) not in sys.path:
             # Save results even if metrics couldn't be parsed - user needs to know backtest was attempted
             try:
                 from .models import LatestBacktestResult
+
+                equity_curve_data = []
+                trades_data = []
+                profit_factor_val = None
+                buy_hold_return_val = None
+                best_trade_val = None
+                worst_trade_val = None
+
+                # For canonical JSON strategies: run via backtesting.py in-process to get rich data
+                if is_canonical_json:
+                    try:
+                        from Backtest.backtesting_adapter import run_backtest_from_canonical
+                        import json
+                        from datetime import datetime, timedelta
+
+                        canonical_dict = json.loads(strategy.strategy_code)
+                        bt_start = (datetime.now() - timedelta(days=1095)).strftime('%Y-%m-%d')
+                        bt_end = datetime.now().strftime('%Y-%m-%d')
+
+                        bt_results, bt_trades_df = run_backtest_from_canonical(
+                            canonical_json=canonical_dict,
+                            symbol=test_symbol,
+                            start_date=bt_start,
+                            end_date=bt_end,
+                            interval=interval,
+                            initial_cash=initial_capital,
+                            commission=0.002,
+                        )
+
+                        # Extract equity curve
+                        eq_curve = bt_results._equity_curve.reset_index()
+                        equity_curve_data = [
+                            {
+                                'timestamp': str(row.iloc[0]),
+                                'equity': float(row['Equity']),
+                                'drawdown_pct': float(row['DrawdownPct']) if 'DrawdownPct' in eq_curve.columns else 0.0,
+                            }
+                            for _, row in eq_curve.iterrows()
+                        ]
+
+                        # Extract trades
+                        if bt_trades_df is not None and not bt_trades_df.empty:
+                            for _, t in bt_trades_df.iterrows():
+                                trades_data.append({
+                                    'entry_time': str(t.get('EntryTime', '')),
+                                    'exit_time': str(t.get('ExitTime', '')),
+                                    'entry_price': float(t.get('EntryPrice', 0)),
+                                    'exit_price': float(t.get('ExitPrice', 0)),
+                                    'size': float(t.get('Size', 0)),
+                                    'pnl': float(t.get('PnL', 0)),
+                                    'return_pct': float(t.get('ReturnPct', 0)),
+                                })
+
+                        # Extract extra metrics from bt_results Series
+                        def _safe_float(key):
+                            try:
+                                v = bt_results.get(key)
+                                return float(v) if v is not None else None
+                            except Exception:
+                                return None
+
+                        profit_factor_val = _safe_float('Profit Factor')
+                        buy_hold_return_val = _safe_float('Buy & Hold Return [%]')
+                        best_trade_val = _safe_float('Best Trade [%]')
+                        worst_trade_val = _safe_float('Worst Trade [%]')
+
+                        logger.info(f"[EXECUTE] in-process backtest enrichment OK: {len(equity_curve_data)} equity points, {len(trades_data)} trades")
+                    except Exception as enrich_err:
+                        logger.warning(f"[EXECUTE] in-process backtest enrichment failed (non-fatal): {enrich_err}")
+
+                # For Python SimBroker strategies: extract rich data from BACKTEST_RESULTS_JSON marker
+                winning_trades_val = 0
+                losing_trades_val = 0
+                if not is_canonical_json and result.output_log:
+                    try:
+                        import json as _json_mod
+                        _marker = 'BACKTEST_RESULTS_JSON:'
+                        for _line in result.output_log.split('\n'):
+                            _line = _line.strip()
+                            if _line.startswith(_marker):
+                                _rich = _json_mod.loads(_line[len(_marker):])
+                                equity_curve_data = _rich.get('equity_curve', [])
+                                trades_data = _rich.get('trades', [])
+                                profit_factor_val = _rich.get('profit_factor')
+                                best_trade_val = _rich.get('best_trade_pct')
+                                worst_trade_val = _rich.get('worst_trade_pct')
+                                winning_trades_val = int(_rich.get('winning_trades', 0) or 0)
+                                losing_trades_val = int(_rich.get('losing_trades', 0) or 0)
+                                logger.info(f"[EXECUTE] Extracted rich SimBroker data: {len(equity_curve_data)} eq pts, {len(trades_data)} trades, pf={profit_factor_val}, wins={winning_trades_val}, losses={losing_trades_val}")
+                                break
+                    except Exception as _rich_err:
+                        logger.warning(f"[EXECUTE] Failed to parse BACKTEST_RESULTS_JSON: {_rich_err}")
+
                 result_data = {
                     'symbol': test_symbol,
                     'timeframe': interval,
                     'period': 'max',
                     'initial_balance': initial_capital,
-                    'total_trades': result.trades if result.trades is not None else 0,
+                    'total_trades': len(trades_data) if trades_data else (result.trades if isinstance(result.trades, (int, float)) else 0),
+                    'winning_trades': winning_trades_val,
+                    'losing_trades': losing_trades_val,
                     'win_rate': result.win_rate or 0,
                     'total_return_pct': result.return_pct or 0,
                     'sharpe_ratio': result.sharpe_ratio or 0,
                     'max_drawdown': result.max_drawdown or 0,
                     'net_profit': result.net_profit or 0,
-                    'trades': [],  # Will be populated if available
-                    'equity_curve': []  # Will be populated if available
+                    'profit_factor': profit_factor_val,
+                    'buy_hold_return_pct': buy_hold_return_val,
+                    'best_trade_pct': best_trade_val,
+                    'worst_trade_pct': worst_trade_val,
+                    'trades': trades_data,
+                    'equity_curve': equity_curve_data,
                 }
                 LatestBacktestResult.save_result(pk, result_data)
                 logger.info(f"[EXECUTE] Saved backtest attempt for strategy {pk} with symbol {test_symbol}")
@@ -701,6 +872,10 @@ if str(monolithic_agent_dir) not in sys.path:
                     'sharpe_ratio': None,
                     'max_drawdown': 0,
                     'net_profit': 0,
+                    'profit_factor': None,
+                    'buy_hold_return_pct': None,
+                    'best_trade_pct': None,
+                    'worst_trade_pct': None,
                     'trades': [],
                     'equity_curve': [],
                 })

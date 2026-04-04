@@ -91,7 +91,9 @@ celerybeat.pid
 backtest_results/
 Backtest/signals/
 Backtest/codes/
+Backtest/data/
 artifacts/
+/Data/data/
 *.csv
 reports/
 *.db
@@ -99,7 +101,8 @@ codes/
 signals/
 *.joblib
 *.parquet
-
+/data
+data/
 # ========================
 # OS
 # ========================
@@ -111,6 +114,9 @@ signals/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+data/*.csv
+*.csv
+
 
 # ========================
 # IDEs
