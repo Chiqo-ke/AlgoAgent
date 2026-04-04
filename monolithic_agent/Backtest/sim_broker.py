@@ -78,6 +78,10 @@ class SimBroker:
         # Storage
         self.all_fills: List[Fill] = []
         self.market_data_cache: Dict[str, MarketData] = {}
+
+        # Exit overlay tracking {symbol: {side, entry_price, sl, tp, size, signal_id}}
+        # Populated when exit_mode != "bot" and an ENTRY fill is processed.
+        self._exit_positions: Dict[str, dict] = {}
         
         # Validate configuration
         config_warnings = self.validators.validate_backtest_config()
@@ -207,7 +211,11 @@ class SimBroker:
         # Update market data cache
         if market_data:
             self._update_market_data(market_data, timestamp)
-        
+
+        # Check exit overlay SL/TP before processing new orders
+        if self._exit_positions:
+            self._check_exit_overlay()
+
         # Process orders
         self._process_active_orders()
         
@@ -364,6 +372,18 @@ class SimBroker:
         
         # Update account
         self.account_manager.process_fill(fill)
+
+        # Exit overlay: register SL/TP after ENTRY fills; clear on EXIT fills.
+        # Use side-based detection: if a fill's side is opposite to the tracked
+        # position's side, it's closing that position.
+        if self.config.exit_mode != "bot":
+            existing_pos = self._exit_positions.get(fill.symbol)
+            if existing_pos and fill.side != existing_pos["side"]:
+                # Closing fill — remove tracking record
+                self._exit_positions.pop(fill.symbol, None)
+            elif not existing_pos:
+                # New position opened — register exit levels
+                self._register_exit_overlay(fill)
     
     def _update_account_prices(self):
         """Update account with latest prices"""
@@ -372,6 +392,140 @@ class SimBroker:
             for symbol, data in self.market_data_cache.items()
         }
         self.account_manager.update_prices(prices)
+
+    # =========================================================================
+    # EXIT OVERLAY HELPERS  (fixed_pips / percentage exit modes)
+    # =========================================================================
+
+    @staticmethod
+    def _estimate_pip_size(entry_price: float) -> float:
+        """Infer a sensible pip size from the asset's price level.
+
+        This mirrors the live trader's heuristic but works without MT5 symbol_info.
+        Typical mappings:
+          • FX majors (EURUSD ~1.10):  0.0001
+          • FX JPY pairs (USDJPY ~150): 0.01
+          • Metals (XAUUSD ~2000):      0.01
+          • Stocks ($1–$1000):          0.01
+          • Crypto / high-price:        1.0
+        We approximate as 0.0001 × entry_price (1 basis point) — this gives
+        roughly 10-pip accuracy for most products.
+        """
+        if entry_price <= 0:
+            return 0.0001
+        # Use 0.01% of entry price as 1 pip  (generic, instrument-agnostic)
+        return round(entry_price * 0.0001, 10)
+
+    def _register_exit_overlay(self, fill: Fill) -> None:
+        """Compute and store SL/TP levels for a newly-filled ENTRY position."""
+        cfg = self.config
+        entry_price = fill.price
+        side = fill.side  # "BUY" or "SELL"
+        size = fill.size
+
+        pip = cfg.pip_size if cfg.pip_size else self._estimate_pip_size(entry_price)
+
+        sl_price: Optional[float] = None
+        tp_price: Optional[float] = None
+
+        if cfg.exit_mode == "fixed_pips":
+            if cfg.sl_pips:
+                dist = cfg.sl_pips * pip
+                sl_price = (entry_price - dist) if side == "BUY" else (entry_price + dist)
+            if cfg.tp_pips:
+                dist = cfg.tp_pips * pip
+                tp_price = (entry_price + dist) if side == "BUY" else (entry_price - dist)
+
+        elif cfg.exit_mode == "percentage":
+            # Risk = risk_pct% of current equity
+            equity = self.account_manager.create_snapshot(
+                self.current_time or fill.timestamp
+            ).equity
+            risk_amount = equity * (cfg.risk_pct / 100.0)
+            if size > 0:
+                sl_dist = risk_amount / size        # price units per unit
+                sl_price = (entry_price - sl_dist) if side == "BUY" else (entry_price + sl_dist)
+                tp_dist = sl_dist * 2               # default 2:1 R:R
+                # Override TP with explicit pip value when both sl_pips/tp_pips given
+                if cfg.tp_pips and cfg.sl_pips:
+                    tp_dist = (cfg.tp_pips / cfg.sl_pips) * sl_dist
+                tp_price = (entry_price + tp_dist) if side == "BUY" else (entry_price - tp_dist)
+
+        if sl_price is None and tp_price is None:
+            return  # nothing to track
+
+        self._exit_positions[fill.symbol] = {
+            "side": side,
+            "entry_price": entry_price,
+            "sl": sl_price,
+            "tp": tp_price,
+            "size": size,
+            "signal_id": fill.signal_id,
+        }
+        logger.info(
+            f"[ExitOverlay] {fill.symbol} {side} entry={entry_price:.5f} "
+            f"SL={'%.5f' % sl_price if sl_price else 'none'} "
+            f"TP={'%.5f' % tp_price if tp_price else 'none'} "
+            f"(mode={cfg.exit_mode})"
+        )
+
+    def _check_exit_overlay(self) -> None:
+        """Check each tracked position against the current bar and submit exit
+        signals when SL or TP price is touched."""
+        import uuid
+        from .canonical_schema import OrderSide
+        triggered = []
+
+        for symbol, pos in self._exit_positions.items():
+            bar = self.market_data_cache.get(symbol)
+            if not bar:
+                continue
+
+            side = pos["side"]
+            sl = pos["sl"]
+            tp = pos["tp"]
+            hit_sl = hit_tp = False
+
+            if side == "BUY":
+                if sl is not None and bar.low <= sl:
+                    hit_sl = True
+                    exit_price = sl
+                elif tp is not None and bar.high >= tp:
+                    hit_tp = True
+                    exit_price = tp
+            else:  # SELL / short
+                if sl is not None and bar.high >= sl:
+                    hit_sl = True
+                    exit_price = sl
+                elif tp is not None and bar.low <= tp:
+                    hit_tp = True
+                    exit_price = tp
+
+            if hit_sl or hit_tp:
+                exit_side = OrderSide.SELL if side == "BUY" else OrderSide.BUY
+                reason = "SL hit" if hit_sl else "TP hit"
+                signal = {
+                    "signal_id": f"exit_overlay_{uuid.uuid4().hex[:8]}",
+                    "timestamp": self.current_time,
+                    "symbol": symbol,
+                    "side": exit_side,
+                    "action": "EXIT",
+                    "order_type": "MARKET",
+                    "size": pos["size"],
+                    "reason": f"Exit overlay: {reason}",
+                    "strategy_id": "exit_overlay",
+                    "meta": {},
+                }
+                order_id = self.submit_signal(signal)
+                if order_id:
+                    logger.info(
+                        f"[ExitOverlay] {reason} for {symbol} {side} @ "
+                        f"{exit_price:.5f} — exit order {order_id}"
+                    )
+                triggered.append(symbol)
+
+        for sym in triggered:
+            self._exit_positions.pop(sym, None)
     
     # =========================================================================
     # UTILITY METHODS

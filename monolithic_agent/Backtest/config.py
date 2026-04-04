@@ -96,9 +96,50 @@ class BacktestConfig:
     name: str = "backtest"
     description: str = ""
     tags: Dict[str, Any] = field(default_factory=dict)
-    
+
+    # ===== Exit Mode Overlay =====
+    # Controls how SL/TP exits are applied. Mirrors live trading exit options.
+    # "bot"         – strategy manages its own exits (default; no override)
+    # "percentage"  – SL placed based on risk_pct of account equity per trade;
+    #                 TP set at 2× the SL distance (2:1 R:R).
+    # "fixed_pips"  – SL and TP placed at fixed pip distances from entry price.
+    exit_mode: str = "bot"          # "bot" | "percentage" | "fixed_pips"
+    sl_pips: Optional[float] = None # Stop-loss distance in pips (fixed_pips mode)
+    tp_pips: Optional[float] = None # Take-profit distance in pips (fixed_pips mode)
+    risk_pct: float = 2.0           # % of equity risked per trade (percentage mode)
+    pip_size: Optional[float] = None  # Custom pip size override; auto-detected if None
+
     def __post_init__(self):
-        """Validate configuration"""
+        """Validate configuration and read exit-mode overrides from env vars."""
+        import os
+        # Allow environment variables to inject exit-mode settings so that
+        # strategy subprocess code (which creates BacktestConfig()) picks them
+        # up automatically without requiring code surgery.
+        _env_exit = os.environ.get('BACKTEST_EXIT_MODE', '').strip()
+        if _env_exit in ('percentage', 'fixed_pips', 'bot'):
+            self.exit_mode = _env_exit
+
+        _env_sl = os.environ.get('BACKTEST_SL_PIPS', '').strip()
+        if _env_sl:
+            try:
+                self.sl_pips = float(_env_sl)
+            except ValueError:
+                pass
+
+        _env_tp = os.environ.get('BACKTEST_TP_PIPS', '').strip()
+        if _env_tp:
+            try:
+                self.tp_pips = float(_env_tp)
+            except ValueError:
+                pass
+
+        _env_risk = os.environ.get('BACKTEST_RISK_PCT', '').strip()
+        if _env_risk:
+            try:
+                self.risk_pct = float(_env_risk)
+            except ValueError:
+                pass
+
         self._validate()
     
     def _validate(self):

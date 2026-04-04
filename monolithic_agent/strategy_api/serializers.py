@@ -363,8 +363,13 @@ class LatestBacktestResultSerializer(serializers.ModelSerializer):
             'final_equity',
             'max_drawdown',
             'sharpe_ratio',
+            'profit_factor',
+            'buy_hold_return_pct',
+            'best_trade_pct',
+            'worst_trade_pct',
             'trades',
             'equity_curve',
+            'symbol_stats',
             'created_at',
             'updated_at',
         ]
