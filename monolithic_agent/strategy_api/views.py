@@ -474,6 +474,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             test_symbol = request.data.get('test_symbol', 'GOOG')
             interval = request.data.get('interval', '1d')
             initial_capital = float(request.data.get('initial_capital', 1000))
+            lot_size = float(request.data.get('lot_size', 0.0))  # 0 = use fractional sizing (default)
 
             # Exit mode parameters (mirrors live trading options)
             exit_mode = request.data.get('exit_mode', 'bot')
@@ -660,9 +661,14 @@ if __name__ == "__main__":
                 _losing += int(_m.get('losing_trades', 0) or 0)
                 _eq = _b.get_equity_curve()
                 _step = max(1, len(_eq) // 500)
+                _running_peak = _initial
                 for _pt in _eq[::_step]:
                     _d = _pt if isinstance(_pt, dict) else _pt.to_dict()
-                    _eq_all.append({'timestamp': str(_d.get('timestamp', '')), 'equity': float(_d.get('equity', 0)), 'drawdown_pct': float((_d.get('equity', 0) - _peak) / _peak) if _peak else 0.0})
+                    _e = float(_d.get('equity', 0))
+                    if _e > _running_peak:
+                        _running_peak = _e
+                    _dd = (_e - _running_peak) / _running_peak if _running_peak > 0 else 0.0
+                    _eq_all.append({'timestamp': str(_d.get('timestamp', '')), 'equity': _e, 'drawdown_pct': _dd})
                 for _t in _b.get_trade_log():
                     _td = _t if isinstance(_t, dict) else _t.to_dict()
                     _tr_all.append({'exit_time': str(_td.get('timestamp', '')), 'entry_time': str(_td.get('timestamp', '')), 'pnl': float(_td.get('realized_pnl', 0) or 0), 'size': float(_td.get('size', 0) or 0), 'price': float(_td.get('price', 0) or 0), 'side': str(_td.get('side', ''))})
@@ -678,10 +684,30 @@ if __name__ == "__main__":
             # Replace the existing __main__ block with the enriched version
             _main_marker = 'if __name__ == "__main__":'
             _main_pos = code.rfind(_main_marker)
+
+            # Build optional lot-size position-size override (prepended before suffix)
+            _lot_patch = ''
+            if lot_size > 0:
+                _lot_size_units = round(lot_size * 100000)
+                _lot_patch = f'''
+# === LOT SIZE OVERRIDE (injected) ===
+_PLAT_LOT_UNITS = {_lot_size_units}
+try:
+    from Backtest.sim_broker import SimBroker as _PlLS
+    _plat_orig_submit_ls = _PlLS.submit_signal
+    def _plat_lot_submit(self_b, signal_dict, *_a, **_kw):
+        sd = dict(signal_dict)
+        sd['size'] = _PLAT_LOT_UNITS
+        return _plat_orig_submit_ls(self_b, sd, *_a, **_kw)
+    _PlLS.submit_signal = _plat_lot_submit
+except Exception:
+    pass
+'''
+
             if _main_pos != -1:
-                code = code[:_main_pos] + _RICH_OUTPUT_SUFFIX
+                code = code[:_main_pos] + _lot_patch + _RICH_OUTPUT_SUFFIX
             else:
-                code = code + _RICH_OUTPUT_SUFFIX
+                code = code + _lot_patch + _RICH_OUTPUT_SUFFIX
             logger.info("[EXECUTE] Injected rich data output hook")
 
             # Debug: Log first 1000 chars of code being executed
