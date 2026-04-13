@@ -84,11 +84,11 @@ class MetricsEngine:
             'gross_profit': self._calculate_gross_profit(winning_fills),
             'gross_loss': self._calculate_gross_loss(losing_fills),
             
-            # Trade metrics
-            'total_trades': len(fills),
+            # Trade metrics — count only CLOSED trades (fills with realized P&L != 0)
+            'total_trades': len(winning_fills) + len(losing_fills),
             'winning_trades': len(winning_fills),
             'losing_trades': len(losing_fills),
-            'win_rate': self._calculate_win_rate(winning_fills, fills),
+            'win_rate': self._calculate_win_rate(winning_fills, losing_fills),
             
             # Profit metrics
             'profit_factor': self._calculate_profit_factor(winning_fills, losing_fills),
@@ -186,11 +186,12 @@ class MetricsEngine:
         """Gross loss = abs(sum of losing trades P&L)"""
         return abs(sum(f.realized_pnl for f in losing_fills))
     
-    def _calculate_win_rate(self, winning_fills: List[Fill], all_fills: List[Fill]) -> float:
-        """Win rate = #winning_trades / #total_closed_trades"""
-        if len(all_fills) == 0:
+    def _calculate_win_rate(self, winning_fills: List[Fill], losing_fills: List[Fill]) -> float:
+        """Win rate = #winning_trades / #closed_trades (excludes entry fills with zero P&L)"""
+        closed_trades = len(winning_fills) + len(losing_fills)
+        if closed_trades == 0:
             return 0.0
-        return len(winning_fills) / len(all_fills)
+        return len(winning_fills) / closed_trades
     
     def _calculate_profit_factor(
         self,
@@ -235,8 +236,11 @@ class MetricsEngine:
         if len(all_fills) == 0:
             return 0.0
         
-        win_rate = len(winning_fills) / len(all_fills)
-        loss_rate = len(losing_fills) / len(all_fills)
+        closed_trades = len(winning_fills) + len(losing_fills)
+        if closed_trades == 0:
+            return 0.0
+        win_rate = len(winning_fills) / closed_trades
+        loss_rate = len(losing_fills) / closed_trades
         
         avg_win = self._calculate_average_win(winning_fills)
         avg_loss = abs(self._calculate_average_loss(losing_fills))

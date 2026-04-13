@@ -301,7 +301,7 @@ class BotExecutor:
                 logger.info(f"[OK] Execution completed successfully")
                 logger.info(f"  Return: {result.return_pct:.2f}%" if result.return_pct else "")
                 logger.info(f"  Trades: {result.trades}" if result.trades else "")
-                logger.info(f"  Win Rate: {result.win_rate:.1%}" if result.win_rate else "")
+                logger.info(f"  Win Rate: {result.win_rate:.2f}%" if result.win_rate else "")
             
         except subprocess.TimeoutExpired:
             result.error = f"Execution timeout (>{self.timeout_seconds}s)"
@@ -919,7 +919,7 @@ class BotExecutor:
             "-" * 70,
             f"  Return: {result.return_pct:.2f}%" if result.return_pct is not None else "  Return: N/A",
             f"  Trades: {result.trades}" if result.trades is not None else "  Trades: N/A",
-            f"  Win Rate: {result.win_rate:.1%}" if result.win_rate is not None else "  Win Rate: N/A",
+            f"  Win Rate: {result.win_rate:.2f}%" if result.win_rate is not None else "  Win Rate: N/A",
             f"  Max Drawdown: {result.max_drawdown:.2f}%" if result.max_drawdown is not None else "  Max Drawdown: N/A",
             f"  Sharpe Ratio: {result.sharpe_ratio:.2f}" if result.sharpe_ratio is not None else "  Sharpe Ratio: N/A",
             f"",
@@ -1182,5 +1182,5 @@ if __name__ == "__main__":
             if result.trades is not None:
                 print(f"Trades: {result.trades}")
             if result.win_rate is not None:
-                print(f"Win Rate: {result.win_rate:.1%}")
+                print(f"Win Rate: {result.win_rate:.2f}%")
         print(f"Results saved to: {result.results_file}")
