@@ -1599,50 +1599,8 @@ Original request: {strategy.description}
                         'details': str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Build strategy description from canonical JSON
-            description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
-            description += f"{canonical_json.get('description', '')}\n\n"
-            
-            # Add entry rules
-            if canonical_json.get('entry_rules'):
-                description += "Entry Rules:\n"
-                for i, rule in enumerate(canonical_json['entry_rules'], 1):
-                    description += f"{i}. {rule.get('description', str(rule))}\n"
-                description += "\n"
-            
-            # Add exit rules
-            if canonical_json.get('exit_rules'):
-                description += "Exit Rules:\n"
-                for i, rule in enumerate(canonical_json['exit_rules'], 1):
-                    description += f"{i}. {rule.get('description', str(rule))}\n"
-                description += "\n"
-            
-            # Add risk management
-            if canonical_json.get('risk_management'):
-                description += "Risk Management:\n"
-                risk = canonical_json['risk_management']
-                if risk.get('stop_loss'):
-                    description += f"- Stop Loss: {risk['stop_loss']}\n"
-                if risk.get('take_profit'):
-                    description += f"- Take Profit: {risk['take_profit']}\n"
-                if risk.get('position_sizing'):
-                    description += f"- Position Sizing: {risk['position_sizing']}\n"
-                description += "\n"
-            
-            # Add indicators
-            if canonical_json.get('indicators'):
-                description += "Indicators:\n"
-                for indicator in canonical_json['indicators']:
-                    description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
-                description += "\n"
-            
-            # Add symbol-agnostic instructions
-            description += "\nIMPORTANT INSTRUCTIONS FOR CODE GENERATION:\n"
-            description += "- Strategy should work with ANY symbol (do not hardcode symbols)\n"
-            description += "- Symbol will be provided dynamically through market_data parameter\n"
-            description += "- Use market_data dictionary to access OHLCV data for any symbol\n"
-            description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
-            description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
+            # Build strategy description from canonical JSON (preserve all params)
+            description = self._build_description_from_canonical(canonical_json, strategy_name)
             
             # Generate the code using KeyManager for key management
             from Backtest import get_key_manager, KEY_ROTATION_AVAILABLE
@@ -1912,41 +1870,8 @@ Original request: {strategy.description}
                         'details': str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Build description from canonical JSON (same as generate_executable_code)
-            description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
-            description += f"{canonical_json.get('description', '')}\n\n"
-            
-            if canonical_json.get('entry_rules'):
-                description += "Entry Rules:\n"
-                for i, rule in enumerate(canonical_json['entry_rules'], 1):
-                    description += f"{i}. {rule.get('description', str(rule))}\n"
-                description += "\n"
-            
-            if canonical_json.get('exit_rules'):
-                description += "Exit Rules:\n"
-                for i, rule in enumerate(canonical_json['exit_rules'], 1):
-                    description += f"{i}. {rule.get('description', str(rule))}\n"
-                description += "\n"
-            
-            if canonical_json.get('risk_management'):
-                description += "Risk Management:\n"
-                risk = canonical_json['risk_management']
-                if risk.get('stop_loss'):
-                    description += f"- Stop Loss: {risk['stop_loss']}\n"
-                if risk.get('take_profit'):
-                    description += f"- Take Profit: {risk['take_profit']}\n"
-                if risk.get('position_sizing'):
-                    description += f"- Position Sizing: {risk['position_sizing']}\n"
-                description += "\n"
-            
-            if canonical_json.get('indicators'):
-                description += "Indicators:\n"
-                for indicator in canonical_json['indicators']:
-                    description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
-                description += "\n"
-            
-            description += "\nIMPORTANT: Strategy should work with ANY symbol (do not hardcode symbols)\n"
-            description += f"Timeframe: {canonical_json.get('timeframe', '1d')}\n"
+            # Build description from canonical JSON (preserve all params)
+            description = self._build_description_from_canonical(canonical_json, strategy_name)
             
             # Generate initial code using RequestRouter
             from Backtest import request_router
@@ -2457,9 +2382,11 @@ Original request: {strategy.description}
                     # Consider it valid if:
                     # 1. success=True (normal case), OR
                     # 2. error is just "No results or metrics found" (code ran but output not parseable)
+                    # NOTE: trades is None means truly unparseable; trades==0 means parsed but no trades (real failure)
                     is_parse_error_only = (
                         execution_result.error and 
-                        "No results or metrics found" in execution_result.error
+                        "No results or metrics found" in execution_result.error and
+                        execution_result.trades is None  # Only a parse error if we couldn't even detect 0 trades
                     )
                     
                     if execution_result.success or is_parse_error_only:
@@ -2650,6 +2577,10 @@ Original request: {strategy.description}
                     strategy.parameters['fix_attempts'] = len(fix_history)
                     strategy.parameters['ai_provider'] = actual_provider
                     
+                    # Preserve the original user description for debugging/auditing
+                    if not strategy.description:
+                        strategy.description = description
+                    
                     # Write the file's final content (may have been patched by fixer)
                     # rather than the in-memory strategy_code which could be pre-fix
                     try:
@@ -2667,7 +2598,7 @@ Original request: {strategy.description}
                         strategy.status = 'invalid'
                     # Keep 'validating' status if validation_status is 'not_executed'
                     
-                    strategy.save(update_fields=['parameters', 'status', 'strategy_code'])
+                    strategy.save(update_fields=['parameters', 'status', 'strategy_code', 'description'])
                     logger.info(f"[UNIFIED] Updated strategy {strategy_id} status to '{strategy.status}' with validation_status '{validation_status}'")
                 except Strategy.DoesNotExist:
                     logger.warning(f"[UNIFIED] Strategy {strategy_id} not found for update")
@@ -2715,51 +2646,70 @@ Original request: {strategy.description}
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _build_description_from_canonical(self, canonical_json, strategy_name):
-        """Helper method to build description from canonical JSON"""
-        description = f"{canonical_json.get('strategy_name', strategy_name)}\n"
-        description += f"{canonical_json.get('description', '')}\n\n"
+        """Helper method to build a detailed description from canonical JSON.
         
-        # Add entry rules
+        Preserves ALL indicator parameters, thresholds, and structured rule data
+        so the AI receives the exact specification the user intended.
+        """
+        description = f"Strategy Name: {canonical_json.get('strategy_name', strategy_name)}\n"
+        if canonical_json.get('description'):
+            description += f"Description: {canonical_json['description']}\n"
+        description += "\n"
+
+        # Add entry rules — include full structured data, not just description text
         if canonical_json.get('entry_rules'):
-            description += "Entry Rules:\n"
+            description += "ENTRY RULES (ALL conditions must be met to enter):\n"
             for i, rule in enumerate(canonical_json['entry_rules'], 1):
-                description += f"{i}. {rule.get('description', str(rule))}\n"
+                rule_text = rule.get('description', '')
+                # Also stringify any extra structured fields not in description
+                extra = {k: v for k, v in rule.items() if k != 'description' and v is not None}
+                if extra:
+                    rule_text += f" [params: {extra}]" if rule_text else str(extra)
+                description += f"{i}. {rule_text}\n"
             description += "\n"
-        
-        # Add exit rules
+
+        # Add exit rules — include full structured data
         if canonical_json.get('exit_rules'):
-            description += "Exit Rules:\n"
+            description += "EXIT RULES (first trigger wins):\n"
             for i, rule in enumerate(canonical_json['exit_rules'], 1):
-                description += f"{i}. {rule.get('description', str(rule))}\n"
+                rule_text = rule.get('description', '')
+                extra = {k: v for k, v in rule.items() if k != 'description' and v is not None}
+                if extra:
+                    rule_text += f" [params: {extra}]" if rule_text else str(extra)
+                description += f"{i}. {rule_text}\n"
             description += "\n"
-        
-        # Add risk management
+
+        # Add risk management — expand nested dicts fully
         if canonical_json.get('risk_management'):
-            description += "Risk Management:\n"
+            description += "RISK MANAGEMENT:\n"
             risk = canonical_json['risk_management']
-            if risk.get('stop_loss'):
-                description += f"- Stop Loss: {risk['stop_loss']}\n"
-            if risk.get('take_profit'):
-                description += f"- Take Profit: {risk['take_profit']}\n"
-            if risk.get('position_sizing'):
-                description += f"- Position Sizing: {risk['position_sizing']}\n"
+            for key, val in risk.items():
+                if isinstance(val, dict):
+                    description += f"- {key}: " + ", ".join(f"{k}={v}" for k, v in val.items()) + "\n"
+                else:
+                    description += f"- {key}: {val}\n"
             description += "\n"
-        
-        # Add indicators
+
+        # Add indicators — include ALL parameters (periods, thresholds, etc.)
         if canonical_json.get('indicators'):
-            description += "Indicators:\n"
+            description += "INDICATORS (use these exact periods/parameters):\n"
             for indicator in canonical_json['indicators']:
-                description += f"- {indicator.get('name', indicator.get('type', 'Unknown'))}\n"
+                name = indicator.get('name', indicator.get('type', 'Unknown'))
+                params = {k: v for k, v in indicator.items() if k not in ('name', 'type')}
+                if params:
+                    description += f"- {name}: {params}\n"
+                else:
+                    description += f"- {name}\n"
             description += "\n"
-        
-        # Add symbol-agnostic instructions
-        description += "\nIMPORTANT INSTRUCTIONS FOR CODE GENERATION:\n"
-        description += "- Strategy should work with ANY symbol (do not hardcode symbols)\n"
-        description += "- Symbol will be provided dynamically through market_data parameter\n"
-        description += "- Use market_data dictionary to access OHLCV data for any symbol\n"
-        description += "- Constructor should only accept broker and trading parameters (no symbol parameter)\n"
-        description += "- Timeframe: " + str(canonical_json.get('timeframe', '1d')) + "\n"
-        
+
+        # Add timeframe
+        description += f"Timeframe: {canonical_json.get('timeframe', '1d')}\n"
+
+        # Symbol-agnostic instructions
+        description += "\nCODE REQUIREMENTS:\n"
+        description += "- Strategy must work with ANY symbol (do not hardcode symbols)\n"
+        description += "- Symbol is provided dynamically through market_data and self.symbol\n"
+
         return description
     
     @action(detail=False, methods=['post'])

@@ -38,7 +38,8 @@ class LiveConfig:
     
     # Risk Management
     default_risk_pct: float = field(default_factory=lambda: float(os.getenv('DEFAULT_RISK_PCT', '1.0')))
-    max_position_size: float = field(default_factory=lambda: float(os.getenv('MAX_POSITION_SIZE', '10.0')))  # lots
+    max_position_size: float = field(default_factory=lambda: float(os.getenv('MAX_POSITION_SIZE', '1.0')))  # lots
+    max_positions_per_symbol: int = field(default_factory=lambda: int(os.getenv('MAX_POSITIONS_PER_SYMBOL', '1')))
     max_daily_trades: int = field(default_factory=lambda: int(os.getenv('MAX_DAILY_TRADES', '10')))
     max_daily_loss_pct: float = field(default_factory=lambda: float(os.getenv('MAX_DAILY_LOSS_PCT', '5.0')))
     
@@ -49,6 +50,7 @@ class LiveConfig:
     exchange: str = field(default_factory=lambda: os.getenv('EXCHANGE', 'FX'))  # tvDatafeed exchange for all symbols
     timeframe: str = field(default_factory=lambda: os.getenv('TIMEFRAME', '1d'))
     strategy_id: str = field(default_factory=lambda: os.getenv('STRATEGY_ID', 'default_strategy'))
+    strategy_name: str = field(default_factory=lambda: os.getenv('STRATEGY_NAME', ''))
     magic_number: int = field(default_factory=lambda: int(os.getenv('MAGIC_NUMBER', '123456')))
 
     # Number of historical bars to fetch and run the strategy over.
@@ -57,11 +59,17 @@ class LiveConfig:
     # Capped internally by live_data_fetcher.MAX_BARS (5000).
     data_bars: int = field(default_factory=lambda: int(os.getenv('DATA_BARS', '5000')))
 
-    # Session-level fixed SL/TP in pips — used as the default exit whenever
-    # the bot strategy does not supply its own SL or TP values.
-    # A "pip" follows the MT5 convention: 10 × point for 5/3-digit pairs
-    # (e.g. EURUSD, USDJPY) and 1 × point for everything else (metals, indices).
-    # Leave unset (or empty string) to trade without a default SL or TP.
+    # Exit mode controls how SL/TP levels are determined:
+    #   'fixed_pips'  — use sl_pips / tp_pips below (authoritative, overrides strategy values)
+    #   'bot'         — strategy provides its own SL/TP; session pips are ignored
+    #   'percentage'  — strategy provides its own SL/TP; session pips are ignored
+    exit_mode: str = field(default_factory=lambda: os.getenv('EXIT_MODE', 'bot'))
+
+    # Session-level fixed SL/TP in pips — only applied when exit_mode == 'fixed_pips'.
+    # A "pip" follows the MT5 convention:
+    #   5-digit FX (EURUSD):       1 pip = 10 × point = 0.0001
+    #   3-digit JPY pairs (USDJPY): 1 pip = 10 × point = 0.01
+    #   Metals/indices/crypto:      1 pip = 1  × point
     sl_pips: Optional[float] = field(default_factory=lambda: (
         float(os.getenv('SL_PIPS')) if os.getenv('SL_PIPS', '').strip() else None
     ))

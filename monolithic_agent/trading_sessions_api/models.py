@@ -140,6 +140,15 @@ class LiveTradingSession(models.Model):
             'Max 5000 (tvDatafeed limit). Defaults to 5000.'
         )
     )
+    max_lots = models.FloatField(
+        null=True, blank=True,
+        default=1.0,
+        help_text=(
+            'Maximum position size in lots per trade. '
+            'Caps the risk-based position size to prevent over-sizing. '
+            'Defaults to 1.0 lot.'
+        )
+    )
 
     # Per-session MT5 credentials
     mt5_login = models.IntegerField(help_text="Broker account number")

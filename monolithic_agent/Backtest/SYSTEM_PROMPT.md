@@ -543,8 +543,8 @@ def run_backtest():
         
         # 4. Define indicators using multi-period format
         indicators = {
-            'EMA': {'periods': [12, 26]},  # Creates EMA_12 and EMA_26 -> streaming: ema_12, ema_26
-            'RSI': {'periods': [14]}       # Creates RSI_14 -> streaming: rsi_14
+            'EMA': {'periods': [12, 26]},  # Creates EMA_12 and EMA_26 -> streaming: EMA_12, EMA_26
+            'RSI': {'periods': [14]}       # Creates RSI_14 -> streaming: RSI_14
         }
         
         # 5. Load data in STREAMING mode
@@ -859,16 +859,16 @@ if __name__ == "__main__":
 ```python
 def on_bar(self, timestamp, market_data):
     """Process each bar - MUST CALL broker.submit_signal()"""
-    # market_data format in STREAMING mode: {symbol: {open, high, low, close, volume, ema_12, ...}}
+    # market_data format in STREAMING mode: {symbol: {open, high, low, close, volume, EMA_12, ...}}
     symbol_data = market_data.get(self.symbol)
     if not symbol_data:
         return
     
     close = symbol_data.get('close')
-    # STREAMING mode: indicator keys are LOWERCASE
-    ema_fast = symbol_data.get('ema_12')   # lowercase, NOT 'EMA_12'
-    ema_slow = symbol_data.get('ema_26')   # lowercase, NOT 'EMA_26'
-    rsi = symbol_data.get('rsi_14')        # lowercase, NOT 'RSI_14'
+    # STREAMING mode: indicator keys are UPPERCASE (matching indicator name)
+    ema_fast = symbol_data.get('EMA_12')   # uppercase, matches EMA_12 column
+    ema_slow = symbol_data.get('EMA_26')   # uppercase, matches EMA_26 column
+    rsi = symbol_data.get('RSI_14')        # uppercase, matches RSI_14 column
     
     # Check for None values before any comparison
     if ema_fast is None or ema_slow is None or rsi is None or close is None:
@@ -991,8 +991,8 @@ When loading indicators, they follow this pattern:
 ```python
 # In on_bar method:
 symbol_data = data.get(self.symbol)
-sma_value = symbol_data.get('sma_20', None)  # lowercase in market_data dict
-rsi_value = symbol_data.get('rsi_14', None)
+sma_value = symbol_data.get('SMA_20', None)  # uppercase matching column name
+rsi_value = symbol_data.get('RSI_14', None)
 
 if sma_value is None:
     print(f"Missing SMA for {self.symbol} at {timestamp}")
@@ -1010,9 +1010,9 @@ def on_bar(self, timestamp, market_data):
         return
     
     close = symbol_data.get('close')
-    ema_fast = symbol_data.get('ema_12')  # lowercase in streaming mode
-    ema_slow = symbol_data.get('ema_26')
-    rsi = symbol_data.get('rsi_14')
+    ema_fast = symbol_data.get('EMA_12')  # uppercase matching indicator column
+    ema_slow = symbol_data.get('EMA_26')
+    rsi = symbol_data.get('RSI_14')
     
     if ema_fast is None or ema_slow is None or rsi is None:
         return
@@ -1161,7 +1161,7 @@ Generate a **single Python file** that:
 Before finalizing code, verify:
 - [ ] `from Backtest.xxx import` package imports with `parent.parent.parent` (3-level) path
 - [ ] Strategy class has `__init__(self, broker, symbol, strategy_id, **params)` signature
-- [ ] `on_bar` extracts indicators with **lowercase** keys: `symbol_data.get('ema_12')` NOT `'EMA_12'`
+- [ ] `on_bar` extracts indicators with **uppercase** keys: `symbol_data.get('EMA_12')` NOT `'ema_12'`
 - [ ] Entry/exit signals use `create_signal()` + `broker.submit_signal(signal.to_dict())`
 - [ ] `create_signal()` called with `reason=` string (NOT passed to `meta` dict)
 - [ ] `signal_logger.log_signal()` called with keyword args (NOT with `signal.to_dict()`)
@@ -1180,7 +1180,7 @@ Before finalizing code, verify:
 **The generated code MUST:**
 1. **Use `broker.submit_signal(signal.to_dict())`** to place trades — no other method exists
 2. **Track position manually** with `self.in_position`, `self.position_size`, `self.entry_price`
-3. **Access streaming indicators with lowercase keys**: `'ema_12'` not `'EMA_12'`
+3. **Access streaming indicators with uppercase keys**: `'EMA_12'` not `'ema_12'`
 4. **Never call**: `broker.buy()`, `broker.sell()`, `broker.has_position()` — these DO NOT EXIST
 5. **Use `reason=` argument to `create_signal()`** — it is a first-class field on Signal
 6. **Call `signal_logger.log_signal(timestamp=..., symbol=..., ...)` with keyword args** — NOT a dict

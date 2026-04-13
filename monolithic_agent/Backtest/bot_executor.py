@@ -746,6 +746,7 @@ class BotExecutor:
                     return result
             
             # If we extracted any metrics, consider it successful
+            _has_definitive_failure = False  # Track if we have a real failure reason
             if any([
                 result['return_pct'] is not None,
                 result['trades'] is not None,
@@ -760,15 +761,22 @@ class BotExecutor:
                 if result['trades'] is not None and result['trades'] == 0:
                     result['success'] = False
                     result['error'] = "Strategy executed but made NO TRADES (0 trades). Bot must place at least one trade to pass."
+                    _has_definitive_failure = True  # Preserve this error — don't overwrite below
                     logger.warning("⚠️ TRADE VALIDATION FAILED: Bot made 0 trades")
                 elif result['trades'] is None:
                     # Trades not found in output - might indicate parsing issue or no trades
                     result['success'] = False
                     result['error'] = "Cannot verify trades were made - metrics parsing issue or no trades placed"
+                    _has_definitive_failure = True
                     logger.warning("⚠️ TRADE VALIDATION: Unable to verify trade count")
                 
                 # If successful with valid trades, return immediately (ignore stderr warnings)
                 if result['success']:
+                    return result
+                
+                # If we have a definitive NO TRADES failure, return immediately
+                # Do NOT fall through to STEP 2/3 which would overwrite the error
+                if _has_definitive_failure:
                     return result
             
             # STEP 2: Only check stderr if we didn't get valid results
@@ -812,12 +820,13 @@ class BotExecutor:
                 return result
             
             # STEP 3: No valid results and no clear errors
-            # Check if output looks successful anyway
-            if stdout and not stderr:
-                result['success'] = True
-                result['error'] = "Output captured but metrics not parsed"
-            else:
-                result['error'] = "No results or metrics found in output"
+            # Only update error/success if we don't already have a definitive failure reason
+            if not _has_definitive_failure:
+                if stdout and not stderr:
+                    result['success'] = True
+                    result['error'] = "Output captured but metrics not parsed"
+                else:
+                    result['error'] = "No results or metrics found in output"
         
         except Exception as e:
             logger.error(f"Failed to parse execution output: {e}")

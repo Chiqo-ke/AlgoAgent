@@ -415,38 +415,54 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             )
 
     # ------------------------------------------------------------------
-    # GET /api/trading/sessions/all_positions/  — positions across all
-    #     RUNNING sessions owned by the logged-in user
+    # GET /api/trading/sessions/all_positions/
+    #   Optional: ?strategy_id=<int>  — filter to positions opened by that strategy
     # ------------------------------------------------------------------
     @action(detail=False, methods=['get'], url_path='all_positions')
     def all_positions(self, request):
         """
-        Return all open MT5 positions across every RUNNING session for the
-        logged-in user.  Each position is enriched with session metadata
-        (session_id, strategy name, timeframe, symbols) so the frontend
-        knows which bot opened each trade.
+        Return ALL open MT5 positions directly from the broker account,
+        regardless of whether any bot session is running.
 
-        The magic number is used to match a position to its session when
-        multiple sessions share the same broker account.
+        Positions are enriched with session metadata by:
+          1. Magic-number lookup across ALL user sessions (any status)
+          2. Comment-based lookup (format: <slug>_s<sessionId>_<hash>)
+
+        Optional query param ?strategy_id=<int> filters to positions
+        belonging to that specific strategy only.
         """
-        user_sessions = LiveTradingSession.objects.filter(
-            created_by=request.user,
-            status=SessionStatus.RUNNING,
-        )
+        import re as _re
 
-        # Build magic-number → session metadata lookup
-        magic_map = {
-            s.magic_number: {
+        strategy_id_filter = request.query_params.get('strategy_id')
+        if strategy_id_filter:
+            try:
+                strategy_id_filter = int(strategy_id_filter)
+            except (ValueError, TypeError):
+                strategy_id_filter = None
+
+        # Build lookup maps from ALL sessions for this user (any status)
+        all_user_sessions = LiveTradingSession.objects.filter(
+            created_by=request.user,
+        ).select_related('strategy')
+
+        # magic → session metadata (last session with that magic wins)
+        magic_map = {}
+        # session_pk (int) → session metadata
+        session_pk_map = {}
+        for s in all_user_sessions:
+            meta = {
                 'session_id':    s.pk,
-                'strategy_name': str(s.strategy),
+                'strategy_id':   s.strategy_id,
+                'strategy_name': str(s.strategy) if s.strategy else None,
                 'timeframe':     s.timeframe,
                 'symbols':       s.symbols,
             }
-            for s in user_sessions
-        }
+            if s.magic_number:
+                magic_map[s.magic_number] = meta
+            session_pk_map[s.pk] = meta
 
-        if not magic_map:
-            return Response({'positions': [], 'sessions_checked': 0}, status=status.HTTP_200_OK)
+        # Regex to extract session id from comment (new format: slug_sNN_hash)
+        _SESSION_RE = _re.compile(r'_s(\d+)_')
 
         try:
             if _USE_BRIDGE:
@@ -458,22 +474,6 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
                 except ImportError:
                     return Response(
                         {'positions': [], 'warning': 'MetaTrader5 package not installed.'},
-                        status=status.HTTP_200_OK
-                    )
-                # Use credentials from the first running session to authenticate
-                first = user_sessions.first()
-                password = first.get_mt5_password()
-                init_kwargs = {
-                    'login':    first.mt5_login,
-                    'password': password,
-                    'server':   first.mt5_server,
-                }
-                if first.mt5_terminal_path:
-                    init_kwargs['path'] = first.mt5_terminal_path
-
-                if not mt5.initialize(**init_kwargs):
-                    return Response(
-                        {'positions': [], 'warning': f'MT5 init failed: {mt5.last_error()}'},
                         status=status.HTTP_200_OK
                     )
                 raw = mt5.positions_get() or []
@@ -494,23 +494,37 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
                     'magic':         p.magic,
                 } for p in raw]
 
-            # Enrich each position with session metadata via magic number
+            # Enrich each position with session/strategy metadata
             for pos in all_pos:
-                meta = magic_map.get(pos.get('magic'))
-                if meta:
-                    pos.update(meta)
-                else:
-                    # Position exists on account but doesn't match any running session
-                    pos.update({
-                        'session_id':    None,
-                        'strategy_name': None,
-                        'timeframe':     None,
-                        'symbols':       None,
-                    })
+                meta = None
+                # 1. Try magic-number lookup
+                if pos.get('magic'):
+                    meta = magic_map.get(pos['magic'])
+                # 2. Fall back to comment-based session lookup
+                if not meta:
+                    comment = pos.get('comment', '') or ''
+                    m = _SESSION_RE.search(comment)
+                    if m:
+                        try:
+                            sid = int(m.group(1))
+                            meta = session_pk_map.get(sid)
+                        except (ValueError, TypeError):
+                            pass
+                pos.update(meta or {
+                    'session_id':    None,
+                    'strategy_id':   None,
+                    'strategy_name': None,
+                    'timeframe':     None,
+                    'symbols':       None,
+                })
+
+            # Filter to specific strategy if requested
+            if strategy_id_filter is not None:
+                all_pos = [p for p in all_pos if p.get('strategy_id') == strategy_id_filter]
 
             return Response({
-                'positions':       all_pos,
-                'sessions_checked': user_sessions.count(),
+                'positions': all_pos,
+                'total':     len(all_pos),
             }, status=status.HTTP_200_OK)
 
         except Exception as exc:
@@ -762,3 +776,100 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             'last_modified_at': last_modified_at,
             'is_process_alive': is_alive,
         })
+
+
+# ─── Live Analytics ───────────────────────────────────────────────────────────
+
+class LiveAnalyticsView(APIView):
+    """
+    GET /api/trading/live-analytics/
+
+    Returns aggregate live-trading performance per strategy for the current user.
+    Reads closed trades from audit.db, groups them by strategy via session FK,
+    and returns metrics compatible with the frontend BotPerformance interface.
+    """
+    permission_classes = [IsAuthenticated]
+
+    AUDIT_DB = Path(__file__).parent.parent / 'Live' / 'data' / 'audit.db'
+
+    def get(self, request):
+        import sqlite3
+        from collections import defaultdict
+
+        # All sessions that belong to the current user
+        sessions = (
+            LiveTradingSession.objects
+            .filter(created_by=request.user)
+            .select_related('strategy')
+            .values('id', 'strategy_id', 'strategy__name')
+        )
+
+        if not sessions or not self.AUDIT_DB.exists():
+            return Response([])
+
+        # Map "session_<id>" → session info
+        session_map = {f'session_{s["id"]}': s for s in sessions}
+
+        try:
+            conn = sqlite3.connect(str(self.AUDIT_DB))
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            placeholders = ','.join('?' * len(session_map))
+            c.execute(
+                f'SELECT strategy_id, profit FROM trades WHERE strategy_id IN ({placeholders})',
+                list(session_map.keys()),
+            )
+            rows = c.fetchall()
+
+            # Get current account balance for rough return % calculation
+            c.execute(
+                'SELECT balance FROM account_snapshots ORDER BY id DESC LIMIT 1'
+            )
+            snap = c.fetchone()
+            conn.close()
+
+            account_balance = float(snap['balance']) if snap and snap['balance'] else 1.0
+
+        except Exception as exc:
+            logger.error(f'LiveAnalyticsView error reading audit.db: {exc}')
+            return Response({'error': str(exc)}, status=500)
+
+        # Aggregate per strategy
+        stats: dict = defaultdict(lambda: {
+            'total_trades': 0, 'wins': 0, 'total_pnl': 0.0, 'strategy_name': '',
+        })
+
+        for row in rows:
+            info = session_map.get(row['strategy_id'])
+            if not info:
+                continue
+            sid = info['strategy_id']
+            s = stats[sid]
+            s['total_trades'] += 1
+            if row['profit'] > 0:
+                s['wins'] += 1
+            s['total_pnl'] += float(row['profit'])
+            s['strategy_name'] = info['strategy__name'] or ''
+
+        result = []
+        for strategy_id, s in stats.items():
+            t = s['total_trades']
+            win_rate = round(s['wins'] / t * 100, 2) if t else 0.0
+            # total_return as % of current account balance (rough live approximation)
+            total_return = round(s['total_pnl'] / account_balance * 100, 4) if account_balance else 0.0
+            result.append({
+                'strategy_id': strategy_id,
+                'strategy_name': s['strategy_name'],
+                'total_trades': t,
+                'win_rate': win_rate,
+                'total_pnl': round(s['total_pnl'], 2),
+                'total_return': total_return,
+                # Fields expected by BotPerformance interface (null = not computed for live)
+                'sharpe_ratio': None,
+                'max_drawdown': None,
+                'is_verified': t > 0,
+                'verification_status': 'verified' if t > 0 else 'unverified',
+            })
+
+        return Response(result)

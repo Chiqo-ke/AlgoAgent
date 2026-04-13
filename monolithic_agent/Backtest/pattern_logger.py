@@ -15,6 +15,7 @@ Features:
 Version: 1.0.0
 """
 
+import os
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 
 class PatternLogger:
     """
-    Logs pattern detection results for each data row during backtesting
+    Logs pattern detection results for each data row during backtesting.
+    Set DISABLE_SIGNAL_LOGGING=1 (e.g. in production env) to suppress all
+    file I/O — logs are still buffered in-memory so callers work unchanged.
     """
     
     def __init__(self, strategy_id: str, signals_dir: Optional[Path] = None):
@@ -39,15 +42,22 @@ class PatternLogger:
             signals_dir: Directory to save pattern logs (default: ./signals)
         """
         self.strategy_id = strategy_id
+        self._disabled = os.environ.get('DISABLE_SIGNAL_LOGGING', '0') == '1'
+
+        # Pattern log buffer
+        self.pattern_logs: List[Dict[str, Any]] = []
+
+        if self._disabled:
+            self.signals_dir = None
+            self.pattern_log_file = None
+            return
+
         self.signals_dir = signals_dir or Path(__file__).parent / "signals"
         self.signals_dir.mkdir(exist_ok=True)
         
         # Create pattern log file
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.pattern_log_file = self.signals_dir / f"{strategy_id}_patterns_{timestamp}.csv"
-        
-        # Pattern log buffer
-        self.pattern_logs: List[Dict[str, Any]] = []
         
         # Initialize CSV with headers
         self._init_pattern_log()
@@ -121,10 +131,11 @@ class PatternLogger:
         # Append to buffer
         self.pattern_logs.append(log_entry)
         
-        # Write to file immediately (for real-time debugging)
-        with open(self.pattern_log_file, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=log_entry.keys())
-            writer.writerow(log_entry)
+        # Write to file immediately (skipped in live/production mode)
+        if not self._disabled:
+            with open(self.pattern_log_file, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=log_entry.keys())
+                writer.writerow(log_entry)
     
     def get_pattern_summary(self) -> Dict[str, Any]:
         """

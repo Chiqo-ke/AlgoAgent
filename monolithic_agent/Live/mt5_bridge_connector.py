@@ -100,15 +100,24 @@ class MT5BridgeConnector:
                 if http_err.response is not None
                 else (401 if "401" in str(http_err) else None)
             )
+
+            # Try to extract the bridge's own error message from the response body.
+            bridge_msg = None
+            if http_err.response is not None:
+                try:
+                    bridge_msg = http_err.response.json().get('error') or http_err.response.text[:300]
+                except Exception:
+                    bridge_msg = http_err.response.text[:300] if http_err.response.text else None
+
             if status_code == 401:
                 logger.critical(
                     "POST %s returned 401 UNAUTHORIZED — MT5 credentials rejected "
                     "(wrong login/password/server). Extended back-off will apply on "
-                    "next reconnect.", path
+                    "next reconnect. %s", path, bridge_msg or "",
                 )
                 self._auth_failed = True
             else:
-                logger.error("POST %s failed: %s", path, http_err)
+                logger.error("POST %s failed: %s", path, bridge_msg or http_err)
             return None
         except Exception as e:
             logger.error("POST %s failed: %s", path, e)
@@ -206,20 +215,83 @@ class MT5BridgeConnector:
             health = self._get("/health")
             already_initialised = health and health.get("initialised") is True
             init_in_progress = health and health.get("init_in_progress") is True
+
             if already_initialised:
                 logger.info("Bridge already initialised (health check) — skipping /initialize")
             elif init_in_progress:
-                logger.info("Bridge auto-init in progress — waiting for it to complete ...")
-                # Poll until initialised or timeout (up to 3 minutes)
-                for _ in range(18):  # 18 × 10s = 3 min
-                    time.sleep(10)
-                    health = self._get("/health")
-                    if health and health.get("initialised") is True:
-                        logger.info("Bridge auto-init completed")
-                        break
-                else:
-                    logger.error("Bridge auto-init did not complete within 3 minutes")
+                # Check immediately for a permanent failure before waiting
+                if health.get("init_failed_permanent"):
+                    logger.error(
+                        "Bridge reports permanent init failure (code %s: %s). "
+                        "Check the MT5 terminal and bridge service.",
+                        health.get("last_error_code"), health.get("last_error_msg"),
+                    )
                     return False
+
+                # If this session has its own credentials (from the DB), push them
+                # to the bridge immediately rather than waiting for auto-init.
+                # The terminal's saved credentials may be expired; session credentials
+                # from the BrokerCredential model are always fresh.
+                has_credentials = (
+                    not self.config.dry_run
+                    and self.config.mt5_login
+                    and self.config.mt5_password
+                )
+                if has_credentials:
+                    logger.info(
+                        "Bridge auto-init stuck — using session credentials from DB "
+                        "to initialize (login=%s server=%s)",
+                        self.config.mt5_login, self.config.mt5_server,
+                    )
+                    cred_init_payload: Dict[str, Any] = {
+                        "timeout":  self.config.mt5_timeout,
+                        "login":    self.config.mt5_login,
+                        "password": self.config.mt5_password,
+                        "server":   self.config.mt5_server,
+                    }
+                    if self.config.mt5_path:
+                        cred_init_payload["path"] = self.config.mt5_path
+                    resp = self._post("/initialize", cred_init_payload, timeout=90)
+                    if resp is None or resp.get("status") != "initialised":
+                        # Fetch updated health to surface the actual MT5 error code.
+                        health = self._get("/health") or {}
+                        logger.error(
+                            "Bridge /initialize with session credentials failed "
+                            "(login=%s server=%s). MT5 error: %s — %s. "
+                            "Check that the broker account is valid and not expired.",
+                            self.config.mt5_login, self.config.mt5_server,
+                            health.get("last_error_code", "?"),
+                            health.get("last_error_msg", resp),
+                        )
+                        return False
+                    logger.info("MT5 initialised via session credentials  version=%s", resp.get("version"))
+                    # Login already done via mt5.initialize(); skip Step 2 below.
+                    # Fall through to Step 3 (terminal info).
+                    self.account_info = self._get("/account_info")
+                    self.terminal_info = self._get("/terminal_info")
+                    self.is_connected = True
+                    self.reconnect_attempts = 0
+                    logger.info("✓ MT5 bridge connection established via session credentials")
+                    return True
+                else:
+                    # No credentials available — wait for auto-init
+                    logger.info("Bridge auto-init in progress — waiting for it to complete ...")
+                    for _ in range(18):  # 18 × 10s = 3 min
+                        time.sleep(10)
+                        health = self._get("/health")
+                        if health and health.get("initialised") is True:
+                            logger.info("Bridge auto-init completed")
+                            break
+                        if health and health.get("init_failed_permanent"):
+                            logger.error(
+                                "Bridge init failed permanently during wait (code %s: %s). "
+                                "Check the MT5 terminal and bridge service.",
+                                health.get("last_error_code"), health.get("last_error_msg"),
+                            )
+                            return False
+                    else:
+                        logger.error("Bridge auto-init did not complete within 3 minutes")
+                        return False
             else:
                 init_payload: Dict[str, Any] = {"timeout": self.config.mt5_timeout}
                 if self.config.mt5_path:

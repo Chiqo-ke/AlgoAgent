@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import datetime, timezone as tz
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,7 @@ INTERVAL_MINUTES: dict[str, int] = {
 }
 
 MAX_BARS = 5000  # tvDatafeed supports up to 5000 bars
+FETCH_TIMEOUT = 90  # seconds — tvDatafeed network call timeout
 
 # Warehouse: monolithic_agent/Data/data/
 WAREHOUSE_DIR = Path(__file__).parent.parent / 'Data' / 'data'
@@ -293,25 +295,49 @@ class LiveDataFetcher:
         interval: str,
         n_bars: int,
     ) -> pd.DataFrame:
-        """Call tvDatafeed.get_hist() and return a flat DataFrame."""
+        """Call tvDatafeed.get_hist() with a FETCH_TIMEOUT-second daemon-thread timeout.
+
+        tvDatafeed makes a blocking network call (WebSocket/HTTP) that can hang
+        indefinitely if TradingView is unreachable.  We run it in a daemon thread
+        so the main bot loop is never blocked longer than FETCH_TIMEOUT seconds.
+        The daemon thread will not prevent process exit even if it remains stuck.
+        """
         from tvDatafeed import TvDatafeed
 
-        tv = TvDatafeed()
-        tv_interval = _interval_to_tvdatafeed(interval)
+        result_holder: list = [None]
+        exc_holder: list = [None]
+        done_event = threading.Event()
 
-        data = tv.get_hist(
-            symbol=symbol,
-            exchange=exchange,
-            interval=tv_interval,
-            n_bars=min(n_bars, MAX_BARS),
-        )
+        def _worker() -> None:
+            try:
+                tv = TvDatafeed()
+                tv_interval = _interval_to_tvdatafeed(interval)
+                data = tv.get_hist(
+                    symbol=symbol,
+                    exchange=exchange,
+                    interval=tv_interval,
+                    n_bars=min(n_bars, MAX_BARS),
+                )
+                result_holder[0] = pd.DataFrame() if data is None else data.reset_index()
+            except Exception as exc:  # noqa: BLE001
+                exc_holder[0] = exc
+            finally:
+                done_event.set()
 
-        if data is None:
-            return pd.DataFrame()
+        t = threading.Thread(target=_worker, daemon=True, name=f'tvfetch-{symbol}')
+        t.start()
+
+        if not done_event.wait(timeout=FETCH_TIMEOUT):
+            raise TimeoutError(
+                f"tvDatafeed fetch for {symbol} timed out after {FETCH_TIMEOUT}s"
+            )
+
+        if exc_holder[0] is not None:
+            raise exc_holder[0]
 
         # tvDatafeed returns a MultiIndex (symbol, datetime) DataFrame.
         # reset_index() flattens it to columns: symbol, datetime, open...
-        return data.reset_index()
+        return result_holder[0]
 
     def _strip_incomplete_bar(
         self,

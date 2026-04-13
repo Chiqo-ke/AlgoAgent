@@ -405,79 +405,97 @@ class CopilotStrategyGenerator:
         """
         # Enhance prompt with context
         enhanced_prompt = f"""
-Generate a complete, executable trading strategy based on this description:
-
+=========================================================
+USER STRATEGY SPECIFICATION — IMPLEMENT THIS EXACTLY
+=========================================================
 {description}
+=========================================================
+END OF USER STRATEGY SPECIFICATION
+=========================================================
 
-CRITICAL: USE ONLY ASCII CHARACTERS
-- NO Unicode characters (checkmarks, emoji, special symbols)
-- Use plain text: [OK], [PASS], [FAIL], [X] instead of ✓, ✗, ❌, etc.
-- Ensure all print statements use ASCII-safe strings
-- Use standard ASCII punctuation only
+IMPORTANT: Implement the user's strategy specification EXACTLY as written above.
+- Do NOT invent a different strategy or substitute simpler conditions.
+- Do NOT replace the specified indicators with different ones.
+- Every entry condition, exit condition, and risk rule listed above MUST be coded.
 
-CRITICAL: INDICATOR NAMING CONVENTION (MUST FOLLOW EXACTLY)
-When using indicators, the dictionary key must START with the uppercase indicator name from the registry, followed by underscore and parameters:
+=========================================================
+TECHNICAL REQUIREMENTS (framework rules — do not skip)
+=========================================================
 
-✅ CORRECT - Keys start with uppercase indicator name:
+RULE 1 — ASCII ONLY
+- NO Unicode/emoji in any print() statement.
+- Use [OK], [PASS], [FAIL], [BUY], [SELL] instead of ✓, ✗, ❌, etc.
+
+RULE 2 — CORRECT BROKER API (SimBroker — MANDATORY)
+SimBroker does NOT have buy(), sell(), or has_position() methods.
+ALL trades MUST use create_signal() + broker.submit_signal():
+
 ```python
-# Define indicators with keys that start with UPPERCASE indicator name
-indicators = {{
-    'EMA_12': {{'name': 'EMA', 'timeperiod': 12}},  # Key starts with 'EMA'
-    'EMA_26': {{'name': 'EMA', 'timeperiod': 26}}   # Key starts with 'EMA'
-}}
+from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
 
-# Access in market_data using LOWERCASE version of the key
-ema_fast = data.get('EMA_12')  # ✅ Matches key
-ema_slow = data.get('EMA_26')  # ✅ Matches key
+# ENTRY (long):
+signal = create_signal(
+    signal_id=f"entry_{{timestamp}}",
+    timestamp=timestamp,
+    symbol=self.symbol,
+    side=OrderSide.BUY,
+    action=OrderAction.ENTRY,
+    order_type=OrderType.MARKET,
+    size=size,
+    price=close,
+    reason="reason string here"
+)
+order_id = self.broker.submit_signal(signal.to_dict())
+if order_id:
+    self.in_position = True
+    self.position_size = size
+    self.entry_price = close
+
+# EXIT (long):
+signal = create_signal(
+    signal_id=f"exit_{{timestamp}}",
+    timestamp=timestamp,
+    symbol=self.symbol,
+    side=OrderSide.SELL,
+    action=OrderAction.EXIT,
+    order_type=OrderType.MARKET,
+    size=self.position_size,
+    price=close,
+    reason="exit reason"
+)
+order_id = self.broker.submit_signal(signal.to_dict())
+if order_id:
+    self.in_position = False
+    self.position_size = 0
+    self.entry_price = None
 ```
 
-OR use multi-period format (PREFERRED for multiple periods):
-```python
-# Multi-period format - single indicator with multiple periods
-indicators = {{
-    'EMA': {{'periods': [12, 26]}}  # Creates 'EMA_12' and 'EMA_26'
-}}
+FORBIDDEN — these methods DO NOT EXIST on SimBroker:
+  broker.buy()          # Does not exist
+  broker.sell()         # Does not exist
+  broker.has_position() # Does not exist
+  broker.cash           # Does not exist — use broker.get_account_snapshot()['cash']
 
-# Access with period suffix
-ema_fast = data.get('EMA_12')  # ✅ Auto-generated key
-ema_slow = data.get('EMA_26')  # ✅ Auto-generated key
-```
-
-❌ WRONG (Validation will fail - indicator base name not recognized):
-```python
-# DON'T use all-lowercase keys
-indicators = {{
-    'ema_12': {{'name': 'EMA', 'timeperiod': 12}},  # ❌ 'ema_12' not recognized
-    'ema_26': {{'name': 'EMA', 'timeperiod': 26}}   # ❌ 'ema_26' not recognized
-}}
-```
-
-❌ ALSO WRONG (Duplicate keys in dict - Python will only keep last one):
+RULE 3 — INDICATOR NAMING
+Use multi-period format in the indicators dict (preferred):
 ```python
 indicators = {{
-    'EMA': {{'timeperiod': 12}},  # ❌ Will be overwritten
-    'EMA': {{'timeperiod': 26}}   # ❌ Duplicate key - only this one kept
+    'EMA': {{'periods': [9, 21]}},   # Creates EMA_9 and EMA_21
+    'RSI': {{'periods': [14]}},      # Creates RSI_14
+    'ADX': {{'periods': [14]}},      # Creates ADX_14
+    'ATR': {{'periods': [14]}},      # Creates ATR_14
 }}
 ```
+Access in market_data using UPPERCASE keys: symbol_data.get('EMA_9'), symbol_data.get('RSI_14'), etc.
 
-INDICATOR NAMING RULES:
-1. Key MUST start with UPPERCASE indicator name from registry (EMA, RSI, MACD, etc.)
-2. For single period: 'EMA_12' with {{'name': 'EMA', 'timeperiod': 12}}
-3. For multiple periods: 'EMA' with {{'periods': [12, 26]}} - creates 'EMA_12' and 'EMA_26'
-4. Access using the EXACT key name: data.get('EMA_12')
-5. Common indicators: EMA, SMA, RSI, MACD, BBANDS, ATR, STOCH, ADX
-
-CRITICAL IMPORT REQUIREMENTS (MUST FOLLOW EXACTLY):
+RULE 4 — REQUIRED IMPORTS (exact form):
 ```python
 import sys
 from pathlib import Path
-
-# Add parent directory to path (codes -> Backtest -> monolithic_agent)
-parent_dir = Path(__file__).parent.parent.parent
+parent_dir = Path(__file__).parent.parent.parent   # codes -> Backtest -> monolithic_agent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-# Import from Backtest package:
 from Backtest.sim_broker import SimBroker
 from Backtest.config import BacktestConfig
 from Backtest.canonical_schema import create_signal, OrderSide, OrderAction, OrderType
@@ -486,68 +504,55 @@ from Backtest.pattern_logger import PatternLogger
 from Backtest.signal_logger import SignalLogger
 ```
 
-FORBIDDEN IMPORTS (will cause errors):
-❌ from sim_broker import SimBroker  # Wrong - need Backtest prefix
-❌ from config import BacktestConfig  # Wrong - need Backtest prefix
-❌ import simbroker  # Wrong module name
-❌ parent.parent  # Wrong - need 3 levels not 2
+FORBIDDEN IMPORTS:
+  from sim_broker import SimBroker   # Wrong — need Backtest prefix
+  import yfinance, requests          # No external data APIs
+  parent.parent                      # Wrong — need 3 levels
 
-Requirements:
-1. Use the SimBroker API as defined in the system prompt
-2. Include proper imports EXACTLY as shown above
-3. Include proper error handling
-4. Generate complete, runnable Python code
-5. Follow best practices for trading strategies
-6. Use available indicators when appropriate
-7. Load market data ONLY via `load_market_data` from `Backtest.data_loader`
-8. Do NOT import or call DataFetcher, yfinance, TVscraper, requests, or any external data API
-9. Assume backtest data is read from local warehouse CSV files under Data/data
+RULE 5 — POSITION SIZING
+Use broker.get_account_snapshot()['cash'] for available cash.
+Never access broker.cash directly.
 
-CRITICAL TRADING LOGIC REQUIREMENTS (MUST IMPLEMENT):
-⚠️ The strategy MUST contain actual trading logic that places trades:
-1. MUST call broker.buy() when buy conditions are met
-2. MUST call broker.sell() when sell conditions are met
-3. MUST have clear if/else conditional logic that evaluates market data
-4. MUST implement entry AND exit conditions
-5. DO NOT generate placeholder code - generate REAL trading conditions
-
-Example of REQUIRED trading logic pattern:
+RULE 6 — DATA LOADING
 ```python
-def my_strategy(broker, market_data):
-    data = market_data.get('data', [])
-    if not data:
-        return
-    
-    # Get indicator values
-    ema_fast = data[-1].get('EMA_12')
-    ema_slow = data[-1].get('EMA_26')
-    
-    # ACTUAL trading conditions (not placeholders)
-    if ema_fast is not None and ema_slow is not None:
-        # Buy when fast EMA crosses above slow EMA
-        if ema_fast > ema_slow and not broker.has_position():
-            broker.buy(size=100)  # ✅ REAL buy call
-        
-        # Sell when fast EMA crosses below slow EMA
-        elif ema_fast < ema_slow and broker.has_position():
-            broker.sell(size=100)  # ✅ REAL sell call
+data_stream = load_market_data(
+    ticker=test_symbol,
+    indicators=indicators,
+    period='max',
+    interval='1d',
+    stream=True
+)
+for timestamp, market_data, progress_pct in data_stream:
+    strategy.on_bar(timestamp, market_data)
+    broker.step_to(timestamp, market_data)
 ```
 
-❌ DO NOT generate code like this (no actual trading):
+RULE 7 — MULTI-SYMBOL LOOP
 ```python
-def my_strategy(broker, market_data):
-    # TODO: Implement trading logic  # ❌ Placeholder
-    pass  # ❌ No trading
+test_symbols = os.environ.get('BACKTEST_SYMBOLS', 'AAPL,TSLA,MSFT').split(',')
 ```
 
-CRITICAL OUTPUT REQUIREMENTS:
-1. Return COMPLETE Python code including ALL required components
-2. MUST include: imports, Strategy class with __init__ and on_bar methods, run_backtest function
-3. DO NOT return partial code, summaries, or explanations
-4. The code must be immediately executable without modifications
-5. Include docstrings and comments for clarity
+RULE 8 — REQUIRED OUTPUT FORMAT (bot_executor parses this)
+```python
+print(f"Total Trades: {{metrics['total_trades']}}")
+print(f"Return: {{metrics['total_return_pct']:.2f}}%")
+if metrics['total_trades'] > 0:
+    print(f"Win Rate: {{metrics['win_rate'] * 100:.1f}}%")
+print("[PASS] Strategy generated trades successfully")  # only if trades > 0
+```
 
-Generate the COMPLETE, EXECUTABLE strategy code now:
+RULE 9 — CODE STRUCTURE
+Must include:
+  - Strategy class with __init__(self, broker, symbol, strategy_id, **params) and on_bar(self, timestamp, data)
+  - run_backtest() function
+  - if __name__ == '__main__': block calling run_backtest()
+  - strategy.finalize() after the symbol loop
+  - metrics = broker.compute_metrics() for results
+
+=========================================================
+Generate the COMPLETE, EXECUTABLE strategy code now.
+Implement the user's strategy specification from the top of this prompt.
+=========================================================
 """
         
         try:
