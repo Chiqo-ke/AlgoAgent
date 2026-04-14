@@ -128,7 +128,11 @@ class SessionManager:
                 env=child_env,
                 stdout=log_file_handle or subprocess.DEVNULL,
                 stderr=subprocess.STDOUT if log_file_handle else subprocess.DEVNULL,
-                # Detach from parent process so it survives Django worker restarts
+                # Detach from parent process so it survives Django worker restarts.
+                # On Linux: start_new_session=True calls setsid() to move the child
+                # into its own process group, so SIGTERM to Daphne does not kill it.
+                # On Windows: CREATE_NEW_PROCESS_GROUP achieves the same effect.
+                start_new_session=os.name != 'nt',
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0,
             )
             pid = proc.pid

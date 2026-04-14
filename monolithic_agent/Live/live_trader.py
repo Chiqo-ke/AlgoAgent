@@ -1,7 +1,6 @@
 """
 Live Trader - Main trading loop and orchestration
 """
-import hashlib
 import math
 import re
 import signal
@@ -308,112 +307,47 @@ class LiveTrader:
         except Exception as e:
             logger.error(f"Signal generation failed for {symbol}: {e}", exc_info=True)
     
-    def _build_order_comment(self, signal_id: str) -> str:
-        """
-        Build a unique, human-readable MT5 order comment (max 31 chars).
-        Format: <StratSlug>_s<SessionNum>_<Hash5>
-        e.g. TrendFol_s44_a3f2b
-        """
-        # Slug: first 8 alphanumeric chars of strategy name
-        raw_name = getattr(self.config, 'strategy_name', '') or self.config.strategy_id
-        slug = re.sub(r'[^A-Za-z0-9]', '', raw_name)[:8] or 'Bot'
-        # Session number: extract digits from strategy_id (e.g. "session_44" → "44")
-        session_digits = re.sub(r'[^0-9]', '', self.config.strategy_id)[-4:] or '0'
-        # Short hash of signal_id for uniqueness
-        sig_hash = hashlib.md5(signal_id.encode()).hexdigest()[:5]
-        comment = f"{slug}_s{session_digits}_{sig_hash}"
-        return comment[:31]  # MT5 hard limit
-
     @staticmethod
-    def _pip_size(symbol: str, symbol_info: dict) -> float:
+    def _pip_size(symbol_info: dict) -> float:
         """
         Return the pip size for a symbol using MT5 symbol_info data.
 
-        Rules (MT5 convention):
-          5-digit FX (EURUSD, GBPUSD):   digits=5, point=0.00001 → pip = 0.00010
-          3-digit JPY pairs (USDJPY):     digits=3, point=0.001   → pip = 0.01000
-          Silver (XAGUSD):                digits=3, point=0.001   → pip = 0.01000
-          Gold / metals (XAUUSD, XPT…):  digits=2, point=0.01    → pip = 1.0
-          Bitcoin (BTCUSD):               digits=2, point=0.01    → pip = 10.0
-          Ethereum / other crypto:        digits=2, point=0.01    → pip = 1.0
-          Indices (US30, NAS100, US500):  digits=2, point=0.01    → pip = 1.0
+        Convention (matches MT5 standard):
+          - 5-digit FX (EURUSD) and 3-digit JPY pairs: 1 pip = 10 × point
+          - Everything else (metals, indices, crypto with 2-digit or 4-digit
+            prices): 1 pip = 1 × point
 
-        Pip sizes are chosen so that sl_pips × pip_size always exceeds the
-        broker's minimum stop distance (max of stops_level and spread).
-        BTCUSD has a wide spread (~$25) so pip = $10 ensures a 15-pip SL
-        lands at $150, safely above that spread.  XAGUSD raw point (0.001)
-        gives $0.015 per pip which is below its ~$0.047 spread, so we use
-        0.01 instead.
-
-        Falls back to symbol-name inference when symbol_info lacks digits/point.
+        Example outputs:
+          EURUSD (digits=5, point=0.00001) → pip = 0.00010
+          USDJPY (digits=3, point=0.001)   → pip = 0.010
+          XAUUSD (digits=2, point=0.01)    → pip = 0.01
         """
-        digits = symbol_info.get('digits')
-        point  = symbol_info.get('point')
-        sym = symbol.upper().replace(' ', '')
+        digits = symbol_info.get('digits', 5)
+        point  = symbol_info.get('point', 0.00001)
+        return point * 10 if digits in (5, 3) else point
 
-        if digits is not None and point is not None:
-            # 5-digit standard FX: always ×10 (e.g. EURUSD 0.00001 → 0.0001)
-            if digits == 5:
-                return point * 10
-            # 3-digit JPY pairs only: ×10 (e.g. USDJPY 0.001 → 0.01)
-            if digits == 3 and sym.endswith('JPY'):
-                return point * 10
-            # Precious metals (XAU, XPT, XPD) with digits=2 → pip = $1 (100 pts)
-            if digits == 2 and sym[:3] in ('XAU', 'XPT', 'XPD'):
-                return 1.0
-            # Silver (XAGUSD): digits=3, point=0.001 → pip = $0.01 (10 points)
-            # Raw point (0.001) gives $0.015 for a 15-pip SL which is below typical spread.
-            if sym[:3] == 'XAG':
-                return 0.01
-            # Bitcoin: BTC spread on FBS is ~$25; point=0.01, so pip = $10 (1000 points)
-            # keeps a 15-pip SL at $150, safely above the broker spread.
-            if sym[:3] == 'BTC':
-                return 10.0
-            # Ethereum and other major crypto: pip = $1 (100 points)
-            if sym[:3] in ('ETH', 'LTC', 'XRP'):
-                return 1.0
-            # Major indices (US30, US500, NAS100, SPX, DAX, etc.)
-            # digits=2, point=0.01 → pip = 1.0 (1 full price unit per pip)
-            _idx_prefixes = ('US30', 'US50', 'US500', 'NAS', 'SPX', 'DAX',
-                             'UK100', 'JP225', 'AUS200', 'HK50')
-            if any(sym.startswith(t) for t in _idx_prefixes):
-                return 1.0
-            # Everything else (remaining FX variants, stocks): 1 pip = 1 point
-            return point
-
-        # Fallback: infer from symbol name when symbol_info is unavailable
-        return LiveTrader._infer_pip_size_from_name(sym)
-
-    @staticmethod
-    def _infer_pip_size_from_name(sym: str) -> float:
+    def _build_order_comment(self) -> str:
         """
-        Fallback pip size inferred from the symbol name alone.
-        Used when MT5 symbol_info is unavailable (dry-run without MT5 connection).
+        Build a concise MT5 order comment that identifies the bot by name and
+        session ID so trades can be traced back to the correct bot in the
+        broker's terminal.  MT5 truncates comments at 31 characters; we stay
+        within that limit.
+
+        Format: ``<SanitisedBotName>-s<SessionPK>``
+        Example: ``MyEURUSD_Strategy-s42``
         """
-        if sym.endswith('JPY'):
-            return 0.01                          # 3-digit JPY pairs
-        if sym.startswith('XAU'):
-            return 1.0                           # Gold — 1 pip = $1
-        if sym.startswith('XAG'):
-            return 0.01                          # Silver — 1 pip = $0.01
-        if sym.startswith(('XPT', 'XPD')):
-            return 0.01                          # Platinum / Palladium
-        if sym.startswith('BTC'):
-            return 10.0                          # Bitcoin — 1 pip = $10
-        if sym.startswith(('ETH', 'LTC', 'XRP')):
-            return 1.0                           # Other major crypto — 1 pip = $1
-        # Major indices (large nominal prices)
-        _indices = ('US30', 'US50', 'US500', 'NAS', 'SPX', 'DAX',
-                    'UK100', 'JP225', 'AUS200', 'HK50')
-        if any(sym.startswith(t) for t in _indices):
-            return 1.0
-        # US-listed stocks and ETFs (2-decimal prices)
-        _stocks = ('AAPL', 'TSLA', 'AMZN', 'GOOGL', 'MSFT', 'NVDA', 'META',
-                   'SPY', 'QQQ', 'NVDA')
-        if sym in _stocks:
-            return 0.01
-        # Default: standard 5-digit FX pair
-        return 0.0001
+        # Derive a clean name: use BOT_NAME when available, fall back to STRATEGY_ID.
+        raw_name = self.config.bot_name or self.config.strategy_id
+        # Keep only alphanumeric chars and underscores; replace spaces with _
+        clean_name = re.sub(r'[^A-Za-z0-9_]', '', raw_name.replace(' ', '_'))
+
+        # Extract the numeric session PK from STRATEGY_ID ("session_42" → "42").
+        strategy_id = self.config.strategy_id
+        session_num = strategy_id.split('_')[-1] if '_' in strategy_id else strategy_id
+        suffix = f"-s{session_num}"  # e.g. "-s42"
+
+        max_name_len = 31 - len(suffix)
+        return f"{clean_name[:max_name_len]}{suffix}"
 
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
@@ -428,21 +362,29 @@ class LiveTrader:
         signal_type = signal['signal']
         logger.info(f"Executing {signal_type} signal for {symbol}")
         
-        # Check if we've already reached the max allowed positions for this symbol
-        pos_count = self.state.position_count(symbol)
-        max_pos = self.config.max_positions_per_symbol
-
-        if signal_type == 'BUY' and pos_count >= max_pos:
-            logger.info(
-                f"Max positions ({max_pos}) reached for {symbol}, skipping BUY signal"
-            )
-            return
+        # Check if we already have a position
+        has_position = self.state.has_position(symbol)
         
-        if signal_type == 'SELL' and pos_count > 0:
+        if signal_type == 'BUY' and has_position:
+            logger.info(f"Already have position in {symbol}, skipping BUY signal")
+            return
+
+        if signal_type == 'SELL' and has_position:
             # This is an exit signal - close position
             self._close_position(symbol, signal, symbol_info)
             return
-        
+
+        # Guard: a SELL with action=EXIT means the strategy wants to close a long,
+        # not open a short.  If we have no position there is nothing to close, so
+        # skip rather than accidentally placing a short-sell order.
+        signal_action = signal.get('action') if hasattr(signal, 'get') else None
+        if signal_type == 'SELL' and signal_action == 'EXIT':
+            logger.info(
+                f"SELL signal for {symbol} has action=EXIT but no open position — skipping "
+                f"(strategy intended a long-close, not a short-entry)"
+            )
+            return
+
         # Calculate position size
         account = self.connector.get_account_info()
         if not account:
@@ -451,140 +393,76 @@ class LiveTrader:
         
         entry_price = symbol_info['ask'] if signal_type == 'BUY' else symbol_info['bid']
 
-        # ── SL/TP resolution — driven by session exit_mode ─────────────────
-        # fixed_pips : session sl_pips / tp_pips are authoritative; any
-        #              strategy-supplied values are ignored.
-        # bot        : strategy provides all SL/TP; session pips are ignored.
-        # percentage : same as bot — strategy or no SL/TP; session pips ignored.
-        # --------------------------------------------------------------------
+        # ── SL/TP resolution (priority order) ─────────────────────────────
+        # 1. Strategy-computed value (from backtesting_bridge: self.stop_loss attr
+        #    or stop_loss_pct × entry_price)
+        # 2. Session-configured fixed pips (sl_pips / tp_pips set when the
+        #    session was started — independent of any bot script)
+        # 3. No SL/TP (trade runs until the strategy emits an exit signal)
+        # The old 2% percentage fallback has been removed; it produced arbitrary
+        # SL values that had nothing to do with the strategy's risk model.
+        # ------------------------------------------------------------------
         signal_sl = signal.get('sl') if hasattr(signal, 'get') else None
         signal_tp = signal.get('tp') if hasattr(signal, 'get') else None
 
+        # Priority 1: strategy-supplied SL/TP
         stop_loss_price: Optional[float] = None
         take_profit_price: Optional[float] = None
 
-        exit_mode = getattr(self.config, 'exit_mode', 'bot')
+        if signal_sl is not None:
+            _sl_val = float(signal_sl)
+            if not math.isnan(_sl_val) and _sl_val > 0:
+                stop_loss_price = _sl_val
+                logger.info(f"Using strategy-defined SL for {symbol}: {stop_loss_price:.5f}")
+            else:
+                logger.debug(f"Strategy SL for {symbol} is {_sl_val!r} (invalid) — ignoring.")
 
-        if exit_mode == 'fixed_pips':
-            # Session pips are the authoritative source — calculate directly.
-            pip_size = self._pip_size(symbol, symbol_info)
-            if self.config.sl_pips is not None:
+        if signal_tp is not None:
+            _tp_val = float(signal_tp)
+            if not math.isnan(_tp_val) and _tp_val > 0:
+                take_profit_price = _tp_val
+                logger.info(f"Using strategy-defined TP for {symbol}: {take_profit_price:.5f}")
+            else:
+                logger.debug(f"Strategy TP for {symbol} is {_tp_val!r} (invalid) — ignoring.")
+
+        # Priority 2: session pip-based fallback
+        if stop_loss_price is None or take_profit_price is None:
+            pip_size = self._pip_size(symbol_info)
+
+            if stop_loss_price is None and self.config.sl_pips is not None:
                 dist = self.config.sl_pips * pip_size
                 stop_loss_price = (
                     entry_price - dist if signal_type == 'BUY' else entry_price + dist
                 )
                 logger.info(
-                    f"[fixed_pips] SL for {symbol}: "
-                    f"{self.config.sl_pips} pips × {pip_size} = {dist:.5f} "
-                    f"→ {stop_loss_price:.5f}"
-                )
-            else:
-                logger.warning(
-                    f"[fixed_pips] No sl_pips configured for {symbol}; "
-                    f"trade will run without a stop-loss."
+                    f"Using session SL pips for {symbol}: "
+                    f"{self.config.sl_pips} pips → {stop_loss_price:.5f}"
                 )
 
-            if self.config.tp_pips is not None:
+            if take_profit_price is None and self.config.tp_pips is not None:
                 dist = self.config.tp_pips * pip_size
                 take_profit_price = (
                     entry_price + dist if signal_type == 'BUY' else entry_price - dist
                 )
                 logger.info(
-                    f"[fixed_pips] TP for {symbol}: "
-                    f"{self.config.tp_pips} pips × {pip_size} = {dist:.5f} "
-                    f"→ {take_profit_price:.5f}"
+                    f"Using session TP pips for {symbol}: "
+                    f"{self.config.tp_pips} pips → {take_profit_price:.5f}"
                 )
 
-        else:
-            # bot / percentage — use strategy-provided SL/TP only.
-            if signal_sl is not None:
-                _sl_val = float(signal_sl)
-                if not math.isnan(_sl_val) and _sl_val > 0:
-                    stop_loss_price = _sl_val
-                    logger.info(
-                        f"[{exit_mode}] Using strategy-defined SL for {symbol}: "
-                        f"{stop_loss_price:.5f}"
-                    )
-                else:
-                    logger.debug(
-                        f"Strategy SL for {symbol} is {_sl_val!r} (invalid) — ignoring."
-                    )
+        # Priority 3: no SL/TP
+        if stop_loss_price is None:
+            logger.warning(
+                f"No SL configured for {symbol} (strategy provided none, no sl_pips set). "
+                f"Trade will run without a stop-loss."
+            )
+        if take_profit_price is None:
+            logger.debug(
+                f"No TP configured for {symbol}; trade will run until exit signal."
+            )
 
-            if signal_tp is not None:
-                _tp_val = float(signal_tp)
-                if not math.isnan(_tp_val) and _tp_val > 0:
-                    take_profit_price = _tp_val
-                    logger.info(
-                        f"[{exit_mode}] Using strategy-defined TP for {symbol}: "
-                        f"{take_profit_price:.5f}"
-                    )
-                else:
-                    logger.debug(
-                        f"Strategy TP for {symbol} is {_tp_val!r} (invalid) — ignoring."
-                    )
-
-            if stop_loss_price is None:
-                logger.warning(
-                    f"[{exit_mode}] No SL for {symbol} (strategy provided none). "
-                    f"Trade will run without a stop-loss."
-                )
-            if take_profit_price is None:
-                logger.debug(
-                    f"[{exit_mode}] No TP for {symbol}; trade runs until exit signal."
-                )
-
-        # ── Enforce broker minimum stop distance ─────────────────────────────
-        # MT5 rejects orders where the SL/TP is closer to entry than
-        # max(stops_level × point, spread × point).  The spread component is
-        # critical for instruments with wide spreads (e.g. BTCUSD spread ~$25):
-        # a stop inside the spread is always rejected regardless of stops_level.
-        stops_level = symbol_info.get('trade_stops_level') or 0
-        point       = symbol_info.get('point') or 0
-        spread_pts  = symbol_info.get('spread') or 0
-        if point:
-            min_dist = max(stops_level * point, spread_pts * point)
-        else:
-            min_dist = 0
-        if min_dist:
-            if stop_loss_price is not None:
-                sl_dist = abs(entry_price - stop_loss_price)
-                if sl_dist < min_dist:
-                    logger.warning(
-                        f"[{symbol}] SL distance {sl_dist:.5f} < broker minimum "
-                        f"{min_dist:.5f} ({stops_level} pts × {point}) — expanding SL."
-                    )
-                    stop_loss_price = (
-                        entry_price - min_dist if signal_type == 'BUY'
-                        else entry_price + min_dist
-                    )
-            if take_profit_price is not None:
-                tp_dist = abs(take_profit_price - entry_price)
-                if tp_dist < min_dist:
-                    logger.warning(
-                        f"[{symbol}] TP distance {tp_dist:.5f} < broker minimum "
-                        f"{min_dist:.5f} ({stops_level} pts × {point}) — expanding TP."
-                    )
-                    take_profit_price = (
-                        entry_price + min_dist if signal_type == 'BUY'
-                        else entry_price - min_dist
-                    )
-
-        # ── Position sizing ───────────────────────────────────────────────────
-        # price_per_point = dollar value per lot per 1.0 price-unit move.
-        # For a USD-quote instrument: price_per_point = trade_contract_size.
-        #   EURUSD (contract=100,000): 1.0 price move × 100,000 = $100,000/lot
-        #   XAUUSD (contract=100 oz):  1.0 price move × 100 oz   = $100/lot
-        # This corrects the formula from the broken default (1.0) which produced
-        # astronomically large lot counts that were only saved by the max_lots cap.
         # When no SL is set, position_size falls back to default risk calculation.
         # Pass entry_price as a sentinel stop_loss_price so the risk calc uses
         # the configured DEFAULT_RISK_PCT with a 1% distance assumption.
-        pip_size_for_sizing = self._pip_size(symbol, symbol_info)
-        contract_size = symbol_info.get('trade_contract_size') or 100_000.0
-        # For pairs where profit is in a non-USD currency we'd need a conversion;
-        # for all USD-quote instruments (the common case) contract_size is exact.
-        price_per_point = contract_size
-
         effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
             entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
         )
@@ -593,8 +471,7 @@ class LiveTrader:
             risk_pct=self.config.default_risk_pct,
             stop_loss_price=effective_sl_for_sizing,
             entry_price=entry_price,
-            symbol=symbol,
-            price_per_point=price_per_point,
+            symbol=symbol
         )
         
         # Limit position size
@@ -605,7 +482,7 @@ class LiveTrader:
             'symbol': symbol,
             'magic': self.config.magic_number,
             'deviation': 20,
-            'comment': self._build_order_comment(signal_id),
+            'comment': self._build_order_comment()
         }
         if stop_loss_price is not None:
             order_meta['sl'] = stop_loss_price
