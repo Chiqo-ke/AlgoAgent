@@ -19,7 +19,8 @@ Usage:
 from __future__ import annotations
 
 import logging
-import threading
+import fcntl
+import os
 from datetime import datetime, timezone as tz
 from pathlib import Path
 from typing import Any
@@ -458,47 +459,68 @@ class LiveDataFetcher:
         """
         Merge fresh bars into the warehouse CSV, deduplicating by datetime.
 
+        Uses an OS-level exclusive file lock (fcntl.flock) so that multiple
+        bot subprocesses serialise writes to the same warehouse file.
+        Writes are atomic: data goes to a .tmp file first, then os.replace()
+        renames it so concurrent readers never see a partially-written file.
+
         Returns:
             (new_rows, updated_rows, total_rows)
         """
         WAREHOUSE_DIR.mkdir(parents=True, exist_ok=True)
 
-        if path.exists():
-            existing = pd.read_csv(path)
-            existing['datetime'] = pd.to_datetime(
-                existing['datetime'], utc=True, errors='coerce'
-            )
-            existing = existing.dropna(subset=['datetime'])
+        # Use a per-file .lock sentinel so all bot processes contend on the
+        # same inode, giving us true cross-process exclusion via flock(LOCK_EX).
+        lock_path = path.with_suffix('.lock')
+        lock_path.touch(exist_ok=True)
 
-            existing_ts = set(existing['datetime'].astype(str))
-            fresh_ts = set(fresh_df['datetime'].astype(str))
+        with open(lock_path, 'r') as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                if path.exists():
+                    existing = pd.read_csv(path)
+                    existing['datetime'] = pd.to_datetime(
+                        existing['datetime'], utc=True, errors='coerce'
+                    )
+                    existing = existing.dropna(subset=['datetime'])
 
-            new_rows = len(fresh_ts - existing_ts)
-            updated_rows = len(fresh_ts & existing_ts)
+                    existing_ts = set(existing['datetime'].astype(str))
+                    fresh_ts = set(fresh_df['datetime'].astype(str))
 
-            # Merge, then deduplicate keeping the freshly-fetched version of each bar.
-            combined = pd.concat([existing, fresh_df], ignore_index=True)
-            combined['datetime'] = pd.to_datetime(
-                combined['datetime'], utc=True, errors='coerce'
-            )
-            combined = (
-                combined
-                .sort_values('datetime')
-                .drop_duplicates(subset=['datetime'], keep='last')
-                .reset_index(drop=True)
-            )
-        else:
-            combined = fresh_df.copy()
-            combined['datetime'] = pd.to_datetime(
-                combined['datetime'], utc=True, errors='coerce'
-            )
-            new_rows = len(fresh_df)
-            updated_rows = 0
+                    new_rows = len(fresh_ts - existing_ts)
+                    updated_rows = len(fresh_ts & existing_ts)
 
-        # Serialize datetime as naive UTC string — matches existing warehouse format
-        # and is correctly parsed by Backtest/data_loader.py with utc=True.
-        combined['datetime'] = combined['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        combined.to_csv(path, index=False)
+                    # Merge, then deduplicate keeping the freshly-fetched version of each bar.
+                    combined = pd.concat([existing, fresh_df], ignore_index=True)
+                    combined['datetime'] = pd.to_datetime(
+                        combined['datetime'], utc=True, errors='coerce'
+                    )
+                    combined = (
+                        combined
+                        .sort_values('datetime')
+                        .drop_duplicates(subset=['datetime'], keep='last')
+                        .reset_index(drop=True)
+                    )
+                else:
+                    combined = fresh_df.copy()
+                    combined['datetime'] = pd.to_datetime(
+                        combined['datetime'], utc=True, errors='coerce'
+                    )
+                    new_rows = len(fresh_df)
+                    updated_rows = 0
+
+                # Serialize datetime as naive UTC string — matches existing warehouse format
+                # and is correctly parsed by Backtest/data_loader.py with utc=True.
+                combined['datetime'] = combined['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Atomic write: write to a temp file then rename so concurrent readers
+                # never see a partially-written file.
+                tmp_path = path.with_suffix('.tmp')
+                combined.to_csv(tmp_path, index=False)
+                os.replace(tmp_path, path)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
         return new_rows, updated_rows, len(combined)
 
     @staticmethod

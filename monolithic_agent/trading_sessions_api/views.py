@@ -294,6 +294,8 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             sl_pips=data.get('sl_pips'),
             tp_pips=data.get('tp_pips'),
             data_bars=data.get('data_bars', 5000),
+            max_lots=data.get('max_lots', 1.0),
+            lot_size=data.get('lot_size', None),
             mt5_login=mt5_login,
             mt5_server=mt5_server,
             mt5_terminal_path=mt5_terminal_path,
@@ -564,6 +566,91 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             )
 
     # ------------------------------------------------------------------
+    # GET /api/trading/sessions/trade_history/?strategy_id=<id>
+    # ------------------------------------------------------------------
+    @action(detail=False, methods=['get'], url_path='trade_history')
+    def trade_history(self, request):
+        """
+        Return closed trades from audit.db for all sessions belonging to
+        the given strategy_id (scoped to the current user).
+        """
+        import sqlite3 as _sqlite3
+
+        strategy_id = request.query_params.get('strategy_id')
+        if not strategy_id:
+            return Response({'error': 'strategy_id query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            strategy_id = int(strategy_id)
+        except (ValueError, TypeError):
+            return Response({'error': 'strategy_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        sessions = list(
+            LiveTradingSession.objects.filter(
+                strategy_id=strategy_id,
+                created_by=request.user,
+            ).select_related('strategy').values('id', 'strategy__name')
+        )
+
+        empty = Response({'trades': [], 'total_trades': 0, 'total_pnl': 0.0, 'win_rate': 0.0})
+
+        if not sessions:
+            return empty
+
+        # Build lookup: "session_<id>" → human-readable bot/strategy name
+        session_name_map = {
+            f'session_{s["id"]}': s['strategy__name'] or f'session_{s["id"]}'
+            for s in sessions
+        }
+        strategy_id_keys = list(session_name_map.keys())
+
+        audit_db = Path(__file__).parent.parent / 'Live' / 'data' / 'audit.db'
+        if not audit_db.exists():
+            return empty
+
+        try:
+            conn = _sqlite3.connect(str(audit_db))
+            conn.row_factory = _sqlite3.Row
+            placeholders = ','.join('?' for _ in strategy_id_keys)
+            rows = conn.execute(
+                f'SELECT * FROM trades WHERE strategy_id IN ({placeholders}) ORDER BY timestamp DESC',
+                strategy_id_keys,
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            logger.error('trade_history error reading audit.db: %s', exc)
+            return empty
+
+        trades = [
+            {
+                'id': row['id'],
+                'timestamp': row['timestamp'],
+                'symbol': row['symbol'],
+                'side': 'buy' if str(row['side']) == '0' else 'sell',
+                'entry_price': row['entry_price'],
+                'exit_price': row['exit_price'],
+                'volume': row['volume'],
+                'profit': row['profit'],
+                'commission': row['commission'],
+                'swap': row['swap'],
+                'duration_seconds': row['duration_seconds'],
+                'session_id': row['strategy_id'],
+                'bot_name': session_name_map.get(row['strategy_id'], row['strategy_id']),
+            }
+            for row in rows
+        ]
+
+        total_pnl = round(sum(float(t['profit']) for t in trades), 2)
+        win_rate = round(sum(1 for t in trades if float(t['profit']) > 0) / len(trades) * 100, 2) if trades else 0.0
+
+        return Response({
+            'trades': trades,
+            'total_trades': len(trades),
+            'total_pnl': total_pnl,
+            'win_rate': win_rate,
+        })
+
+    # ------------------------------------------------------------------
     # POST /api/trading/sessions/{id}/close_position/  — close a trade
     # ------------------------------------------------------------------
     @action(detail=True, methods=['post'], url_path='close_position')
@@ -770,10 +857,22 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
                 'is_process_alive': is_alive,
             })
 
-        # Read last 80 raw lines efficiently
+        # Read last 80 raw lines efficiently — seek to end rather than reading
+        # the entire file (session logs can grow to several GB, which blocks
+        # the Daphne thread pool and causes 504s for all other requests).
         try:
-            with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
-                tail = collections.deque(f, maxlen=80)
+            TAIL_BYTES = 131072  # 128 KB — plenty for 80 log lines
+            with open(log_path, 'rb') as fb:
+                fb.seek(0, 2)
+                file_size = fb.tell()
+                read_start = max(0, file_size - TAIL_BYTES)
+                fb.seek(read_start)
+                raw = fb.read()
+            text = raw.decode('utf-8', errors='replace')
+            # Drop the first (potentially partial) line when we seeked mid-file
+            if read_start > 0:
+                text = text[text.find('\n') + 1:]
+            tail = collections.deque(text.splitlines(), maxlen=80)
         except Exception as exc:
             logger.warning('Could not read log file %s: %s', log_path, exc)
             return Response({

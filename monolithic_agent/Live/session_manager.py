@@ -94,8 +94,10 @@ class SessionManager:
             'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',
             'DATA_BARS': str(session.data_bars) if session.data_bars is not None else '5000',
             'MAX_POSITION_SIZE': str(session.max_lots) if session.max_lots is not None else '1.0',
+            'LOT_SIZE': str(session.lot_size) if session.lot_size is not None else '0',
             'STRATEGY_ID': f'session_{session_id}',
             'STRATEGY_NAME': session.strategy.name if session.strategy else '',
+            'BOT_NAME': session.strategy.name if session.strategy else '',
             # Kill switch
             'ENABLE_KILL_SWITCH': 'true',
             'KILL_SWITCH_FILE': str(kill_switch_path),
