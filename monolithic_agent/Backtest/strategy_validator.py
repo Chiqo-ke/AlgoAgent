@@ -258,21 +258,130 @@ class StrategyValidator:
         test_symbol: str,
         test_period_days: int
     ) -> Dict:
-        """Execute SimBroker-based strategy"""
+        """Execute SimBroker-based strategy via subprocess and verify it produces trades"""
+        import os
+        import subprocess
+        import tempfile
+        import re
+
         result = {
-            "success": True,  # SimBroker strategies are validated by structure only
+            "success": False,
             "error": None,
             "results": None,
-            "trades": 0,  # Will be determined during actual execution
-            "indicators_ok": True  # SimBroker handles indicators at runtime
+            "trades": 0,
+            "indicators_ok": False
         }
-        
-        # For SimBroker strategies, we trust the code structure validation
-        # Actual execution testing is handled by BotExecutor in the generation flow
-        logger.info("[OK] SimBroker strategy structure validated")
-        logger.info("[INFO] Full execution test will be performed during code generation")
-        
-        return result
+
+        # Write strategy code to a temp file so we can run it
+        tmp_file = None
+        try:
+            # Find the project root (monolithic_agent directory)
+            validator_dir = Path(__file__).resolve().parent          # Backtest/
+            monolithic_root = validator_dir.parent                    # monolithic_agent/
+
+            # Determine Python executable — prefer production venv
+            venv_python = Path("/opt/algoagent/venv/bin/python3")
+            if not venv_python.exists():
+                venv_python = Path(sys.executable)
+
+            with tempfile.NamedTemporaryFile(
+                mode='w', suffix='.py', delete=False,
+                dir=str(validator_dir / 'codes'),
+                prefix=f'_validate_{strategy_name}_'
+            ) as f:
+                f.write(strategy_code)
+                tmp_file = f.name
+
+            env = os.environ.copy()
+            env['BACKTEST_SYMBOLS'] = test_symbol
+            env['DJANGO_SETTINGS_MODULE'] = 'algoagent_api.settings_production'
+
+            logger.info(f"[SimBroker] Executing strategy file: {tmp_file}")
+            logger.info(f"[SimBroker] Symbol: {test_symbol}, cwd: {monolithic_root}")
+
+            process = subprocess.Popen(
+                [str(venv_python), tmp_file],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                cwd=str(monolithic_root),
+                env=env
+            )
+
+            timeout = 300  # 5 minutes max for validation run
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                result["error"] = f"Strategy execution timed out (>{timeout}s)"
+                return result
+
+            logger.info(f"[SimBroker] Exit code: {process.returncode}")
+            if stdout:
+                logger.info(f"[SimBroker] stdout (last 500 chars): {stdout[-500:]}")
+            if stderr:
+                logger.info(f"[SimBroker] stderr (last 500 chars): {stderr[-500:]}")
+
+            # Check for Python errors in stderr
+            stderr_lower = stderr.lower()
+            if process.returncode != 0 or any(
+                kw in stderr_lower for kw in ['error', 'exception', 'traceback', 'syntaxerror']
+            ):
+                # Extract the meaningful error lines
+                error_lines = [
+                    line for line in stderr.splitlines()
+                    if any(kw in line.lower() for kw in ['error', 'exception', 'traceback'])
+                ]
+                result["error"] = (
+                    "Strategy raised an exception: " +
+                    (error_lines[-1] if error_lines else stderr[-300:])
+                )
+                logger.error(f"[SimBroker] Strategy failed with errors: {result['error']}")
+                return result
+
+            # Parse trade count from stdout
+            trades_match = re.search(r'Total Trades[^\d]*(\d+)', stdout)
+            if trades_match:
+                trades = int(trades_match.group(1))
+                result["trades"] = trades
+                if trades == 0:
+                    result["success"] = False
+                    result["error"] = (
+                        "Strategy executed but made NO TRADES (0 trades). "
+                        "Bot must place at least one trade to pass validation."
+                    )
+                    logger.warning("[SimBroker] VALIDATION FAILED: strategy produced 0 trades")
+                else:
+                    result["success"] = True
+                    result["indicators_ok"] = True
+                    result["results"] = {"total_trades": trades}
+                    logger.info(f"[SimBroker] VALIDATION PASSED: {trades} trades executed")
+            elif "[PASS]" in stdout:
+                # Aggregate results block confirmed pass
+                result["success"] = True
+                result["indicators_ok"] = True
+                result["trades"] = 1  # Minimum — actual count not parsed but pass confirmed
+                logger.info("[SimBroker] VALIDATION PASSED (PASS marker found)")
+            else:
+                result["error"] = "No results or metrics found in strategy output"
+                logger.warning("[SimBroker] Could not parse trade count from output")
+
+            return result
+
+        except Exception as e:
+            result["error"] = f"SimBroker execution error: {str(e)}"
+            logger.error(f"[SimBroker] Execution failed: {e}")
+            logger.error(traceback.format_exc())
+            return result
+        finally:
+            # Always clean up the temp file
+            if tmp_file and os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
     
     def _execute_backtesting_py_strategy(
         self,
@@ -391,11 +500,8 @@ class StrategyValidator:
         
         results = exec_result["results"]
         
-        # Skip detailed validation if no results (e.g., SimBroker structure-only validation)
+        # Skip detailed validation if no results available
         if results is None:
-            validation["suggestions"].append(
-                "Strategy structure validated. Full execution test will run during generation."
-            )
             return validation
         
         # WARNING: Check for zero trades - this is a warning, not a critical error

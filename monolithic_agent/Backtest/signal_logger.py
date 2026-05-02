@@ -18,6 +18,7 @@ Features:
 Version: 1.0.0
 """
 
+import os
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
@@ -31,7 +32,9 @@ logger = logging.getLogger(__name__)
 
 class SignalLogger:
     """
-    Logs all trading signals generated during backtesting
+    Logs all trading signals generated during backtesting.
+    Set DISABLE_SIGNAL_LOGGING=1 (e.g. in production env) to suppress all
+    file I/O — signals are still buffered in-memory so callers work unchanged.
     """
     
     def __init__(self, strategy_id: str, signals_dir: Optional[Path] = None):
@@ -43,6 +46,17 @@ class SignalLogger:
             signals_dir: Directory to save signal logs (default: ./signals)
         """
         self.strategy_id = strategy_id
+        self._disabled = os.environ.get('DISABLE_SIGNAL_LOGGING', '0') == '1'
+
+        # Signal log buffer
+        self.signals: List[Dict[str, Any]] = []
+
+        if self._disabled:
+            self.signals_dir = None
+            self.signal_log_csv = None
+            self.signal_log_json = None
+            return
+
         self.signals_dir = signals_dir or Path(__file__).parent / "signals"
         self.signals_dir.mkdir(exist_ok=True)
         
@@ -50,9 +64,6 @@ class SignalLogger:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.signal_log_csv = self.signals_dir / f"{strategy_id}_signals_{timestamp}.csv"
         self.signal_log_json = self.signals_dir / f"{strategy_id}_signals_{timestamp}.json"
-        
-        # Signal log buffer
-        self.signals: List[Dict[str, Any]] = []
         
         # Initialize CSV with headers
         self._init_signal_log()
@@ -149,10 +160,11 @@ class SignalLogger:
         # Append to buffer
         self.signals.append(signal_entry)
         
-        # Write to CSV immediately
-        with open(self.signal_log_csv, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=signal_entry.keys())
-            writer.writerow(signal_entry)
+        # Write to CSV immediately (skipped in live/production mode)
+        if not self._disabled:
+            with open(self.signal_log_csv, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=signal_entry.keys())
+                writer.writerow(signal_entry)
         
         return signal_id
     
@@ -200,7 +212,9 @@ class SignalLogger:
         }
     
     def export_to_json(self):
-        """Export all signals to JSON file"""
+        """Export all signals to JSON file (skipped in live/production mode)"""
+        if self._disabled:
+            return
         with open(self.signal_log_json, 'w', encoding='utf-8') as f:
             json.dump(self.signals, f, indent=2)
         logger.info(f"Signals exported to JSON: {self.signal_log_json}")

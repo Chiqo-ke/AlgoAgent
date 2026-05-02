@@ -83,6 +83,7 @@ INSTALLED_APPS = [
     'django_celery_results',  # Stores Celery task results in the DB
     'live_api',              # Live trading data fetching & scheduler
     'trading_sessions_api',  # Live trading session management
+    'admin_api',             # Custom admin REST API
 ]
 
 # Fernet key for encrypting MT5 passwords stored in LiveTradingSession.

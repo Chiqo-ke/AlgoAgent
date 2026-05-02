@@ -24,7 +24,7 @@ class StateManager:
         self.config = config
         
         # Position tracking
-        self.positions = {}  # symbol -> position dict
+        self.positions = {}  # symbol -> list[position dict]
         self.position_history = []  # List of all position changes
         
         # Daily limits tracking
@@ -43,12 +43,8 @@ class StateManager:
     
     def sync_with_mt5(self, mt5_positions: List[Dict[str, Any]]):
         """
-        Synchronize internal state with MT5 positions.
-
-        Only positions opened by this bot (matching magic_number) are tracked.
-        Positions from other bots are intentionally ignored so that each bot
-        independently decides whether to enter a trade on a symbol.
-
+        Synchronize internal state with MT5 positions
+        
         Args:
             mt5_positions: List of position dicts from MT5
         """
@@ -57,16 +53,12 @@ class StateManager:
         # Clear current positions
         self.positions = {}
         
-        own_magic = self.config.magic_number
-        skipped = 0
-
-        # Rebuild from MT5, keeping only positions belonging to this bot
+        # Rebuild from MT5 — multiple open positions per symbol are supported
         for pos in mt5_positions:
-            if pos.get('magic') != own_magic:
-                skipped += 1
-                continue
             symbol = pos['symbol']
-            self.positions[symbol] = {
+            if symbol not in self.positions:
+                self.positions[symbol] = []
+            self.positions[symbol].append({
                 'ticket': pos['ticket'],
                 'symbol': symbol,
                 'type': pos['type'],
@@ -78,29 +70,28 @@ class StateManager:
                 'profit': pos['profit'],
                 'open_time': datetime.fromtimestamp(pos['time']) if isinstance(pos['time'], (int, float)) else pos['time'],
                 'magic': pos['magic']
-            }
+            })
         
-        if skipped:
-            logger.debug(
-                f"Skipped {skipped} position(s) belonging to other bots "
-                f"(magic ≠ {own_magic})"
-            )
-        logger.info(f"✓ Synced {len(self.positions)} own position(s) (magic={own_magic})")
+        logger.info(f"✓ Synced {len(self.positions)} positions")
     
     def has_position(self, symbol: str) -> bool:
-        """Check if we have an open position for symbol"""
-        return symbol in self.positions
+        """Check if we have at least one open position for symbol"""
+        return bool(self.positions.get(symbol))
+
+    def position_count(self, symbol: str) -> int:
+        """Return the number of open positions for symbol"""
+        return len(self.positions.get(symbol, []))
     
     def get_position(self, symbol: str) -> Optional[Dict[str, Any]]:
-        """Get position for symbol"""
-        return self.positions.get(symbol)
+        """Get the oldest open position for symbol (first-in)"""
+        positions = self.positions.get(symbol)
+        return positions[0] if positions else None
     
     def update_position(self, symbol: str, position_data: Dict[str, Any]):
-        """Update position data"""
-        if symbol in self.positions:
-            self.positions[symbol].update(position_data)
-        else:
-            self.positions[symbol] = position_data
+        """Append a newly opened position for symbol"""
+        if symbol not in self.positions:
+            self.positions[symbol] = []
+        self.positions[symbol].append(position_data)
         
         # Record in history
         self.position_history.append({
@@ -112,37 +103,42 @@ class StateManager:
     
     def close_position(self, symbol: str, close_data: Dict[str, Any]):
         """
-        Record position closure
+        Record closure of the oldest open position for symbol.
         
         Args:
             symbol: Trading symbol
             close_data: Closure details (price, profit, etc.)
         """
-        if symbol in self.positions:
-            position = self.positions[symbol]
+        positions = self.positions.get(symbol)
+        if not positions:
+            return
+
+        position = positions[0]  # oldest position
             
-            # Record in history
-            self.position_history.append({
-                'timestamp': datetime.now(),
-                'action': 'CLOSE',
-                'symbol': symbol,
-                'data': {
-                    **position,
-                    'close_price': close_data.get('price'),
-                    'close_profit': close_data.get('profit'),
-                    'close_time': datetime.now()
-                }
-            })
-            
-            # Update daily stats
-            today = date.today()
-            self.daily_trades[today] += 1
-            self.daily_pnl[today] += close_data.get('profit', 0)
-            
-            # Remove from active positions
+        # Record in history
+        self.position_history.append({
+            'timestamp': datetime.now(),
+            'action': 'CLOSE',
+            'symbol': symbol,
+            'data': {
+                **position,
+                'close_price': close_data.get('price'),
+                'close_profit': close_data.get('profit'),
+                'close_time': datetime.now()
+            }
+        })
+        
+        # Update daily stats
+        today = date.today()
+        self.daily_trades[today] += 1
+        self.daily_pnl[today] += close_data.get('profit', 0)
+        
+        # Remove the closed position; clean up symbol key if none remain
+        positions.pop(0)
+        if not positions:
             del self.positions[symbol]
-            
-            logger.info(f"Position closed: {symbol}, P/L: ${close_data.get('profit', 0):.2f}")
+        
+        logger.info(f"Position closed: {symbol}, P/L: ${close_data.get('profit', 0):.2f}")
     
     def record_trade(self, symbol: str, profit: float):
         """
@@ -270,8 +266,8 @@ class StateManager:
             'timestamp': datetime.now(),
             'trading_enabled': self.is_trading_enabled,
             'kill_switch_active': self.kill_switch_active,
-            'open_positions': len(self.positions),
-            'positions': list(self.positions.keys()),
+            'open_positions': sum(len(v) for v in self.positions.values()),
+            'positions': {sym: len(v) for sym, v in self.positions.items()},
             'daily_trades': self.daily_trades[today],
             'daily_pnl': self.daily_pnl[today],
             'total_signals_processed': len(self.processed_signals)

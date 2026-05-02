@@ -789,12 +789,17 @@ def _stream_data(df: pd.DataFrame, ticker: str) -> Generator[Tuple[datetime, Dic
             }
         }
         
-        # Add indicator columns (lowercase keys for consistency)
+        # Add indicator columns using BOTH original case (uppercase, e.g. EMA_12) AND
+        # lowercase alias (e.g. ema_12) so strategies using either convention work.
+        # The indicator_calculator produces uppercase columns; AI-generated strategies
+        # reference them in uppercase. Lowercase aliases preserve backward compatibility.
         for col in df.columns:
             col_lower = col.lower()
-            # Skip OHLCV columns (already added)
+            # Skip OHLCV columns (already added above)
             if col_lower not in ['open', 'high', 'low', 'close', 'volume']:
-                market_data[ticker][col_lower] = row[col]
+                market_data[ticker][col_lower] = row[col]       # lowercase alias (legacy)
+                if col != col_lower:
+                    market_data[ticker][col] = row[col]         # original uppercase (e.g. EMA_12)
         
         # Calculate progress percentage
         progress_pct = ((i + 1) / total_bars) * 100

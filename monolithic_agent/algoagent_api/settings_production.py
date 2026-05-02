@@ -58,16 +58,19 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
-# Database - PostgreSQL
+# Database - PostgreSQL via PgBouncer (transaction pooling)
+# CONN_MAX_AGE=0: Django must NOT hold persistent connections when using
+# PgBouncer in transaction mode — PgBouncer owns the connection lifecycle.
+# DB_PORT defaults to 6432 (PgBouncer) so all connections are pooled.
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.environ.get('DB_NAME', 'algoagent'),
         'USER': os.environ.get('DB_USER', 'algoagent'),
         'PASSWORD': os.environ.get('DB_PASSWORD'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-        'CONN_MAX_AGE': 600,  # Connection pooling
+        'HOST': os.environ.get('DB_HOST', '127.0.0.1'),
+        'PORT': os.environ.get('DB_PORT', '6432'),
+        'CONN_MAX_AGE': 0,
         'OPTIONS': {
             'connect_timeout': 10,
         }
@@ -192,6 +195,16 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        'trading_sessions_api': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'Live': {
+            'handlers': ['file', 'error_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
     },
 }
 
@@ -230,7 +243,8 @@ if os.environ.get('GOOGLE_CLIENT_ID'):
     }
 
 # Performance Optimizations
-CONN_MAX_AGE = 600  # Database connection pooling
+# Note: DB connection pooling is handled by PgBouncer; CONN_MAX_AGE is
+# set to 0 in DATABASES above to be compatible with transaction-mode pooling.
 
 # File Upload Settings
 DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5 MB

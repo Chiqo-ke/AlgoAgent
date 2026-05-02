@@ -13,6 +13,18 @@ Or set environment variable:
 
 from .settings import *
 import os
+from pathlib import Path
+
+# Load .env.local overrides (MT5 bridge config, local secrets).
+# Must run AFTER the parent settings.py load so these values take precedence.
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _env_local = Path(__file__).resolve().parent.parent / '.env.local'
+    if _env_local.exists():
+        _load_dotenv(dotenv_path=_env_local, override=True)
+        print(f"[Settings] Loaded .env.local from: {_env_local}")
+except ImportError:
+    pass  # python-dotenv not installed; env vars must be set manually
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True

@@ -19,6 +19,9 @@ Usage:
 from __future__ import annotations
 
 import logging
+import fcntl
+import os
+import threading
 from datetime import datetime, timezone as tz
 from pathlib import Path
 from typing import Any
@@ -51,6 +54,7 @@ INTERVAL_MINUTES: dict[str, int] = {
 }
 
 MAX_BARS = 5000  # tvDatafeed supports up to 5000 bars
+FETCH_TIMEOUT = 90  # seconds — tvDatafeed network call timeout
 
 # Warehouse: monolithic_agent/Data/data/
 WAREHOUSE_DIR = Path(__file__).parent.parent / 'Data' / 'data'
@@ -293,25 +297,49 @@ class LiveDataFetcher:
         interval: str,
         n_bars: int,
     ) -> pd.DataFrame:
-        """Call tvDatafeed.get_hist() and return a flat DataFrame."""
+        """Call tvDatafeed.get_hist() with a FETCH_TIMEOUT-second daemon-thread timeout.
+
+        tvDatafeed makes a blocking network call (WebSocket/HTTP) that can hang
+        indefinitely if TradingView is unreachable.  We run it in a daemon thread
+        so the main bot loop is never blocked longer than FETCH_TIMEOUT seconds.
+        The daemon thread will not prevent process exit even if it remains stuck.
+        """
         from tvDatafeed import TvDatafeed
 
-        tv = TvDatafeed()
-        tv_interval = _interval_to_tvdatafeed(interval)
+        result_holder: list = [None]
+        exc_holder: list = [None]
+        done_event = threading.Event()
 
-        data = tv.get_hist(
-            symbol=symbol,
-            exchange=exchange,
-            interval=tv_interval,
-            n_bars=min(n_bars, MAX_BARS),
-        )
+        def _worker() -> None:
+            try:
+                tv = TvDatafeed()
+                tv_interval = _interval_to_tvdatafeed(interval)
+                data = tv.get_hist(
+                    symbol=symbol,
+                    exchange=exchange,
+                    interval=tv_interval,
+                    n_bars=min(n_bars, MAX_BARS),
+                )
+                result_holder[0] = pd.DataFrame() if data is None else data.reset_index()
+            except Exception as exc:  # noqa: BLE001
+                exc_holder[0] = exc
+            finally:
+                done_event.set()
 
-        if data is None:
-            return pd.DataFrame()
+        t = threading.Thread(target=_worker, daemon=True, name=f'tvfetch-{symbol}')
+        t.start()
+
+        if not done_event.wait(timeout=FETCH_TIMEOUT):
+            raise TimeoutError(
+                f"tvDatafeed fetch for {symbol} timed out after {FETCH_TIMEOUT}s"
+            )
+
+        if exc_holder[0] is not None:
+            raise exc_holder[0]
 
         # tvDatafeed returns a MultiIndex (symbol, datetime) DataFrame.
         # reset_index() flattens it to columns: symbol, datetime, open...
-        return data.reset_index()
+        return result_holder[0]
 
     def _strip_incomplete_bar(
         self,
@@ -432,47 +460,68 @@ class LiveDataFetcher:
         """
         Merge fresh bars into the warehouse CSV, deduplicating by datetime.
 
+        Uses an OS-level exclusive file lock (fcntl.flock) so that multiple
+        bot subprocesses serialise writes to the same warehouse file.
+        Writes are atomic: data goes to a .tmp file first, then os.replace()
+        renames it so concurrent readers never see a partially-written file.
+
         Returns:
             (new_rows, updated_rows, total_rows)
         """
         WAREHOUSE_DIR.mkdir(parents=True, exist_ok=True)
 
-        if path.exists():
-            existing = pd.read_csv(path)
-            existing['datetime'] = pd.to_datetime(
-                existing['datetime'], utc=True, errors='coerce'
-            )
-            existing = existing.dropna(subset=['datetime'])
+        # Use a per-file .lock sentinel so all bot processes contend on the
+        # same inode, giving us true cross-process exclusion via flock(LOCK_EX).
+        lock_path = path.with_suffix('.lock')
+        lock_path.touch(exist_ok=True)
 
-            existing_ts = set(existing['datetime'].astype(str))
-            fresh_ts = set(fresh_df['datetime'].astype(str))
+        with open(lock_path, 'r') as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                if path.exists():
+                    existing = pd.read_csv(path)
+                    existing['datetime'] = pd.to_datetime(
+                        existing['datetime'], utc=True, errors='coerce'
+                    )
+                    existing = existing.dropna(subset=['datetime'])
 
-            new_rows = len(fresh_ts - existing_ts)
-            updated_rows = len(fresh_ts & existing_ts)
+                    existing_ts = set(existing['datetime'].astype(str))
+                    fresh_ts = set(fresh_df['datetime'].astype(str))
 
-            # Merge, then deduplicate keeping the freshly-fetched version of each bar.
-            combined = pd.concat([existing, fresh_df], ignore_index=True)
-            combined['datetime'] = pd.to_datetime(
-                combined['datetime'], utc=True, errors='coerce'
-            )
-            combined = (
-                combined
-                .sort_values('datetime')
-                .drop_duplicates(subset=['datetime'], keep='last')
-                .reset_index(drop=True)
-            )
-        else:
-            combined = fresh_df.copy()
-            combined['datetime'] = pd.to_datetime(
-                combined['datetime'], utc=True, errors='coerce'
-            )
-            new_rows = len(fresh_df)
-            updated_rows = 0
+                    new_rows = len(fresh_ts - existing_ts)
+                    updated_rows = len(fresh_ts & existing_ts)
 
-        # Serialize datetime as naive UTC string — matches existing warehouse format
-        # and is correctly parsed by Backtest/data_loader.py with utc=True.
-        combined['datetime'] = combined['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        combined.to_csv(path, index=False)
+                    # Merge, then deduplicate keeping the freshly-fetched version of each bar.
+                    combined = pd.concat([existing, fresh_df], ignore_index=True)
+                    combined['datetime'] = pd.to_datetime(
+                        combined['datetime'], utc=True, errors='coerce'
+                    )
+                    combined = (
+                        combined
+                        .sort_values('datetime')
+                        .drop_duplicates(subset=['datetime'], keep='last')
+                        .reset_index(drop=True)
+                    )
+                else:
+                    combined = fresh_df.copy()
+                    combined['datetime'] = pd.to_datetime(
+                        combined['datetime'], utc=True, errors='coerce'
+                    )
+                    new_rows = len(fresh_df)
+                    updated_rows = 0
+
+                # Serialize datetime as naive UTC string — matches existing warehouse format
+                # and is correctly parsed by Backtest/data_loader.py with utc=True.
+                combined['datetime'] = combined['datetime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+                # Atomic write: write to a temp file then rename so concurrent readers
+                # never see a partially-written file.
+                tmp_path = path.with_suffix('.tmp')
+                combined.to_csv(tmp_path, index=False)
+                os.replace(tmp_path, path)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
         return new_rows, updated_rows, len(combined)
 
     @staticmethod

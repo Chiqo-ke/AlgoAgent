@@ -214,6 +214,11 @@ class BotExecutor:
             self.test_period = period_map.get(test_period_days, f'{test_period_days}d')
         self.test_interval = parameters.get('test_interval', '1d') if parameters else '1d'
         self.initial_capital = float(parameters.get('initial_capital', 1000)) if parameters else 1000.0
+        # Exit mode params — forwarded as env vars to the subprocess
+        self.exit_mode = parameters.get('exit_mode', 'bot') if parameters else 'bot'
+        self.sl_pips = parameters.get('sl_pips') if parameters else None
+        self.tp_pips = parameters.get('tp_pips') if parameters else None
+        self.risk_pct = parameters.get('risk_pct') if parameters else None
         
         result = BotExecutionResult(
             strategy_name=strategy_name,
@@ -296,7 +301,7 @@ class BotExecutor:
                 logger.info(f"[OK] Execution completed successfully")
                 logger.info(f"  Return: {result.return_pct:.2f}%" if result.return_pct else "")
                 logger.info(f"  Trades: {result.trades}" if result.trades else "")
-                logger.info(f"  Win Rate: {result.win_rate:.1%}" if result.win_rate else "")
+                logger.info(f"  Win Rate: {result.win_rate:.2f}%" if result.win_rate else "")
             
         except subprocess.TimeoutExpired:
             result.error = f"Execution timeout (>{self.timeout_seconds}s)"
@@ -529,6 +534,23 @@ class BotExecutor:
             if hasattr(self, 'initial_capital'):
                 env['BACKTEST_INITIAL_CAPITAL'] = str(self.initial_capital)
                 logger.info(f"Setting backtest initial capital: {self.initial_capital}")
+
+            # Pass exit mode configuration to subprocess
+            _exit_mode = getattr(self, 'exit_mode', 'bot') or 'bot'
+            env['BACKTEST_EXIT_MODE'] = _exit_mode
+            logger.info(f"Setting backtest exit mode: {_exit_mode}")
+            _sl_pips = getattr(self, 'sl_pips', None)
+            if _sl_pips is not None:
+                env['BACKTEST_SL_PIPS'] = str(_sl_pips)
+                logger.info(f"Setting backtest SL pips: {_sl_pips}")
+            _tp_pips = getattr(self, 'tp_pips', None)
+            if _tp_pips is not None:
+                env['BACKTEST_TP_PIPS'] = str(_tp_pips)
+                logger.info(f"Setting backtest TP pips: {_tp_pips}")
+            _risk_pct = getattr(self, 'risk_pct', None)
+            if _risk_pct is not None:
+                env['BACKTEST_RISK_PCT'] = str(_risk_pct)
+                logger.info(f"Setting backtest risk pct: {_risk_pct}")
             
             process = subprocess.Popen(
                 cmd,
@@ -580,15 +602,19 @@ class BotExecutor:
             # If the strategy produced valid results, ignore stderr warnings
             
             # Try to parse JSON results if present
+            # Skip the rich SimBroker output (BACKTEST_RESULTS_JSON) - that is handled in views.py
+            # Skip any JSON that doesn't contain recognizable strategy-level metrics
+            _STRATEGY_METRIC_KEYS = {'return_pct', 'Return [%]', 'win_rate', 'Win Rate [%]', '# Trades', 'net_profit', 'Net Profit'}
             json_match = self._extract_json(stdout)
-            if json_match:
+            if json_match and 'equity_curve' not in json_match and any(k in json_match for k in _STRATEGY_METRIC_KEYS):
                 result['json_results'] = json_match
                 result['success'] = True
                 
                 # Extract key metrics from JSON
                 if isinstance(json_match, dict):
                     result['return_pct'] = json_match.get('return_pct') or json_match.get('Return [%]')
-                    result['trades'] = json_match.get('trades') or json_match.get('# Trades')
+                    raw_trades = json_match.get('trades') or json_match.get('# Trades')
+                    result['trades'] = len(raw_trades) if isinstance(raw_trades, list) else raw_trades
                     result['win_rate'] = json_match.get('win_rate') or json_match.get('Win Rate [%]')
                     result['max_drawdown'] = json_match.get('max_drawdown') or json_match.get('Max. Drawdown [%]')
                     result['sharpe_ratio'] = json_match.get('sharpe_ratio') or json_match.get('Sharpe Ratio')
@@ -720,6 +746,7 @@ class BotExecutor:
                     return result
             
             # If we extracted any metrics, consider it successful
+            _has_definitive_failure = False  # Track if we have a real failure reason
             if any([
                 result['return_pct'] is not None,
                 result['trades'] is not None,
@@ -734,15 +761,22 @@ class BotExecutor:
                 if result['trades'] is not None and result['trades'] == 0:
                     result['success'] = False
                     result['error'] = "Strategy executed but made NO TRADES (0 trades). Bot must place at least one trade to pass."
+                    _has_definitive_failure = True  # Preserve this error — don't overwrite below
                     logger.warning("⚠️ TRADE VALIDATION FAILED: Bot made 0 trades")
                 elif result['trades'] is None:
                     # Trades not found in output - might indicate parsing issue or no trades
                     result['success'] = False
                     result['error'] = "Cannot verify trades were made - metrics parsing issue or no trades placed"
+                    _has_definitive_failure = True
                     logger.warning("⚠️ TRADE VALIDATION: Unable to verify trade count")
                 
                 # If successful with valid trades, return immediately (ignore stderr warnings)
                 if result['success']:
+                    return result
+                
+                # If we have a definitive NO TRADES failure, return immediately
+                # Do NOT fall through to STEP 2/3 which would overwrite the error
+                if _has_definitive_failure:
                     return result
             
             # STEP 2: Only check stderr if we didn't get valid results
@@ -786,12 +820,13 @@ class BotExecutor:
                 return result
             
             # STEP 3: No valid results and no clear errors
-            # Check if output looks successful anyway
-            if stdout and not stderr:
-                result['success'] = True
-                result['error'] = "Output captured but metrics not parsed"
-            else:
-                result['error'] = "No results or metrics found in output"
+            # Only update error/success if we don't already have a definitive failure reason
+            if not _has_definitive_failure:
+                if stdout and not stderr:
+                    result['success'] = True
+                    result['error'] = "Output captured but metrics not parsed"
+                else:
+                    result['error'] = "No results or metrics found in output"
         
         except Exception as e:
             logger.error(f"Failed to parse execution output: {e}")
@@ -893,7 +928,7 @@ class BotExecutor:
             "-" * 70,
             f"  Return: {result.return_pct:.2f}%" if result.return_pct is not None else "  Return: N/A",
             f"  Trades: {result.trades}" if result.trades is not None else "  Trades: N/A",
-            f"  Win Rate: {result.win_rate:.1%}" if result.win_rate is not None else "  Win Rate: N/A",
+            f"  Win Rate: {result.win_rate:.2f}%" if result.win_rate is not None else "  Win Rate: N/A",
             f"  Max Drawdown: {result.max_drawdown:.2f}%" if result.max_drawdown is not None else "  Max Drawdown: N/A",
             f"  Sharpe Ratio: {result.sharpe_ratio:.2f}" if result.sharpe_ratio is not None else "  Sharpe Ratio: N/A",
             f"",
@@ -1156,5 +1191,5 @@ if __name__ == "__main__":
             if result.trades is not None:
                 print(f"Trades: {result.trades}")
             if result.win_rate is not None:
-                print(f"Win Rate: {result.win_rate:.1%}")
+                print(f"Win Rate: {result.win_rate:.2f}%")
         print(f"Results saved to: {result.results_file}")

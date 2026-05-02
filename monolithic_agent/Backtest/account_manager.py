@@ -248,16 +248,12 @@ class AccountManager:
     
     def get_equity(self) -> float:
         """
-        Calculate current equity (cash + unrealized P&L)
+        Calculate current equity (cash + market value of all open positions)
         
         Returns:
             Total equity
         """
-        unrealized_pnl = sum(
-            self._calculate_unrealized_pnl(pos)
-            for pos in self.positions.values()
-        )
-        return self.cash + unrealized_pnl
+        return self.cash + self.get_portfolio_value()
     
     def get_portfolio_value(self) -> float:
         """

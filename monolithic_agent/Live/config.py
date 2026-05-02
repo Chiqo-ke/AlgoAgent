@@ -50,17 +50,8 @@ class LiveConfig:
     exchange: str = field(default_factory=lambda: os.getenv('EXCHANGE', 'FX'))  # tvDatafeed exchange for all symbols
     timeframe: str = field(default_factory=lambda: os.getenv('TIMEFRAME', '1d'))
     strategy_id: str = field(default_factory=lambda: os.getenv('STRATEGY_ID', 'default_strategy'))
-    bot_name: str = field(default_factory=lambda: os.getenv('BOT_NAME', ''))
-    lot_size: float = field(default_factory=lambda: float(os.getenv('LOT_SIZE', '0')))
     strategy_name: str = field(default_factory=lambda: os.getenv('STRATEGY_NAME', ''))
     magic_number: int = field(default_factory=lambda: int(os.getenv('MAGIC_NUMBER', '123456')))
-
-    # Short selling: when False (default) a SELL signal with no tracked position is
-    # silently skipped instead of opening a new short.  Set to True only for
-    # strategies that explicitly trade both long and short.
-    allow_short_selling: bool = field(default_factory=lambda: (
-        os.getenv('ALLOW_SHORT_SELLING', 'false').lower() == 'true'
-    ))
 
     # Number of historical bars to fetch and run the strategy over.
     # More bars give indicators (ATR, EMA, RSI, etc.) a longer warm-up period

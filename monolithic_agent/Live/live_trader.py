@@ -28,6 +28,64 @@ from live_data_fetcher import LiveDataFetcher
 
 logger = logging.getLogger('LiveTrader')
 
+# ---------------------------------------------------------------------------
+# Timeframe helpers
+# ---------------------------------------------------------------------------
+
+# Canonical mapping from normalised interval string to minutes.
+# Keep in sync with live_data_fetcher._interval_to_tvdatafeed.
+_TIMEFRAME_MINUTES: dict[str, int] = {
+    '1m':  1,   '3m':  3,   '5m':  5,   '15m': 15,  '30m': 30,
+    '45m': 45,  '1h':  60,  '2h':  120, '3h':  180, '4h':  240,
+    '1d':  1440, '1w': 10080,
+    # Use 31-day upper bound for monthly so we never falsely discard a signal
+    # in shorter months (28/29 days).
+    '1mo': 44640,
+}
+
+_TIMEFRAME_ALIASES: dict[str, str] = {
+    '60m': '1h', '1hr': '1h', '1hour': '1h',
+    '120m': '2h', '2hr': '2h', '2hour': '2h',
+    '240m': '4h', '4hr': '4h', '4hour': '4h',
+    '1wk': '1w', '1week': '1w',
+    'd': '1d', 'daily': '1d',
+}
+
+
+def _timeframe_to_timedelta(timeframe: str) -> timedelta:
+    """Convert a timeframe string (e.g. '1h', '4h', '1d') to a timedelta."""
+    norm = timeframe.strip().lower()
+    norm = _TIMEFRAME_ALIASES.get(norm, norm)
+    minutes = _TIMEFRAME_MINUTES.get(norm)
+    if minutes is None:
+        raise ValueError(
+            f"Unknown timeframe '{timeframe}'. "
+            f"Supported: {sorted(_TIMEFRAME_MINUTES)} (plus aliases)"
+        )
+    return timedelta(minutes=minutes)
+
+
+def _staleness_grace(tf_td: timedelta) -> timedelta:
+    """
+    Return the grace period *after bar close* during which a signal is still
+    considered fresh.  Longer-timeframe bars have wider windows because uptime
+    exactly at bar close is harder to guarantee.
+
+    Intraday  (≤ 1 h) : 30 min
+    Short HTF (≤ 4 h) : 60 min
+    Daily              : 4 h
+    Weekly / Monthly   : 12 h
+    """
+    minutes = tf_td.total_seconds() / 60
+    if minutes <= 60:
+        return timedelta(minutes=30)
+    elif minutes <= 240:
+        return timedelta(minutes=60)
+    elif minutes <= 1440:
+        return timedelta(hours=4)
+    else:
+        return timedelta(hours=12)
+
 
 class LiveTrader:
     """
@@ -286,14 +344,32 @@ class LiveTrader:
             else:
                 latest_signal = signals.iloc[-1]
 
-            # Discard BUY/SELL signals older than 30 minutes to avoid
-            # executing stale signals (e.g. after a weekend market close).
+            # Discard BUY/SELL signals that are too old relative to the bar
+            # close time.  Signal timestamps are bar OPEN times; the bar only
+            # becomes tradeable once it closes (open + timeframe duration).
+            # We therefore measure staleness from bar close, not bar open, so
+            # that signals on any timeframe (1m … 1mo) are handled correctly.
             if latest_signal['signal'] in ['BUY', 'SELL']:
-                signal_age = datetime.now(timezone.utc) - latest_signal.name.to_pydatetime().replace(tzinfo=timezone.utc)
-                if signal_age > timedelta(minutes=30):
+                now = datetime.now(timezone.utc)
+                bar_open_ts = latest_signal.name.to_pydatetime().replace(tzinfo=timezone.utc)
+                tf_td = _timeframe_to_timedelta(self.config.timeframe)
+                bar_close_ts = bar_open_ts + tf_td
+
+                # Guard: bar hasn't closed yet (clock skew or incomplete bar).
+                if bar_close_ts > now:
+                    logger.debug(
+                        f"Signal @ {latest_signal.name} for {symbol}: "
+                        f"bar not yet closed (closes {bar_close_ts}), skipping"
+                    )
+                    return
+
+                bar_close_age = now - bar_close_ts
+                grace = _staleness_grace(tf_td)
+                if bar_close_age > grace:
                     logger.warning(
                         f"Discarding stale {latest_signal['signal']} signal for {symbol}: "
-                        f"signal is {signal_age} old (limit: 30 min) — generated @ {latest_signal.name}"
+                        f"bar closed {bar_close_age} ago (grace: {grace}) "
+                        f"— bar open @ {latest_signal.name}, bar close @ {bar_close_ts}"
                     )
                     return
 
