@@ -762,3 +762,277 @@ class LiveTradingSessionViewSet(ListModelMixin, RetrieveModelMixin, DestroyModel
             'last_modified_at': last_modified_at,
             'is_process_alive': is_alive,
         })
+
+    # ------------------------------------------------------------------
+    # GET /api/trading/sessions/trade_history/?strategy_id=<id>
+    # ------------------------------------------------------------------
+    @action(detail=False, methods=['get'], url_path='trade_history')
+    def trade_history(self, request):
+        """
+        Return closed trades from audit.db for all sessions belonging to
+        the given strategy_id (scoped to the current user).
+        """
+        import sqlite3 as _sqlite3
+
+        strategy_id = request.query_params.get('strategy_id')
+        if not strategy_id:
+            return Response({'error': 'strategy_id query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            strategy_id = int(strategy_id)
+        except (ValueError, TypeError):
+            return Response({'error': 'strategy_id must be an integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        sessions = list(
+            LiveTradingSession.objects.filter(
+                strategy_id=strategy_id,
+                created_by=request.user,
+            ).select_related('strategy').values('id', 'strategy__name')
+        )
+
+        empty = Response({'trades': [], 'total_trades': 0, 'total_pnl': 0.0, 'win_rate': 0.0})
+
+        if not sessions:
+            return empty
+
+        session_name_map = {
+            f'session_{s["id"]}': s['strategy__name'] or f'session_{s["id"]}'
+            for s in sessions
+        }
+        strategy_id_keys = list(session_name_map.keys())
+
+        audit_db = Path(__file__).parent.parent / 'Live' / 'data' / 'audit.db'
+        if not audit_db.exists():
+            return empty
+
+        try:
+            conn = _sqlite3.connect(str(audit_db))
+            conn.row_factory = _sqlite3.Row
+            placeholders = ','.join('?' for _ in strategy_id_keys)
+            rows = conn.execute(
+                f'SELECT * FROM trades WHERE strategy_id IN ({placeholders}) ORDER BY timestamp DESC',
+                strategy_id_keys,
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            logger.error('trade_history error reading audit.db: %s', exc)
+            return empty
+
+        trades = [
+            {
+                'id': row['id'],
+                'timestamp': row['timestamp'],
+                'symbol': row['symbol'],
+                'side': 'buy' if str(row['side']) == '0' else 'sell',
+                'entry_price': row['entry_price'],
+                'exit_price': row['exit_price'],
+                'volume': row['volume'],
+                'profit': row['profit'],
+                'commission': row['commission'],
+                'swap': row['swap'],
+                'duration_seconds': row['duration_seconds'],
+                'session_id': row['strategy_id'],
+                'bot_name': session_name_map.get(row['strategy_id'], row['strategy_id']),
+            }
+            for row in rows
+        ]
+
+        total_pnl = round(sum(float(t['profit']) for t in trades), 2)
+        win_rate = round(sum(1 for t in trades if float(t['profit']) > 0) / len(trades) * 100, 2) if trades else 0.0
+
+        return Response({
+            'trades': trades,
+            'total_trades': len(trades),
+            'total_pnl': total_pnl,
+            'win_rate': win_rate,
+        })
+
+    # ------------------------------------------------------------------
+    # GET /api/trading/sessions/closed_positions_count/?credential_id=<id>
+    # ------------------------------------------------------------------
+    @action(detail=False, methods=['get'], url_path='closed_positions_count')
+    def closed_positions_count(self, request):
+        """
+        Return the number of closed positions (completed trades) per bot/strategy
+        for a specific broker account, identified by credential_id.
+        """
+        import sqlite3 as _sqlite3
+        from collections import defaultdict
+
+        credential_id = request.query_params.get('credential_id')
+        if not credential_id:
+            return Response(
+                {'error': 'credential_id query param is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            credential_id = int(credential_id)
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'credential_id must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            cred = BrokerCredential.objects.get(pk=credential_id, user=request.user)
+        except BrokerCredential.DoesNotExist:
+            return Response(
+                {'error': 'Broker credential not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        sessions = list(
+            LiveTradingSession.objects.filter(
+                created_by=request.user,
+                mt5_login=cred.mt5_login,
+            ).select_related('strategy').values('id', 'strategy_id', 'strategy__name')
+        )
+
+        empty_response = Response({
+            'credential_id': credential_id,
+            'account_label': cred.label,
+            'mt5_login': cred.mt5_login,
+            'bots': [],
+        })
+
+        if not sessions:
+            return empty_response
+
+        session_map = {f'session_{s["id"]}': s for s in sessions}
+
+        audit_db = Path(__file__).parent.parent / 'Live' / 'data' / 'audit.db'
+        if not audit_db.exists():
+            return empty_response
+
+        stats: dict = defaultdict(lambda: {'strategy_name': '', 'closed_count': 0})
+
+        try:
+            conn = _sqlite3.connect(str(audit_db))
+            conn.row_factory = _sqlite3.Row
+            placeholders = ','.join('?' for _ in session_map)
+            rows = conn.execute(
+                f'SELECT strategy_id FROM trades WHERE strategy_id IN ({placeholders})',
+                list(session_map.keys()),
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            logger.error('closed_positions_count error reading audit.db: %s', exc)
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        for row in rows:
+            info = session_map.get(row['strategy_id'])
+            if not info:
+                continue
+            sid = info['strategy_id']
+            stats[sid]['closed_count'] += 1
+            stats[sid]['strategy_name'] = info['strategy__name'] or f'Strategy {sid}'
+
+        bots = [
+            {
+                'strategy_id': sid,
+                'strategy_name': data['strategy_name'],
+                'closed_count': data['closed_count'],
+            }
+            for sid, data in stats.items()
+        ]
+
+        return Response({
+            'credential_id': credential_id,
+            'account_label': cred.label,
+            'mt5_login': cred.mt5_login,
+            'bots': bots,
+        })
+
+
+# ─── Live Analytics ───────────────────────────────────────────────────────────
+
+class LiveAnalyticsView(APIView):
+    """
+    GET /api/trading/live-analytics/
+
+    Returns aggregate live-trading performance per strategy for the current user.
+    Reads closed trades from audit.db, groups them by strategy via session FK,
+    and returns metrics compatible with the frontend BotPerformance interface.
+    """
+    permission_classes = [IsAuthenticated]
+
+    AUDIT_DB = Path(__file__).parent.parent / 'Live' / 'data' / 'audit.db'
+
+    def get(self, request):
+        import sqlite3
+        from collections import defaultdict
+
+        sessions = (
+            LiveTradingSession.objects
+            .filter(created_by=request.user)
+            .select_related('strategy')
+            .values('id', 'strategy_id', 'strategy__name')
+        )
+
+        if not sessions or not self.AUDIT_DB.exists():
+            return Response([])
+
+        session_map = {f'session_{s["id"]}': s for s in sessions}
+
+        try:
+            conn = sqlite3.connect(str(self.AUDIT_DB))
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            placeholders = ','.join('?' * len(session_map))
+            c.execute(
+                f'SELECT strategy_id, profit FROM trades WHERE strategy_id IN ({placeholders})',
+                list(session_map.keys()),
+            )
+            rows = c.fetchall()
+
+            c.execute(
+                'SELECT balance FROM account_snapshots ORDER BY id DESC LIMIT 1'
+            )
+            snap = c.fetchone()
+            conn.close()
+
+            account_balance = float(snap['balance']) if snap and snap['balance'] else 1.0
+
+        except Exception as exc:
+            logger.error(f'LiveAnalyticsView error reading audit.db: {exc}')
+            return Response({'error': str(exc)}, status=500)
+
+        stats: dict = defaultdict(lambda: {
+            'total_trades': 0, 'wins': 0, 'total_pnl': 0.0, 'strategy_name': '',
+        })
+
+        for row in rows:
+            info = session_map.get(row['strategy_id'])
+            if not info:
+                continue
+            sid = info['strategy_id']
+            s = stats[sid]
+            s['total_trades'] += 1
+            if row['profit'] > 0:
+                s['wins'] += 1
+            s['total_pnl'] += float(row['profit'])
+            s['strategy_name'] = info['strategy__name'] or ''
+
+        result = []
+        for strategy_id, s in stats.items():
+            t = s['total_trades']
+            win_rate = round(s['wins'] / t * 100, 2) if t else 0.0
+            total_return = round(s['total_pnl'] / account_balance * 100, 4) if account_balance else 0.0
+            result.append({
+                'strategy_id': strategy_id,
+                'strategy_name': s['strategy_name'],
+                'total_trades': t,
+                'win_rate': win_rate,
+                'total_pnl': round(s['total_pnl'], 2),
+                'total_return': total_return,
+                'sharpe_ratio': None,
+                'max_drawdown': None,
+                'is_verified': t > 0,
+                'verification_status': 'verified' if t > 0 else 'unverified',
+            })
+
+        return Response(result)

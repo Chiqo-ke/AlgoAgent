@@ -2,6 +2,7 @@
 Live Trader - Main trading loop and orchestration
 """
 import math
+import re
 import signal
 import sys
 import time
@@ -54,6 +55,12 @@ class LiveTrader:
         self.state = StateManager(config)
         self.audit = AuditLogger(config.audit_db_path)
         self.data_fetcher = LiveDataFetcher()
+
+        # Cache: configured symbol → broker symbol name (e.g. AAPL → APPLE).
+        # Populated lazily in _process_symbol and used in _sync_state to remap
+        # MT5 position symbols back to configured names so that has_position()
+        # works correctly even after broker-name normalisation.
+        self._broker_symbol_map: dict = {}  # config_name → broker_name
         
         # Load strategy
         logger.info(f"Loading strategy from: {strategy_path}")
@@ -78,8 +85,23 @@ class LiveTrader:
             if not self.connector.initialize():
                 logger.error("Failed to initialize MT5 connection")
                 return False
-            
-            # Sync state with MT5
+
+            # Pre-populate broker symbol map so the startup _sync_state call below
+            # can correctly remap MT5 broker names (e.g. APPLE) to configured names
+            # (e.g. AAPL).  Without this, has_position() would always return False
+            # after a restart, causing duplicate entries and accidental short sells.
+            for sym in self.config.symbols:
+                try:
+                    info = self.connector.get_symbol_info(sym)
+                    if info:
+                        broker_name = info.get('name') or sym
+                        if broker_name != sym:
+                            self._broker_symbol_map[sym] = broker_name
+                            logger.info(f"Startup symbol map: {sym} → {broker_name}")
+                except Exception as e:
+                    logger.warning(f"Could not resolve broker name for {sym} at startup: {e}")
+
+            # Sync state with MT5 (uses _broker_symbol_map populated above)
             self._sync_state()
             
             # Log startup event
@@ -223,6 +245,11 @@ class LiveTrader:
         if not symbol_info:
             logger.warning(f"Could not get symbol info for {symbol}")
             return
+
+        # Update broker-symbol map so _sync_state can remap positions correctly.
+        broker_name = symbol_info.get('name') or symbol
+        if broker_name != symbol:
+            self._broker_symbol_map[symbol] = broker_name
         
         # Generate signals — use a 7-day lookback so the window always
         # contains recent bars regardless of weekends or data gaps.
@@ -258,6 +285,18 @@ class LiveTrader:
                 )
             else:
                 latest_signal = signals.iloc[-1]
+
+            # Discard BUY/SELL signals older than 30 minutes to avoid
+            # executing stale signals (e.g. after a weekend market close).
+            if latest_signal['signal'] in ['BUY', 'SELL']:
+                signal_age = datetime.now(timezone.utc) - latest_signal.name.to_pydatetime().replace(tzinfo=timezone.utc)
+                if signal_age > timedelta(minutes=30):
+                    logger.warning(
+                        f"Discarding stale {latest_signal['signal']} signal for {symbol}: "
+                        f"signal is {signal_age} old (limit: 30 min) — generated @ {latest_signal.name}"
+                    )
+                    return
+
             signal_timestamp = latest_signal.name.strftime('%Y%m%d%H%M%S')
             signal_id = f"{self.config.strategy_id}_{symbol}_{signal_timestamp}"
             
@@ -283,13 +322,15 @@ class LiveTrader:
 
             if not signal_logged:
                 # Signal already in audit DB — only skip if a successful order exists.
-                # If the previous order failed (e.g. bridge was down), allow retry.
+                # If no order was placed yet, or the previous order failed, allow retry.
                 last_order = self.audit.get_last_order_for_signal(signal_id)
-                if last_order is None or last_order.get('status') != 'FAILED':
+                if last_order is not None and last_order.get('status') not in ('FAILED', None):
                     self.state.mark_signal_processed(signal_id)
                     self.state.update_last_signal_time(symbol)
-                    logger.info(f"Signal already persisted, skipping reprocessing: {signal_id}")
+                    logger.info(f"Signal already persisted and executed, skipping reprocessing: {signal_id}")
                     return
+                elif last_order is None:
+                    logger.info(f"Signal {signal_id} was logged but no order was placed — retrying")
                 else:
                     logger.info(f"Signal {signal_id} previously failed ({last_order.get('error_message')}), retrying")
             
@@ -311,19 +352,75 @@ class LiveTrader:
         """
         Return the pip size for a symbol using MT5 symbol_info data.
 
-        Convention (matches MT5 standard):
-          - 5-digit FX (EURUSD) and 3-digit JPY pairs: 1 pip = 10 × point
-          - Everything else (metals, indices, crypto with 2-digit or 4-digit
-            prices): 1 pip = 1 × point
+        Instrument conventions:
+          - FX 5-digit (EURUSD, digits=5, point=0.00001) → pip = 0.00010
+          - FX 3-digit JPY pairs (USDJPY, digits=3, point=0.001) → pip = 0.010
+          - Stocks / equities (e.g. AAPL, digits=2, tick_size=0.01) → pip = tick_size
+          - Metals / indices / crypto (e.g. XAUUSD, BTCUSD) → pip = point
 
-        Example outputs:
-          EURUSD (digits=5, point=0.00001) → pip = 0.00010
-          USDJPY (digits=3, point=0.001)   → pip = 0.010
-          XAUUSD (digits=2, point=0.01)    → pip = 0.01
+        For non-FX instruments, ``trade_tick_size`` from the broker is the
+        most accurate minimum price increment to use as a "pip equivalent",
+        falling back to ``point`` when tick size is unavailable.
         """
-        digits = symbol_info.get('digits', 5)
-        point  = symbol_info.get('point', 0.00001)
-        return point * 10 if digits in (5, 3) else point
+        digits    = symbol_info.get('digits', 5)
+        point     = symbol_info.get('point', 0.00001)
+        tick_size = symbol_info.get('trade_tick_size')
+
+        # FX majors/crosses: 5-digit pairs (EURUSD) and 3-digit JPY pairs
+        if digits in (5, 3):
+            return point * 10
+
+        # Stocks, indices, metals, crypto: use broker tick_size as pip equivalent
+        if tick_size and tick_size > 0:
+            return float(tick_size)
+
+        # Last resort fallback
+        return point
+
+    @staticmethod
+    def _order_filling_mode(symbol_info: dict) -> int:
+        """
+        Return the correct ORDER_FILLING_* constant for this symbol.
+
+        MT5 symbol_info.filling_mode is a bitmask of SUPPORTED modes:
+          bit 0 (value 1) → FOK  (Fill or Kill)        → ORDER_FILLING_FOK = 0
+          bit 1 (value 2) → IOC  (Immediate or Cancel) → ORDER_FILLING_IOC = 1
+          bit 2 (value 4) → Return (partial fill)       → ORDER_FILLING_RETURN = 2
+
+        Priority: Return > IOC > FOK (most permissive first).
+        Fallback: FOK (hardcoded, works for most instant-execution brokers).
+        """
+        filling_mask = symbol_info.get('filling_mode', 0) if symbol_info else 0
+        if filling_mask & 4:   # Return supported
+            return MT5Constants.ORDER_FILLING_RETURN
+        if filling_mask & 2:   # IOC supported
+            return MT5Constants.ORDER_FILLING_IOC
+        if filling_mask & 1:   # FOK supported
+            return MT5Constants.ORDER_FILLING_FOK
+        return MT5Constants.ORDER_FILLING_FOK  # safe fallback
+
+    def _build_order_comment(self) -> str:
+        """
+        Build a concise MT5 order comment that identifies the bot by name and
+        session ID so trades can be traced back to the correct bot in the
+        broker's terminal.  MT5 truncates comments at 31 characters; we stay
+        within that limit.
+
+        Format: ``<SanitisedBotName>-s<SessionPK>``
+        Example: ``MyEURUSD_Strategy-s42``
+        """
+        # Derive a clean name: use BOT_NAME when available, fall back to STRATEGY_ID.
+        raw_name = self.config.bot_name or self.config.strategy_id
+        # Keep only alphanumeric chars and underscores; replace spaces with _
+        clean_name = re.sub(r'[^A-Za-z0-9_]', '', raw_name.replace(' ', '_'))
+
+        # Extract the numeric session PK from STRATEGY_ID ("session_42" → "42").
+        strategy_id = self.config.strategy_id
+        session_num = strategy_id.split('_')[-1] if '_' in strategy_id else strategy_id
+        suffix = f"-s{session_num}"  # e.g. "-s42"
+
+        max_name_len = 31 - len(suffix)
+        return f"{clean_name[:max_name_len]}{suffix}"
 
     def _execute_signal(self, signal_id: str, symbol: str, signal, symbol_info: dict):
         """
@@ -337,6 +434,13 @@ class LiveTrader:
         """
         signal_type = signal['signal']
         logger.info(f"Executing {signal_type} signal for {symbol}")
+
+        # Use the broker's resolved symbol name for all MT5 order submissions.
+        # symbol_info['name'] is already populated with the canonical broker name
+        # (e.g. TSLA → TESLA, AAPL → APPLE) by get_symbol_info().
+        broker_symbol = symbol_info.get('name') or symbol
+        if broker_symbol != symbol:
+            logger.info(f"Using broker symbol name '{broker_symbol}' for MT5 order (configured as '{symbol}')")
         
         # Check if we already have a position
         has_position = self.state.has_position(symbol)
@@ -344,12 +448,31 @@ class LiveTrader:
         if signal_type == 'BUY' and has_position:
             logger.info(f"Already have position in {symbol}, skipping BUY signal")
             return
-        
+
         if signal_type == 'SELL' and has_position:
             # This is an exit signal - close position
             self._close_position(symbol, signal, symbol_info)
             return
-        
+
+        # Guard: no open position and we received a SELL signal.
+        # This means either:
+        #   a) strategy emitted an EXIT close signal but there's nothing to close, OR
+        #   b) state was lost on a process restart and there IS a position in MT5 that
+        #      we don't know about — in both cases we must NOT open a new short.
+        #
+        # Short selling is only allowed if the session config explicitly enables it.
+        # The check below intentionally ignores action='EXIT' vs None — a SELL with
+        # no tracked position must never place a new market short in a long-only setup.
+        if signal_type == 'SELL':
+            signal_action = signal.get('action') if hasattr(signal, 'get') else None
+            if not getattr(self.config, 'allow_short_selling', False):
+                logger.info(
+                    f"SELL signal for {symbol} with no open position skipped "
+                    f"(action={signal_action!r}, allow_short_selling=False). "
+                    f"Enable short selling in session config to allow short entries."
+                )
+                return
+
         # Calculate position size
         account = self.connector.get_account_info()
         if not account:
@@ -431,23 +554,29 @@ class LiveTrader:
         effective_sl_for_sizing = stop_loss_price if stop_loss_price is not None else (
             entry_price * 0.99 if signal_type == 'BUY' else entry_price * 1.01
         )
-        volume = self.bridge.position_size(
-            account_balance=account['balance'],
-            risk_pct=self.config.default_risk_pct,
-            stop_loss_price=effective_sl_for_sizing,
-            entry_price=entry_price,
-            symbol=symbol
-        )
-        
-        # Limit position size
-        volume = min(volume, self.config.max_position_size)
+        # Use fixed lot_size if configured, otherwise calculate from risk
+        if self.config.lot_size > 0:
+            volume = self.config.lot_size
+            logger.info(f"Using fixed lot size: {volume} lots")
+        else:
+            volume = self.bridge.position_size(
+                account_balance=account['balance'],
+                risk_pct=self.config.default_risk_pct,
+                stop_loss_price=effective_sl_for_sizing,
+                entry_price=entry_price,
+                symbol=symbol
+            )
+            # Limit position size
+            volume = min(volume, self.config.max_position_size)
         
         # Build order request
+        filling_mode = self._order_filling_mode(symbol_info)
         order_meta = {
-            'symbol': symbol,
+            'symbol': broker_symbol,  # use broker's resolved name (e.g. TESLA not TSLA)
             'magic': self.config.magic_number,
             'deviation': 20,
-            'comment': signal_id[-29:]
+            'comment': self._build_order_comment(),
+            'type_filling': filling_mode,
         }
         if stop_loss_price is not None:
             order_meta['sl'] = stop_loss_price
@@ -491,8 +620,18 @@ class LiveTrader:
             tp=take_profit_price
         )
         
-        # Execute order
-        result = self.executor.execute_order(order_request, client_order_id)
+        # Execute order — pass broker credentials for per-trade login
+        # so that multiple sessions with different broker accounts can share
+        # the same MT5 terminal (the bridge serialises via _trade_lock).
+        broker_credentials = {
+            'login':    self.config.mt5_login,
+            'password': self.config.mt5_password,
+            'server':   self.config.mt5_server,
+        } if (self.config.mt5_login and self.config.mt5_password) else None
+
+        result = self.executor.execute_order(
+            order_request, client_order_id, credentials=broker_credentials
+        )
         
         # Update audit log
         self.audit.update_order(
@@ -534,16 +673,17 @@ class LiveTrader:
         if not position:
             logger.warning(f"No position found for {symbol}")
             return
-        
-        logger.info(f"Closing position: {symbol}")
-        
+
+        broker_symbol = symbol_info.get('name') or symbol
+        logger.info(f"Closing position: {symbol}" + (f" (broker: {broker_symbol})" if broker_symbol != symbol else ""))
+
         # Build close order (opposite direction)
         close_type = 'SELL' if position['type'] == 'BUY' else 'BUY'
         close_price = symbol_info['bid'] if close_type == 'SELL' else symbol_info['ask']
-        
+
         order_request = {
             'action': MT5Constants.TRADE_ACTION_DEAL,
-            'symbol': symbol,
+            'symbol': broker_symbol,  # use broker's resolved name (e.g. TESLA not TSLA)
             'volume': position['volume'],
             'type': MT5Constants.ORDER_TYPE_SELL if close_type == 'SELL' else MT5Constants.ORDER_TYPE_BUY,
             'price': close_price,
@@ -551,11 +691,22 @@ class LiveTrader:
             'magic': self.config.magic_number,
             'comment': f"Close_{position.get('ticket', 'unknown')}",
             'type_time': MT5Constants.ORDER_TIME_GTC,
-            'type_filling': MT5Constants.ORDER_FILLING_IOC,
+            'type_filling': self._order_filling_mode(symbol_info),
         }
+
+        # Specify the exact ticket so MT5 closes the right position when multiple
+        # positions on the same symbol exist (e.g. from different sessions).
+        if position.get('ticket'):
+            order_request['position'] = position['ticket']
         
-        # Execute close
-        result = self.executor.execute_order(order_request)
+        # Execute close — use per-trade login for multi-broker support
+        close_creds = {
+            'login':    self.config.mt5_login,
+            'password': self.config.mt5_password,
+            'server':   self.config.mt5_server,
+        } if (self.config.mt5_login and self.config.mt5_password) else None
+
+        result = self.executor.execute_order(order_request, credentials=close_creds)
         
         if result['success']:
             # Calculate profit
@@ -594,6 +745,18 @@ class LiveTrader:
     def _sync_state(self):
         """Synchronize internal state with MT5"""
         positions = self.connector.get_positions()
+
+        # Remap broker symbol names → configured symbol names so that
+        # has_position('AAPL') correctly finds a position opened as 'APPLE'.
+        # The reverse map is built from _broker_symbol_map which is populated
+        # lazily each time get_symbol_info() resolves a symbol in _process_symbol.
+        if positions and self._broker_symbol_map:
+            broker_to_config = {v: k for k, v in self._broker_symbol_map.items()}
+            for pos in positions:
+                broker_sym = pos.get('symbol', '')
+                if broker_sym in broker_to_config:
+                    pos['symbol'] = broker_to_config[broker_sym]
+
         self.state.sync_with_mt5(positions)
         logger.debug(f"State synced: {len(positions)} positions")
     

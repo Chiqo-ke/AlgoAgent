@@ -94,6 +94,7 @@ class SessionManager:
             'TP_PIPS': str(session.tp_pips) if session.tp_pips is not None else '',
             'DATA_BARS': str(session.data_bars) if session.data_bars is not None else '5000',
             'STRATEGY_ID': f'session_{session_id}',
+            'BOT_NAME': session.strategy.name,
             # Kill switch
             'ENABLE_KILL_SWITCH': 'true',
             'KILL_SWITCH_FILE': str(kill_switch_path),

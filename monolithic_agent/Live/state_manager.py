@@ -43,8 +43,12 @@ class StateManager:
     
     def sync_with_mt5(self, mt5_positions: List[Dict[str, Any]]):
         """
-        Synchronize internal state with MT5 positions
-        
+        Synchronize internal state with MT5 positions.
+
+        Only positions opened by this bot (matching magic_number) are tracked.
+        Positions from other bots are intentionally ignored so that each bot
+        independently decides whether to enter a trade on a symbol.
+
         Args:
             mt5_positions: List of position dicts from MT5
         """
@@ -53,8 +57,14 @@ class StateManager:
         # Clear current positions
         self.positions = {}
         
-        # Rebuild from MT5
+        own_magic = self.config.magic_number
+        skipped = 0
+
+        # Rebuild from MT5, keeping only positions belonging to this bot
         for pos in mt5_positions:
+            if pos.get('magic') != own_magic:
+                skipped += 1
+                continue
             symbol = pos['symbol']
             self.positions[symbol] = {
                 'ticket': pos['ticket'],
@@ -70,7 +80,12 @@ class StateManager:
                 'magic': pos['magic']
             }
         
-        logger.info(f"✓ Synced {len(self.positions)} positions")
+        if skipped:
+            logger.debug(
+                f"Skipped {skipped} position(s) belonging to other bots "
+                f"(magic ≠ {own_magic})"
+            )
+        logger.info(f"✓ Synced {len(self.positions)} own position(s) (magic={own_magic})")
     
     def has_position(self, symbol: str) -> bool:
         """Check if we have an open position for symbol"""

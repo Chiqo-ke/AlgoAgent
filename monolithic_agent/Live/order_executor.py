@@ -69,21 +69,24 @@ class OrderExecutor:
                 client_order_id in self.pending_orders)
     
     def execute_order(
-        self, 
+        self,
         order_request: Dict[str, Any],
         client_order_id: Optional[str] = None,
-        allow_retry: bool = True
+        allow_retry: bool = True,
+        credentials: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Execute order with retry logic
-        
+        Execute order with retry logic.
+
         Args:
-            order_request: MT5 order request dictionary
+            order_request:   MT5 order request dictionary
             client_order_id: Optional unique identifier for idempotency
-            allow_retry: Whether to retry on failure
-        
-        Returns:
-            Execution result dictionary with status and details
+            allow_retry:     Whether to retry on failure
+            credentials:     Optional {login, password, server} for per-trade
+                             broker login (multi-broker / multi-user support).
+                             When provided, the bridge atomically logs in before
+                             submitting the order so different bots can use
+                             different broker accounts on the same terminal.
         """
         # Generate client order ID if not provided
         if not client_order_id:
@@ -91,7 +94,7 @@ class OrderExecutor:
                 order_request['symbol'],
                 str(uuid.uuid4())[:8]
             )
-        
+
         # Check for duplicate
         if self.is_duplicate_order(client_order_id):
             logger.warning(f"Duplicate order detected: {client_order_id}")
@@ -101,75 +104,76 @@ class OrderExecutor:
                 'error': 'DUPLICATE_ORDER',
                 'message': 'Order already processed'
             }
-        
+
         # Add to pending orders
         self.pending_orders[client_order_id] = {
             'request': order_request,
             'timestamp': datetime.now(),
             'attempts': 0
         }
-        
+
         # Attempt execution with retries
         result = self._execute_with_retry(
-            client_order_id, 
+            client_order_id,
             order_request,
-            allow_retry
+            allow_retry,
+            credentials=credentials,
         )
-        
+
         # Move from pending to executed or failed
         if client_order_id in self.pending_orders:
             del self.pending_orders[client_order_id]
-        
+
         if result['success']:
             self.executed_orders[client_order_id] = result
             logger.info(f"✓ Order executed: {client_order_id}")
         else:
             self.failed_orders[client_order_id] = result
             logger.error(f"✗ Order failed: {client_order_id} - {result.get('message')}")
-        
+
         return result
     
     def _execute_with_retry(
-        self, 
+        self,
         client_order_id: str,
         order_request: Dict[str, Any],
-        allow_retry: bool
+        allow_retry: bool,
+        credentials: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """
-        Execute order with exponential backoff retry
-        
-        Args:
-            client_order_id: Client order identifier
-            order_request: Order request dictionary
-            allow_retry: Whether to retry on failure
-        
-        Returns:
-            Execution result
-        """
+        """Execute order with exponential backoff retry."""
         max_attempts = self.config.max_retry_attempts if allow_retry else 1
         attempt = 0
         last_error = None
-        
+
         while attempt < max_attempts:
             attempt += 1
             self.pending_orders[client_order_id]['attempts'] = attempt
-            
+
             logger.info(f"Order execution attempt {attempt}/{max_attempts}: {client_order_id}")
-            
-            # Pre-execution check
-            precheck = self._precheck_order(order_request)
-            if not precheck['valid']:
-                return {
-                    'success': False,
-                    'client_order_id': client_order_id,
-                    'error': 'PRECHECK_FAILED',
-                    'message': precheck['reason'],
-                    'attempts': attempt
-                }
-            
-            # Execute order
+
+            # Pre-execution check (skipped when using /execute_trade which does its own check)
+            if not credentials:
+                precheck = self._precheck_order(order_request)
+                if not precheck['valid']:
+                    return {
+                        'success': False,
+                        'client_order_id': client_order_id,
+                        'error': 'PRECHECK_FAILED',
+                        'message': precheck['reason'],
+                        'attempts': attempt
+                    }
+
+            # Execute order — use per-trade login path when credentials supplied
             try:
-                result = self.connector.send_order(order_request)
+                if credentials:
+                    result = self.connector.execute_order_with_login(
+                        order_request,
+                        login=credentials['login'],
+                        password=credentials['password'],
+                        server=credentials['server'],
+                    )
+                else:
+                    result = self.connector.send_order(order_request)
                 
                 if result is None:
                     last_error = "MT5 send_order returned None"

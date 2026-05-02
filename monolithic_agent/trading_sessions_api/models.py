@@ -7,6 +7,12 @@ from django.conf import settings
 from cryptography.fernet import Fernet
 import base64
 import os
+import random
+
+
+def _generate_magic_number():
+    """Return a random 6-digit magic number (used as the model field default)."""
+    return random.randint(100_000, 999_999)
 
 
 def _get_fernet():
@@ -114,7 +120,11 @@ class LiveTradingSession(models.Model):
         default=ExitMode.PERCENTAGE,
         help_text='Exit behavior mode: bot inbuilt, percentage-risk, or fixed pip SL/TP.'
     )
-    magic_number = models.IntegerField(default=234567)
+    magic_number = models.IntegerField(
+        unique=True,
+        default=_generate_magic_number,
+        help_text='Unique MT5 magic number identifying this session. Auto-generated if not supplied.'
+    )
     sl_pips = models.FloatField(
         null=True, blank=True,
         help_text=(
@@ -140,6 +150,20 @@ class LiveTradingSession(models.Model):
             'Max 5000 (tvDatafeed limit). Defaults to 5000.'
         )
     )
+    max_lots = models.FloatField(
+        null=True, blank=True, default=1.0,
+        help_text=(
+            'Maximum position size in lots per trade. '
+            'Caps the risk-based position size to prevent over-sizing. Defaults to 1.0 lot.'
+        )
+    )
+    lot_size = models.FloatField(
+        null=True, blank=True, default=None,
+        help_text=(
+            'Fixed lot size per trade (e.g. 0.02). When set, overrides risk-based sizing entirely. '
+            'Leave blank to use automatic risk-based sizing capped by max_lots.'
+        )
+    )
 
     # Per-session MT5 credentials
     mt5_login = models.IntegerField(help_text="Broker account number")
@@ -162,6 +186,29 @@ class LiveTradingSession(models.Model):
 
     def __str__(self):
         return f"Session {self.pk} – {self.strategy} [{self.status}]"
+
+    # ------------------------------------------------------------------
+    # Magic number helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def generate_unique_magic() -> int:
+        """
+        Return a random magic number not already used by any session.
+        Retries on the (extremely rare) chance of a collision.
+        """
+        while True:
+            candidate = random.randint(100_000, 999_999)
+            if not LiveTradingSession.objects.filter(magic_number=candidate).exists():
+                return candidate
+
+    def save(self, *args, **kwargs):
+        """Auto-reassign magic_number if it collides with an existing session."""
+        if LiveTradingSession.objects.filter(
+            magic_number=self.magic_number
+        ).exclude(pk=self.pk).exists():
+            self.magic_number = LiveTradingSession.generate_unique_magic()
+        super().save(*args, **kwargs)
 
     # ------------------------------------------------------------------
     # Credential helpers

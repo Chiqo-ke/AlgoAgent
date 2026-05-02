@@ -100,15 +100,24 @@ class MT5BridgeConnector:
                 if http_err.response is not None
                 else (401 if "401" in str(http_err) else None)
             )
+
+            # Try to extract the bridge's own error message from the response body.
+            bridge_msg = None
+            if http_err.response is not None:
+                try:
+                    bridge_msg = http_err.response.json().get('error') or http_err.response.text[:300]
+                except Exception:
+                    bridge_msg = http_err.response.text[:300] if http_err.response.text else None
+
             if status_code == 401:
                 logger.critical(
                     "POST %s returned 401 UNAUTHORIZED — MT5 credentials rejected "
                     "(wrong login/password/server). Extended back-off will apply on "
-                    "next reconnect.", path
+                    "next reconnect. %s", path, bridge_msg or "",
                 )
                 self._auth_failed = True
             else:
-                logger.error("POST %s failed: %s", path, http_err)
+                logger.error("POST %s failed: %s", path, bridge_msg or http_err)
             return None
         except Exception as e:
             logger.error("POST %s failed: %s", path, e)
@@ -206,20 +215,83 @@ class MT5BridgeConnector:
             health = self._get("/health")
             already_initialised = health and health.get("initialised") is True
             init_in_progress = health and health.get("init_in_progress") is True
+
             if already_initialised:
                 logger.info("Bridge already initialised (health check) — skipping /initialize")
             elif init_in_progress:
-                logger.info("Bridge auto-init in progress — waiting for it to complete ...")
-                # Poll until initialised or timeout (up to 3 minutes)
-                for _ in range(18):  # 18 × 10s = 3 min
-                    time.sleep(10)
-                    health = self._get("/health")
-                    if health and health.get("initialised") is True:
-                        logger.info("Bridge auto-init completed")
-                        break
-                else:
-                    logger.error("Bridge auto-init did not complete within 3 minutes")
+                # Check immediately for a permanent failure before waiting
+                if health.get("init_failed_permanent"):
+                    logger.error(
+                        "Bridge reports permanent init failure (code %s: %s). "
+                        "Check the MT5 terminal and bridge service.",
+                        health.get("last_error_code"), health.get("last_error_msg"),
+                    )
                     return False
+
+                # If this session has its own credentials (from the DB), push them
+                # to the bridge immediately rather than waiting for auto-init.
+                # The terminal's saved credentials may be expired; session credentials
+                # from the BrokerCredential model are always fresh.
+                has_credentials = (
+                    not self.config.dry_run
+                    and self.config.mt5_login
+                    and self.config.mt5_password
+                )
+                if has_credentials:
+                    logger.info(
+                        "Bridge auto-init stuck — using session credentials from DB "
+                        "to initialize (login=%s server=%s)",
+                        self.config.mt5_login, self.config.mt5_server,
+                    )
+                    cred_init_payload: Dict[str, Any] = {
+                        "timeout":  self.config.mt5_timeout,
+                        "login":    self.config.mt5_login,
+                        "password": self.config.mt5_password,
+                        "server":   self.config.mt5_server,
+                    }
+                    if self.config.mt5_path:
+                        cred_init_payload["path"] = self.config.mt5_path
+                    resp = self._post("/initialize", cred_init_payload, timeout=90)
+                    if resp is None or resp.get("status") != "initialised":
+                        # Fetch updated health to surface the actual MT5 error code.
+                        health = self._get("/health") or {}
+                        logger.error(
+                            "Bridge /initialize with session credentials failed "
+                            "(login=%s server=%s). MT5 error: %s — %s. "
+                            "Check that the broker account is valid and not expired.",
+                            self.config.mt5_login, self.config.mt5_server,
+                            health.get("last_error_code", "?"),
+                            health.get("last_error_msg", resp),
+                        )
+                        return False
+                    logger.info("MT5 initialised via session credentials  version=%s", resp.get("version"))
+                    # Login already done via mt5.initialize(); skip Step 2 below.
+                    # Fall through to Step 3 (terminal info).
+                    self.account_info = self._get("/account_info")
+                    self.terminal_info = self._get("/terminal_info")
+                    self.is_connected = True
+                    self.reconnect_attempts = 0
+                    logger.info("✓ MT5 bridge connection established via session credentials")
+                    return True
+                else:
+                    # No credentials available — wait for auto-init
+                    logger.info("Bridge auto-init in progress — waiting for it to complete ...")
+                    for _ in range(18):  # 18 × 10s = 3 min
+                        time.sleep(10)
+                        health = self._get("/health")
+                        if health and health.get("initialised") is True:
+                            logger.info("Bridge auto-init completed")
+                            break
+                        if health and health.get("init_failed_permanent"):
+                            logger.error(
+                                "Bridge init failed permanently during wait (code %s: %s). "
+                                "Check the MT5 terminal and bridge service.",
+                                health.get("last_error_code"), health.get("last_error_msg"),
+                            )
+                            return False
+                    else:
+                        logger.error("Bridge auto-init did not complete within 3 minutes")
+                        return False
             else:
                 init_payload: Dict[str, Any] = {"timeout": self.config.mt5_timeout}
                 if self.config.mt5_path:
@@ -419,23 +491,31 @@ class MT5BridgeConnector:
             return None
         data = self._get("/symbol_info", {"symbol": symbol})
         if not data or "error" in data:
+            if data and "error" in data:
+                logger.warning(
+                    "symbol_info unavailable for %s: %s",
+                    symbol, data.get("error", "unknown error"),
+                )
             return None
+        resolved = data.get("_resolved_as")
+        if resolved and resolved != symbol:
+            logger.info("Symbol %s resolved to broker name: %s", symbol, resolved)
         return {
-            "name":                 data.get("name"),
-            "bid":                  data.get("bid"),
-            "ask":                  data.get("ask"),
-            "last":                 data.get("last"),
-            "volume":               data.get("volume_min"),
-            "volume_min":           data.get("volume_min"),
-            "volume_max":           data.get("volume_max"),
-            "volume_step":          data.get("volume_step"),
-            "trade_contract_size":  data.get("trade_contract_size"),
-            "trade_tick_size":      data.get("trade_tick_size"),
-            "trade_tick_value":     data.get("trade_tick_value"),
-            "point":                data.get("point"),
-            "digits":               data.get("digits"),
-            "spread":               data.get("spread"),
-            "trade_mode":           data.get("trade_mode"),
+            "name":                       data.get("name") or resolved or symbol,
+            "bid":                        data.get("bid"),
+            "ask":                        data.get("ask"),
+            "last":                       data.get("last"),
+            "volume":                     data.get("volume_min"),
+            "volume_min":                 data.get("volume_min"),
+            "volume_max":                 data.get("volume_max"),
+            "volume_step":                data.get("volume_step"),
+            "trade_contract_size":        data.get("trade_contract_size"),
+            "trade_tick_size":            data.get("trade_tick_size"),
+            "trade_tick_value":           data.get("trade_tick_value"),
+            "point":                      data.get("point"),
+            "digits":                     data.get("digits"),
+            "spread":                     data.get("spread"),
+            "trade_mode":                 data.get("trade_mode"),
             "currency_base":              data.get("currency_base"),
             "currency_profit":            data.get("currency_profit"),
             "currency_margin":            data.get("currency_margin"),
@@ -583,6 +663,78 @@ class MT5BridgeConnector:
         if MT5Constants.is_success(retcode):
             logger.info("✓ Order executed  deal=#%s  order=#%s",
                         result.get("deal"), result.get("order"))
+        else:
+            logger.error("✗ Order failed  retcode=%s (%s)",
+                         retcode, result["retcode_message"])
+        return result
+
+    def execute_order_with_login(
+        self,
+        request_dict: Dict[str, Any],
+        login: int,
+        password: str,
+        server: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Atomically login → order_check → order_send via the /execute_trade
+        bridge endpoint.
+
+        Used when multiple sessions with different broker accounts share the
+        same MT5 terminal.  The bridge serialises all calls through a
+        _trade_lock so only one account is active during each order.
+
+        Falls back to the standard send_order() path when credentials are
+        missing (e.g. dry-run mode).
+        """
+        if self.config.dry_run:
+            return self.send_order(request_dict)
+
+        if not self.ensure_connected():
+            logger.error("Cannot execute_order_with_login: not connected")
+            return None
+
+        terminal_issue = self._describe_terminal_trading_issue()
+        if terminal_issue:
+            logger.error("Blocking execute_order_with_login: %s", terminal_issue)
+            return {
+                "retcode": 10027,
+                "retcode_message": MT5Constants.get_retcode_message(10027),
+                "comment": terminal_issue,
+            }
+
+        logger.info(
+            "execute_order_with_login: account=%s  server=%s  symbol=%s  volume=%s",
+            login, server, request_dict.get("symbol"), request_dict.get("volume"),
+        )
+
+        result = self._post("/execute_trade", {
+            "credentials": {
+                "login":    login,
+                "password": password,
+                "server":   server,
+            },
+            "order": request_dict,
+        }, timeout=60)
+
+        if not result:
+            logger.error("execute_trade: no response from bridge")
+            return None
+
+        if "error" in result:
+            # Surface retcode from check failures so order_executor can log it properly
+            retcode = result.get("retcode") or result.get("check", {}).get("retcode")
+            logger.error("execute_trade failed: %s (retcode=%s)", result["error"], retcode)
+            return {
+                "retcode":         retcode or 10004,
+                "retcode_message": MT5Constants.get_retcode_message(retcode or 10004),
+                "comment":         result["error"],
+            }
+
+        retcode = result.get("retcode")
+        result["retcode_message"] = MT5Constants.get_retcode_message(retcode)
+        if MT5Constants.is_success(retcode):
+            logger.info("✓ Order executed  deal=#%s  order=#%s  account=%s",
+                        result.get("deal"), result.get("order"), login)
         else:
             logger.error("✗ Order failed  retcode=%s (%s)",
                          retcode, result["retcode_message"])
